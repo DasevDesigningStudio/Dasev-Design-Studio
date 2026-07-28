@@ -1,0 +1,23 @@
+{
+  "name": "payment-manager",
+  "version": "1.0.0",
+  "description": "Premium Payment Manager Dashboard for a Social Media Marketing Agency",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "payment-manager",
+    "dashboard",
+    "agency",
+    "express"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "multer": "^2.0.0"
+  }
+}
