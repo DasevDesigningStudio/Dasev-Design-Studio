@@ -14,7 +14,7 @@
     categories: [],
     settings: { companyName: "My Agency", currency: "₹", themeColor: "teal", darkMode: false },
     dashboard: null,
-    dashboardMonth: "all",
+    dashboardMonth: currentMonthKey(),
     clients: [],
     editingPaymentId: null,
     confirmAction: null,
@@ -76,6 +76,11 @@
     return symbol + val.toLocaleString("en-IN", { maximumFractionDigits: 2 });
   }
 
+  function currentMonthKey() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  }
+
   function fmtDate(d) {
     if (!d) return "—";
     const dt = new Date(d);
@@ -98,9 +103,9 @@
   }
 
   function statusClass(status) {
-    if (status === "Paid") return "success";
-    if (status === "Partial") return "warning";
-    return "danger";
+    if (status === "Paid") return "Paid";
+    if (status === "Partial") return "Partial";
+    return "Pending";
   }
 
   function debounce(fn, delay = 250) {
@@ -284,17 +289,21 @@
     if (key === "all") return "All Time";
     const [y, m] = key.split("-");
     const date = new Date(Number(y), Number(m) - 1, 1);
-    return date.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+    const label = date.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+    return key === currentMonthKey() ? `${label} (Current)` : label;
   }
 
   function renderMonthFilter(d) {
     const sel = $("#dashboardMonthFilter");
     if (!sel) return;
 
-    const months = d.availableMonths || [];
-    const options = ["all", ...months];
+    const months = new Set(d.availableMonths || []);
+    months.add(currentMonthKey());
+    const sorted = Array.from(months).sort((a, b) => b.localeCompare(a));
+    const options = ["all", ...sorted];
     sel.innerHTML = options.map((key) => `<option value="${key}">${monthLabel(key)}</option>`).join("");
     sel.value = state.dashboardMonth;
+    sel.classList.toggle("is-current", state.dashboardMonth === currentMonthKey());
   }
 
   function renderDashboard() {
