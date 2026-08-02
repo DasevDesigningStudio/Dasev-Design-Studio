@@ -229,7 +229,7 @@
   function renderGreeting() {
     const hour = new Date().getHours();
     const part = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
-    const name = (state.settings.companyName || "Admin").split(" ")[0];
+    const name = (state.settings.companyName || "Jay Kodavla").split(" ")[0];
     $("#greetingText").textContent = `Good ${part}, ${name} 👋`;
     $("#topbarDate").textContent = new Date().toLocaleDateString("en-IN", {
       weekday: "long", day: "2-digit", month: "long", year: "numeric"
