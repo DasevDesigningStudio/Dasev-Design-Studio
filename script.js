@@ -1,522 +1,632 @@
 /* ============================================================================
    PayFlow — Payment Manager
-   Frontend logic (vanilla JS)
+   Frontend logic (vanilla JS) — talks to the Express API in server.js
    ============================================================================ */
 
-(function () {
+(() => {
   "use strict";
 
-  const $ = (sel, ctx = document) => ctx.querySelector(sel);
-  const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
-
+  /* ------------------------------------------------------------------ */
+  /* State                                                              */
+  /* ------------------------------------------------------------------ */
   const state = {
     payments: [],
-    clients: [],
     categories: [],
-    settings: {},
+    settings: { companyName: "My Agency", currency: "₹", themeColor: "teal", darkMode: false },
     dashboard: null,
+    dashboardMonth: "all",
+    clients: [],
     editingPaymentId: null,
-    charts: {}
+    confirmAction: null,
+    charts: { pie: null, monthly: null, category: null }
   };
 
-  /* ---------------------------------------------------------------------- */
-  /* Helpers                                                                */
-  /* ---------------------------------------------------------------------- */
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
+  /* ------------------------------------------------------------------ */
+  /* API helpers                                                        */
+  /* ------------------------------------------------------------------ */
+  async function api(url, options = {}) {
+    const res = await fetch(url, {
+      headers: { "Content-Type": "application/json" },
+      ...options
+    });
+    if (!res.ok) {
+      let msg = "Request failed";
+      try {
+        const body = await res.json();
+        msg = body.error || msg;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) return res.json();
+    return res;
+  }
+
+  const Api = {
+    getPayments: () => api("/api/payments"),
+    createPayment: (data) => api("/api/payments", { method: "POST", body: JSON.stringify(data) }),
+    updatePayment: (id, data) => api(`/api/payments/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    deletePayment: (id) => api(`/api/payments/${id}`, { method: "DELETE" }),
+    duplicatePayment: (id) => api(`/api/payments/${id}/duplicate`, { method: "POST" }),
+
+    getClients: () => api("/api/clients"),
+
+    getCategories: () => api("/api/categories"),
+    addCategory: (name) => api("/api/categories", { method: "POST", body: JSON.stringify({ name }) }),
+    deleteCategory: (name) => api(`/api/categories/${encodeURIComponent(name)}`, { method: "DELETE" }),
+
+    getSettings: () => api("/api/settings"),
+    updateSettings: (data) => api("/api/settings", { method: "PUT", body: JSON.stringify(data) }),
+
+    getDashboard: (month) => api(`/api/dashboard?month=${encodeURIComponent(month || "all")}`),
+
+    getReport: (type, status) => api(`/api/reports?type=${encodeURIComponent(type)}&status=${encodeURIComponent(status || "")}`),
+    getTopClients: () => api("/api/reports/top-clients")
+  };
+
+  /* ------------------------------------------------------------------ */
+  /* Utilities                                                          */
+  /* ------------------------------------------------------------------ */
   function fmtMoney(n) {
-    const cur = (state.settings && state.settings.currency) || "₹";
-    const num = Number(n) || 0;
-    return `${cur}${num.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+    const val = Number(n) || 0;
+    const symbol = state.settings.currency || "₹";
+    return symbol + val.toLocaleString("en-IN", { maximumFractionDigits: 2 });
   }
 
   function fmtDate(d) {
     if (!d) return "—";
-    const date = new Date(d);
-    if (isNaN(date)) return d;
-    return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+    const dt = new Date(d);
+    if (isNaN(dt)) return d;
+    return dt.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
   }
 
   function escapeHtml(str) {
-    return String(str ?? "").replace(/[&<>"']/g, (c) => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-    }[c]));
+    return (str ?? "").toString()
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   }
 
   function initials(name) {
-    const parts = String(name || "?").trim().split(/\s+/);
-    return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase() || "?";
+    const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return "?";
+    return (parts[0][0] + (parts[1] ? parts[1][0] : "")).toUpperCase();
   }
 
-  function debounce(fn, wait) {
+  function statusClass(status) {
+    if (status === "Paid") return "success";
+    if (status === "Partial") return "warning";
+    return "danger";
+  }
+
+  function debounce(fn, delay = 250) {
     let t;
     return (...args) => {
       clearTimeout(t);
-      t = setTimeout(() => fn(...args), wait);
+      t = setTimeout(() => fn(...args), delay);
     };
   }
 
-  async function api(path, options = {}) {
-    const res = await fetch(path, {
-      headers: options.body instanceof FormData ? {} : { "Content-Type": "application/json" },
-      ...options
-    });
-    if (!res.ok) {
-      let msg = `Request failed (${res.status})`;
-      try {
-        const j = await res.json();
-        if (j.error) msg = j.error;
-      } catch (_) {}
-      throw new Error(msg);
-    }
-    const ct = res.headers.get("content-type") || "";
-    if (ct.includes("application/json")) return res.json();
-    return res;
-  }
-
-  function toast(type, title, message) {
+  /* ------------------------------------------------------------------ */
+  /* Toasts                                                             */
+  /* ------------------------------------------------------------------ */
+  function showToast(message, type = "info", title = "") {
     const container = $("#toastContainer");
     if (!container) return;
-    const icon = type === "success" ? "fa-circle-check" : type === "error" ? "fa-circle-xmark" : "fa-circle-info";
+    const icon = type === "success" ? "fa-circle-check" : type === "error" ? "fa-circle-exclamation" : "fa-circle-info";
     const el = document.createElement("div");
     el.className = `toast ${type}`;
     el.innerHTML = `
       <div class="toast-icon"><i class="fa-solid ${icon}"></i></div>
-      <div class="toast-text"><b>${escapeHtml(title)}</b>${message ? `<span>${escapeHtml(message)}</span>` : ""}</div>
+      <div class="toast-text">
+        <b>${escapeHtml(title || (type === "success" ? "Success" : type === "error" ? "Error" : "Notice"))}</b>
+        <span>${escapeHtml(message)}</span>
+      </div>
     `;
     container.appendChild(el);
     setTimeout(() => {
       el.classList.add("leaving");
-      setTimeout(() => el.remove(), 250);
+      setTimeout(() => el.remove(), 300);
     }, 3200);
   }
 
-  let confirmCallback = null;
-  function askConfirm(title, message, okLabel = "Delete") {
-    return new Promise((resolve) => {
-      $("#confirmTitle").textContent = title;
-      $("#confirmMessage").textContent = message;
-      $("#confirmOkBtn").textContent = okLabel;
-      $("#confirmOverlay").hidden = false;
-      confirmCallback = resolve;
-    });
-  }
-  $("#confirmCancelBtn")?.addEventListener("click", () => {
-    $("#confirmOverlay").hidden = true;
-    if (confirmCallback) confirmCallback(false);
-    confirmCallback = null;
-  });
-  $("#confirmOkBtn")?.addEventListener("click", () => {
-    $("#confirmOverlay").hidden = true;
-    if (confirmCallback) confirmCallback(true);
-    confirmCallback = null;
-  });
-
-  /* ---------------------------------------------------------------------- */
-  /* Sidebar / navigation                                                  */
-  /* ---------------------------------------------------------------------- */
-
-  function openMobileSidebar() {
-    $("#sidebar")?.classList.add("open");
-    $("#sidebarOverlay")?.classList.add("show");
-  }
-  function closeMobileSidebar() {
-    $("#sidebar")?.classList.remove("open");
-    $("#sidebarOverlay")?.classList.remove("show");
-  }
-  $("#burgerBtn")?.addEventListener("click", openMobileSidebar);
-  $("#sidebarClose")?.addEventListener("click", closeMobileSidebar);
-  $("#sidebarOverlay")?.addEventListener("click", closeMobileSidebar);
-
-  function switchView(view) {
+  /* ------------------------------------------------------------------ */
+  /* Sidebar / navigation                                               */
+  /* ------------------------------------------------------------------ */
+  function setActiveView(view) {
     $$(".view").forEach((v) => v.classList.remove("active"));
-    $(`#view-${view}`)?.classList.add("active");
-    $$(".nav-item[data-view]").forEach((n) => n.classList.toggle("active", n.dataset.view === view));
-    closeMobileSidebar();
-    if (view === "clients") renderClients();
-    if (view === "reports") { runReport(); loadTopClients(); }
-    if (view === "categories") renderCategories();
+    const target = $(`#view-${view}`);
+    if (target) target.classList.add("active");
+
+    $$(".nav-item[data-view]").forEach((nav) => {
+      nav.classList.toggle("active", nav.dataset.view === view);
+    });
+
+    // Lazy-load per-view data
+    if (view === "payments") renderPaymentsView();
+    if (view === "clients") renderClientsView();
+    if (view === "reports") runReport();
+    if (view === "categories") renderCategoriesView();
     if (view === "export") populateInvoiceSelect();
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    if (view === "settings") renderSettingsForm();
+
+    closeSidebarMobile();
   }
 
-  $$("[data-view]").forEach((el) => {
-    el.addEventListener("click", (e) => {
-      e.preventDefault();
-      switchView(el.dataset.view);
+  function initNavigation() {
+    $$(".nav-item[data-view]").forEach((nav) => {
+      nav.addEventListener("click", (e) => {
+        e.preventDefault();
+        const view = nav.dataset.view;
+        window.location.hash = view;
+        setActiveView(view);
+      });
     });
-  });
 
-  /* ---------------------------------------------------------------------- */
-  /* Dark mode / theme                                                     */
-  /* ---------------------------------------------------------------------- */
-
-  function applyTheme(theme) {
-    document.body.setAttribute("data-theme", theme || "teal");
-    $$(".swatch").forEach((s) => s.classList.toggle("active", s.dataset.theme === theme));
-  }
-
-  async function toggleDarkMode(save = true) {
-    document.body.classList.toggle("dark-mode");
-    const isDark = document.body.classList.contains("dark-mode");
-    $("#darkModeToggle") && ($("#darkModeToggle").innerHTML = `<i class="fa-solid fa-${isDark ? "sun" : "moon"}"></i>`);
-    $("#lightModeBtn")?.classList.toggle("active", !isDark);
-    $("#darkModeBtn")?.classList.toggle("active", isDark);
-    if (save) {
-      state.settings.darkMode = isDark;
-      try { await api("/api/settings", { method: "PUT", body: JSON.stringify({ darkMode: isDark }) }); } catch (_) {}
-    }
-  }
-  $("#darkModeToggle")?.addEventListener("click", () => toggleDarkMode());
-  $("#lightModeBtn")?.addEventListener("click", () => {
-    if (document.body.classList.contains("dark-mode")) toggleDarkMode();
-  });
-  $("#darkModeBtn")?.addEventListener("click", () => {
-    if (!document.body.classList.contains("dark-mode")) toggleDarkMode();
-  });
-  $$(".swatch").forEach((s) => {
-    s.addEventListener("click", async () => {
-      applyTheme(s.dataset.theme);
-      state.settings.themeColor = s.dataset.theme;
-      try { await api("/api/settings", { method: "PUT", body: JSON.stringify({ themeColor: s.dataset.theme }) }); } catch (_) {}
+    $$('.link-btn[data-view]').forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        const view = btn.dataset.view;
+        window.location.hash = view;
+        setActiveView(view);
+      });
     });
-  });
 
+    window.addEventListener("hashchange", () => {
+      const view = (window.location.hash || "#dashboard").slice(1);
+      setActiveView(view);
+    });
+  }
+
+  function openSidebarMobile() {
+    $("#sidebar").classList.add("open");
+    $("#sidebarOverlay").classList.add("show");
+  }
+  function closeSidebarMobile() {
+    $("#sidebar").classList.remove("open");
+    $("#sidebarOverlay").classList.remove("show");
+  }
+
+  function initSidebarToggle() {
+    $("#burgerBtn").addEventListener("click", openSidebarMobile);
+    $("#sidebarClose").addEventListener("click", closeSidebarMobile);
+    $("#sidebarOverlay").addEventListener("click", closeSidebarMobile);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Dark mode / theme                                                  */
+  /* ------------------------------------------------------------------ */
   function applySettingsToUI() {
-    const name = state.settings.companyName || "My Agency";
-    $("#sidebarAgencyName") && ($("#sidebarAgencyName").textContent = name);
-    document.title = `${name} — PayFlow`;
-    $("#settingCompanyName") && ($("#settingCompanyName").value = state.settings.companyName || "");
-    $("#settingCurrency") && ($("#settingCurrency").value = state.settings.currency || "₹");
-    applyTheme(state.settings.themeColor || "teal");
-    if (state.settings.darkMode && !document.body.classList.contains("dark-mode")) toggleDarkMode(false);
+    document.body.classList.toggle("dark-mode", !!state.settings.darkMode);
+    document.body.setAttribute("data-theme", state.settings.themeColor || "teal");
+    $("#sidebarAgencyName").textContent = state.settings.companyName || "My Agency";
+
+    const darkIcon = $("#darkModeToggle i");
+    if (darkIcon) darkIcon.className = state.settings.darkMode ? "fa-solid fa-sun" : "fa-solid fa-moon";
   }
 
-  $("#settingsForm")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const payload = {
-      companyName: $("#settingCompanyName").value.trim() || "My Agency",
-      currency: $("#settingCurrency").value.trim() || "₹"
-    };
+  async function toggleDarkMode() {
+    state.settings.darkMode = !state.settings.darkMode;
+    applySettingsToUI();
     try {
-      state.settings = await api("/api/settings", { method: "PUT", body: JSON.stringify(payload) });
-      applySettingsToUI();
-      await refreshEverything();
-      toast("success", "Settings saved");
+      await Api.updateSettings({ darkMode: state.settings.darkMode });
     } catch (err) {
-      toast("error", "Could not save settings", err.message);
+      showToast(err.message, "error");
     }
-  });
-
-  /* ---------------------------------------------------------------------- */
-  /* Greeting / date                                                       */
-  /* ---------------------------------------------------------------------- */
-
-  function renderGreeting() {
-    const h = new Date().getHours();
-    const part = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
-    $("#greetingText") && ($("#greetingText").textContent = `Good ${part}, Admin 👋`);
-    $("#topbarDate") && ($("#topbarDate").textContent = new Date().toLocaleDateString("en-IN", {
-      weekday: "short", day: "2-digit", month: "short", year: "numeric"
-    }));
   }
 
-  /* ---------------------------------------------------------------------- */
-  /* Notifications (upcoming due payments)                                 */
-  /* ---------------------------------------------------------------------- */
+  function initDarkModeToggle() {
+    $("#darkModeToggle").addEventListener("click", toggleDarkMode);
+  }
 
+  /* ------------------------------------------------------------------ */
+  /* Greeting / topbar date                                             */
+  /* ------------------------------------------------------------------ */
+  function renderGreeting() {
+    const hour = new Date().getHours();
+    const part = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+    const name = (state.settings.companyName || "Admin").split(" ")[0];
+    $("#greetingText").textContent = `Good ${part}, ${name} 👋`;
+    $("#topbarDate").textContent = new Date().toLocaleDateString("en-IN", {
+      weekday: "long", day: "2-digit", month: "long", year: "numeric"
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Notifications (derived from upcoming due payments)                 */
+  /* ------------------------------------------------------------------ */
   function renderNotifications() {
     const list = $("#notifList");
     const dot = $("#notifDot");
-    if (!list) return;
-    const due = (state.dashboard?.upcomingDue || []);
-    dot && (dot.hidden = due.length === 0);
-    list.innerHTML = due.length
-      ? due.map((p) => `
-        <div class="notif-item">
-          <b>${escapeHtml(p.clientName)}</b>
-          <span>${fmtMoney(p.pendingAmount)} due ${fmtDate(p.dueDate)}</span>
-        </div>
-      `).join("")
-      : `<div class="notif-item"><span>No upcoming dues 🎉</span></div>`;
-  }
-  $("#notifBtn")?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    $("#notifPanel").hidden = !$("#notifPanel").hidden;
-  });
-  document.addEventListener("click", (e) => {
-    const panel = $("#notifPanel");
-    if (panel && !panel.hidden && !panel.contains(e.target) && e.target.id !== "notifBtn") {
-      panel.hidden = true;
+    if (!state.dashboard) return;
+    const upcoming = state.dashboard.upcomingDue || [];
+    if (!upcoming.length) {
+      list.innerHTML = `<div class="notif-empty" style="padding:16px; font-size:12.5px; color:var(--text-muted);">No pending notifications.</div>`;
+      dot.hidden = true;
+      return;
     }
-  });
+    dot.hidden = false;
+    list.innerHTML = upcoming.map((p) => `
+      <div class="notif-item" style="padding:12px 16px; border-bottom:1px solid var(--border); font-size:12.5px;">
+        <b>${escapeHtml(p.clientName)}</b> has ${fmtMoney(p.pendingAmount)} pending, due ${fmtDate(p.dueDate)}.
+      </div>
+    `).join("");
+  }
 
-  $("#logoutBtn")?.addEventListener("click", async () => {
-    const ok = await askConfirm("Log out?", "You'll need to reopen PayFlow to sign back in.", "Log out");
-    if (ok) toast("info", "Logged out", "See you soon!");
-  });
+  function initNotifications() {
+    $("#notifBtn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      const panel = $("#notifPanel");
+      panel.hidden = !panel.hidden;
+    });
+    document.addEventListener("click", (e) => {
+      const panel = $("#notifPanel");
+      if (!panel.hidden && !panel.contains(e.target) && e.target.id !== "notifBtn") {
+        panel.hidden = true;
+      }
+    });
+  }
 
-  /* ---------------------------------------------------------------------- */
-  /* Global search → jumps to Payments view                                */
-  /* ---------------------------------------------------------------------- */
+  /* ------------------------------------------------------------------ */
+  /* Dashboard                                                          */
+  /* ------------------------------------------------------------------ */
+  async function loadDashboard() {
+    state.dashboard = await Api.getDashboard(state.dashboardMonth);
+    renderDashboard();
+    renderNotifications();
+  }
 
-  const globalSearchDebounced = debounce((val) => {
-    switchView("payments");
-    $("#paymentSearch").value = val;
-    renderPayments();
-  }, 250);
-  $("#globalSearch")?.addEventListener("input", (e) => {
-    const v = e.target.value.trim();
-    if (v) globalSearchDebounced(v);
-  });
+  function monthLabel(key) {
+    if (key === "all") return "All Time";
+    const [y, m] = key.split("-");
+    const date = new Date(Number(y), Number(m) - 1, 1);
+    return date.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+  }
 
-  /* ---------------------------------------------------------------------- */
-  /* DASHBOARD                                                             */
-  /* ---------------------------------------------------------------------- */
+  function renderMonthFilter(d) {
+    const sel = $("#dashboardMonthFilter");
+    if (!sel) return;
+
+    const months = d.availableMonths || [];
+    const options = ["all", ...months];
+    sel.innerHTML = options.map((key) => `<option value="${key}">${monthLabel(key)}</option>`).join("");
+    sel.value = state.dashboardMonth;
+  }
 
   function renderDashboard() {
     const d = state.dashboard;
     if (!d) return;
 
-    $("#statTotalBusiness") && ($("#statTotalBusiness").textContent = fmtMoney(d.totalBusiness));
-    $("#statReceived") && ($("#statReceived").textContent = fmtMoney(d.received));
-    $("#statPending") && ($("#statPending").textContent = fmtMoney(d.pending));
-    $("#statClients") && ($("#statClients").textContent = d.totalClients);
-    $("#statMonthlyIncome") && ($("#statMonthlyIncome").textContent = fmtMoney(d.monthlyBusiness));
+    renderMonthFilter(d);
 
-    $("#todayCollected") && ($("#todayCollected").textContent = fmtMoney(d.todaysCollection));
-    $("#todayPending") && ($("#todayPending").textContent = fmtMoney(d.todaysPending));
-    $("#progressPercent") && ($("#progressPercent").textContent = `${d.paymentProgress}%`);
-    $("#progressFill") && ($("#progressFill").style.width = `${d.paymentProgress}%`);
+    $("#statTotalBusiness").textContent = fmtMoney(d.totalBusiness);
+    $("#statReceived").textContent = fmtMoney(d.received);
+    $("#statPending").textContent = fmtMoney(d.pending);
+    $("#statClients").textContent = d.totalClients;
+    $("#statMonthlyIncome").textContent = fmtMoney(d.monthlyBusiness);
 
+    $("#todayCollected").textContent = fmtMoney(d.todaysCollection);
+    $("#todayPending").textContent = fmtMoney(d.todaysPending);
+    $("#progressPercent").textContent = `${d.paymentProgress}%`;
+    $("#progressFill").style.width = `${Math.min(d.paymentProgress, 100)}%`;
+
+    // Recent payments table
     const recentBody = $("#recentPaymentsTable tbody");
-    if (recentBody) {
-      recentBody.innerHTML = d.recentPayments.length
-        ? d.recentPayments.map((p) => `
-          <tr>
-            <td class="cell-name">${escapeHtml(p.clientName)}</td>
-            <td><span class="badge-cat">${escapeHtml(p.category)}</span></td>
-            <td class="cell-amount">${fmtMoney(p.totalAmount)}</td>
-            <td><span class="badge ${p.status}">${p.status}</span></td>
-            <td>${fmtDate(p.date)}</td>
-          </tr>
-        `).join("")
-        : `<tr><td colspan="5" style="text-align:center;color:var(--text-faint);padding:20px;">No payments yet</td></tr>`;
-    }
+    recentBody.innerHTML = (d.recentPayments || []).map((p) => `
+      <tr>
+        <td>${escapeHtml(p.clientName)}</td>
+        <td>${escapeHtml(p.category)}</td>
+        <td>${fmtMoney(p.totalAmount)}</td>
+        <td><span class="badge ${statusClass(p.status)}">${escapeHtml(p.status)}</span></td>
+        <td>${fmtDate(p.date)}</td>
+      </tr>
+    `).join("") || `<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No payments yet.</td></tr>`;
 
-    const dueBody = $("#upcomingDueTable tbody");
-    if (dueBody) {
-      dueBody.innerHTML = d.upcomingDue.length
-        ? d.upcomingDue.map((p) => `
-          <tr>
-            <td class="cell-name">${escapeHtml(p.clientName)}</td>
-            <td class="cell-amount">${fmtMoney(p.pendingAmount)}</td>
-            <td>${fmtDate(p.dueDate)}</td>
-          </tr>
-        `).join("")
-        : `<tr><td colspan="3" style="text-align:center;color:var(--text-faint);padding:20px;">Nothing due 🎉</td></tr>`;
-    }
+    // Upcoming due table
+    const upcomingBody = $("#upcomingDueTable tbody");
+    upcomingBody.innerHTML = (d.upcomingDue || []).map((p) => `
+      <tr>
+        <td>${escapeHtml(p.clientName)}</td>
+        <td>${fmtMoney(p.pendingAmount)}</td>
+        <td>${fmtDate(p.dueDate)}</td>
+      </tr>
+    `).join("") || `<tr><td colspan="3" style="text-align:center; color:var(--text-muted);">Nothing due.</td></tr>`;
 
     renderCharts(d);
-    renderNotifications();
   }
 
   function renderCharts(d) {
     if (typeof Chart === "undefined") return;
-    const cssVar = (name) => getComputedStyle(document.body).getPropertyValue(name).trim() || undefined;
 
-    Object.values(state.charts).forEach((c) => c?.destroy());
-    state.charts = {};
-
+    // Status pie chart
     const pieCtx = $("#statusPieChart");
     if (pieCtx) {
+      const counts = d.statusCounts || { Paid: 0, Partial: 0, Pending: 0 };
+      if (state.charts.pie) state.charts.pie.destroy();
       state.charts.pie = new Chart(pieCtx, {
         type: "doughnut",
         data: {
           labels: ["Paid", "Partial", "Pending"],
           datasets: [{
-            data: [d.statusCounts.Paid, d.statusCounts.Partial, d.statusCounts.Pending],
-            backgroundColor: ["#1f9d78", "#e8a63b", "#e15b5b"]
+            data: [counts.Paid, counts.Partial, counts.Pending],
+            backgroundColor: ["#1f9d75", "#e0a300", "#e2544c"],
+            borderWidth: 0
           }]
         },
-        options: { plugins: { legend: { position: "bottom", labels: { boxWidth: 10 } } }, cutout: "65%" }
+        options: { plugins: { legend: { position: "bottom" } }, cutout: "65%" }
       });
     }
 
-    const monthCtx = $("#monthlyIncomeChart");
-    if (monthCtx) {
-      const entries = Object.entries(d.monthlyIncome).sort((a, b) => a[0].localeCompare(b[0])).slice(-6);
-      state.charts.month = new Chart(monthCtx, {
+    // Monthly income trend
+    const monthlyCtx = $("#monthlyIncomeChart");
+    if (monthlyCtx) {
+      const entries = Object.entries(d.monthlyIncome || {}).sort(([a], [b]) => a.localeCompare(b));
+      if (state.charts.monthly) state.charts.monthly.destroy();
+      state.charts.monthly = new Chart(monthlyCtx, {
         type: "line",
+        data: {
+          labels: entries.map(([k]) => k),
+          datasets: [{
+            label: "Income",
+            data: entries.map(([, v]) => v),
+            borderColor: "#12756c",
+            backgroundColor: "rgba(18,117,108,0.12)",
+            fill: true,
+            tension: 0.35
+          }]
+        },
+        options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+      });
+    }
+
+    // Category chart
+    const categoryCtx = $("#categoryChart");
+    if (categoryCtx) {
+      const entries = Object.entries(d.categoryTotals || {});
+      if (state.charts.category) state.charts.category.destroy();
+      state.charts.category = new Chart(categoryCtx, {
+        type: "bar",
         data: {
           labels: entries.map(([k]) => k),
           datasets: [{
             label: "Business",
             data: entries.map(([, v]) => v),
-            borderColor: cssVar("--accent") || "#12756c",
-            backgroundColor: "rgba(18,117,108,.12)",
-            tension: 0.35, fill: true
+            backgroundColor: "#7c6cf0"
           }]
         },
         options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
       });
     }
+  }
 
-    const catCtx = $("#categoryChart");
-    if (catCtx) {
-      const entries = Object.entries(d.categoryTotals).sort((a, b) => b[1] - a[1]);
-      state.charts.category = new Chart(catCtx, {
-        type: "bar",
-        data: {
-          labels: entries.map(([k]) => k),
-          datasets: [{ label: "Business", data: entries.map(([, v]) => v), backgroundColor: cssVar("--accent") || "#12756c", borderRadius: 6 }]
-        },
-        options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
-      });
+  /* ------------------------------------------------------------------ */
+  /* Categories (dropdowns + filters)                                   */
+  /* ------------------------------------------------------------------ */
+  function populateCategorySelects() {
+    const targets = [$("#fCategory"), $("#filterCategory"), $("#reportStatus") ? null : null];
+    // Payment form category select (no blank option, required)
+    const fCat = $("#fCategory");
+    if (fCat) {
+      fCat.innerHTML = state.categories.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+    }
+    // Payments filter select (keep "All Categories" first)
+    const filterCat = $("#filterCategory");
+    if (filterCat) {
+      filterCat.innerHTML = `<option value="">All Categories</option>` +
+        state.categories.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
     }
   }
 
-  $("#quickAddBtn")?.addEventListener("click", () => openPaymentModal());
+  function renderCategoriesView() {
+    const grid = $("#categoryGrid");
+    grid.innerHTML = state.categories.map((c) => `
+      <div class="category-chip" data-category="${escapeHtml(c)}">
+        <span class="cat-name"><i class="fa-solid fa-tag"></i>${escapeHtml(c)}</span>
+        <button type="button" class="delete-category-btn" data-category="${escapeHtml(c)}" aria-label="Delete category">
+          <i class="fa-solid fa-trash"></i>
+        </button>
+      </div>
+    `).join("") || `<p style="color:var(--text-muted);">No categories yet.</p>`;
 
-  /* ---------------------------------------------------------------------- */
-  /* PAYMENTS                                                              */
-  /* ---------------------------------------------------------------------- */
-
-  function populateCategorySelects() {
-    const opts = state.categories.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
-    $("#fCategory") && ($("#fCategory").innerHTML = opts);
-    $("#filterCategory") && ($("#filterCategory").innerHTML = `<option value="">All Categories</option>${opts}`);
+    $$(".delete-category-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const name = btn.dataset.category;
+        openConfirm(`Delete category "${name}"?`, "This will not delete existing payments in this category.", async () => {
+          try {
+            state.categories = await Api.deleteCategory(name);
+            populateCategorySelects();
+            renderCategoriesView();
+            showToast("Category deleted", "success");
+          } catch (err) {
+            showToast(err.message, "error");
+          }
+        });
+      });
+    });
   }
 
-  function getFilteredPayments() {
-    const q = ($("#paymentSearch")?.value || "").toLowerCase();
-    const cat = $("#filterCategory")?.value || "";
-    const status = $("#filterStatus")?.value || "";
-    const sort = $("#sortPayments")?.value || "date-desc";
+  function initCategoryForm() {
+    $("#addCategoryForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const input = $("#newCategoryInput");
+      const name = input.value.trim();
+      if (!name) return;
+      try {
+        state.categories = await Api.addCategory(name);
+        input.value = "";
+        populateCategorySelects();
+        renderCategoriesView();
+        showToast("Category added", "success");
+      } catch (err) {
+        showToast(err.message, "error");
+      }
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Payments view                                                      */
+  /* ------------------------------------------------------------------ */
+  function getFilteredSortedPayments() {
+    const search = ($("#paymentSearch").value || "").toLowerCase();
+    const category = $("#filterCategory").value;
+    const status = $("#filterStatus").value;
+    const sort = $("#sortPayments").value;
 
     let list = state.payments.filter((p) => {
-      const matchesQ = !q || [p.clientName, p.mobile, p.businessName, p.instagram, p.category, p.status, String(p.totalAmount)]
-        .some((f) => String(f || "").toLowerCase().includes(q));
-      const matchesCat = !cat || p.category === cat;
+      const matchesSearch = !search ||
+        [p.clientName, p.mobile, p.businessName, p.instagram, p.category, p.status, String(p.totalAmount)]
+          .some((f) => (f || "").toString().toLowerCase().includes(search));
+      const matchesCategory = !category || p.category === category;
       const matchesStatus = !status || p.status === status;
-      return matchesQ && matchesCat && matchesStatus;
+      return matchesSearch && matchesCategory && matchesStatus;
     });
 
-    switch (sort) {
-      case "date-asc": list.sort((a, b) => new Date(a.date) - new Date(b.date)); break;
-      case "amount-desc": list.sort((a, b) => b.totalAmount - a.totalAmount); break;
-      case "amount-asc": list.sort((a, b) => a.totalAmount - b.totalAmount); break;
-      case "name-asc": list.sort((a, b) => a.clientName.localeCompare(b.clientName)); break;
-      default: list.sort((a, b) => new Date(b.date) - new Date(a.date));
-    }
+    list.sort((a, b) => {
+      switch (sort) {
+        case "date-asc": return new Date(a.date) - new Date(b.date);
+        case "amount-desc": return b.totalAmount - a.totalAmount;
+        case "amount-asc": return a.totalAmount - b.totalAmount;
+        case "name-asc": return (a.clientName || "").localeCompare(b.clientName || "");
+        case "date-desc":
+        default: return new Date(b.date) - new Date(a.date);
+      }
+    });
+
     return list;
   }
 
-  function renderPayments() {
+  function renderPaymentsView() {
+    const list = getFilteredSortedPayments();
     const tbody = $("#paymentsTable tbody");
-    if (!tbody) return;
-    const list = getFilteredPayments();
-    $("#paymentsEmpty") && ($("#paymentsEmpty").hidden = list.length > 0);
+    const empty = $("#paymentsEmpty");
+
+    if (!list.length) {
+      tbody.innerHTML = "";
+      empty.hidden = false;
+      return;
+    }
+    empty.hidden = true;
 
     tbody.innerHTML = list.map((p) => `
       <tr>
-        <td class="cell-name">${escapeHtml(p.clientName)}<div class="cell-sub">${escapeHtml(p.mobile)}</div></td>
-        <td>${escapeHtml(p.businessName) || "—"}</td>
-        <td><span class="badge-cat">${escapeHtml(p.category)}</span></td>
-        <td class="cell-amount">${fmtMoney(p.totalAmount)}</td>
-        <td class="cell-amount">${fmtMoney(p.paidAmount)}</td>
-        <td class="cell-amount">${fmtMoney(p.pendingAmount)}</td>
-        <td><span class="badge ${p.status}">${p.status}</span></td>
+        <td>${escapeHtml(p.clientName)}</td>
+        <td>${escapeHtml(p.businessName)}</td>
+        <td>${escapeHtml(p.category)}</td>
+        <td>${fmtMoney(p.totalAmount)}</td>
+        <td>${fmtMoney(p.paidAmount)}</td>
+        <td>${fmtMoney(p.pendingAmount)}</td>
+        <td><span class="badge ${statusClass(p.status)}">${escapeHtml(p.status)}</span></td>
         <td>${fmtDate(p.date)}</td>
-        <td>
-          <div class="row-actions">
-            <button data-action="edit" data-id="${p.id}" title="Edit"><i class="fa-solid fa-pen"></i></button>
-            <button data-action="duplicate" data-id="${p.id}" title="Duplicate"><i class="fa-solid fa-copy"></i></button>
-            <button data-action="delete" data-id="${p.id}" class="danger" title="Delete"><i class="fa-solid fa-trash"></i></button>
-          </div>
+        <td class="row-actions">
+          <button class="icon-btn edit-payment-btn" data-id="${p.id}" title="Edit"><i class="fa-solid fa-pen"></i></button>
+          <button class="icon-btn duplicate-payment-btn" data-id="${p.id}" title="Duplicate"><i class="fa-solid fa-copy"></i></button>
+          <button class="icon-btn delete-payment-btn" data-id="${p.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>
         </td>
       </tr>
     `).join("");
+
+    $$(".edit-payment-btn").forEach((btn) => btn.addEventListener("click", () => openPaymentModal(btn.dataset.id)));
+    $$(".duplicate-payment-btn").forEach((btn) => btn.addEventListener("click", () => duplicatePayment(btn.dataset.id)));
+    $$(".delete-payment-btn").forEach((btn) => btn.addEventListener("click", () => {
+      const payment = state.payments.find((p) => p.id === btn.dataset.id);
+      openConfirm(
+        "Delete this payment?",
+        `This will permanently delete the payment record for ${payment ? escapeHtml(payment.clientName) : "this client"}.`,
+        async () => {
+          try {
+            await Api.deletePayment(btn.dataset.id);
+            await refreshPaymentsData();
+            showToast("Payment deleted", "success");
+          } catch (err) {
+            showToast(err.message, "error");
+          }
+        }
+      );
+    }));
   }
 
-  ["paymentSearch"].forEach((id) => $(`#${id}`)?.addEventListener("input", debounce(renderPayments, 200)));
-  ["filterCategory", "filterStatus", "sortPayments"].forEach((id) => $(`#${id}`)?.addEventListener("change", renderPayments));
-
-  $("#paymentsTable")?.addEventListener("click", async (e) => {
-    const btn = e.target.closest("button[data-action]");
-    if (!btn) return;
-    const id = btn.dataset.id;
-    const action = btn.dataset.action;
-    const payment = state.payments.find((p) => p.id === id);
-    if (!payment) return;
-
-    if (action === "edit") openPaymentModal(payment);
-    if (action === "duplicate") {
-      try {
-        await api(`/api/payments/${id}/duplicate`, { method: "POST" });
-        toast("success", "Payment duplicated");
-        await refreshEverything();
-      } catch (err) { toast("error", "Could not duplicate", err.message); }
+  async function duplicatePayment(id) {
+    try {
+      await Api.duplicatePayment(id);
+      await refreshPaymentsData();
+      showToast("Payment duplicated", "success");
+    } catch (err) {
+      showToast(err.message, "error");
     }
-    if (action === "delete") {
-      const ok = await askConfirm("Delete this payment?", `${payment.clientName} — ${fmtMoney(payment.totalAmount)} will be permanently removed.`);
-      if (ok) {
-        try {
-          await api(`/api/payments/${id}`, { method: "DELETE" });
-          toast("success", "Payment deleted");
-          await refreshEverything();
-        } catch (err) { toast("error", "Could not delete", err.message); }
-      }
-    }
-  });
+  }
 
-  function recalcPending() {
+  function initPaymentsToolbar() {
+    $("#paymentSearch").addEventListener("input", debounce(renderPaymentsView, 200));
+    $("#filterCategory").addEventListener("change", renderPaymentsView);
+    $("#filterStatus").addEventListener("change", renderPaymentsView);
+    $("#sortPayments").addEventListener("change", renderPaymentsView);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Payment modal (add/edit)                                           */
+  /* ------------------------------------------------------------------ */
+  function recalcPendingAmount() {
     const total = Number($("#fTotalAmount").value) || 0;
     const paid = Number($("#fPaidAmount").value) || 0;
     const pending = Math.max(total - paid, 0);
-    $("#fPendingAmount").value = pending;
+    $("#fPendingAmount").value = pending.toFixed(2);
+
+    // Auto-suggest status based on amounts (user can still override)
     if (paid <= 0) $("#fStatus").value = "Pending";
     else if (paid >= total && total > 0) $("#fStatus").value = "Paid";
     else $("#fStatus").value = "Partial";
   }
-  $("#fTotalAmount")?.addEventListener("input", recalcPending);
-  $("#fPaidAmount")?.addEventListener("input", recalcPending);
 
-  function openPaymentModal(payment = null) {
-    state.editingPaymentId = payment?.id || null;
-    $("#paymentModalTitle").textContent = payment ? "Edit Payment" : "Add Payment";
-    $("#paymentForm").reset();
+  function openPaymentModal(id = null) {
+    state.editingPaymentId = id;
+    const overlay = $("#paymentModalOverlay");
+    const title = $("#paymentModalTitle");
+    const form = $("#paymentForm");
+    form.reset();
+
     populateCategorySelects();
 
-    $("#paymentId").value = payment?.id || "";
-    $("#fClientName").value = payment?.clientName || "";
-    $("#fMobile").value = payment?.mobile || "";
-    $("#fBusinessName").value = payment?.businessName || "";
-    $("#fInstagram").value = payment?.instagram || "";
-    $("#fWorkDetails").value = payment?.workDetails || "";
-    $("#fCategory").value = payment?.category || state.categories[0] || "";
-    $("#fDate").value = payment?.date || new Date().toISOString().slice(0, 10);
-    $("#fTotalAmount").value = payment?.totalAmount ?? "";
-    $("#fPaidAmount").value = payment?.paidAmount ?? 0;
-    $("#fPendingAmount").value = payment?.pendingAmount ?? 0;
-    $("#fStatus").value = payment?.status || "Pending";
-    $("#fDueDate").value = payment?.dueDate || "";
-    $("#fNotes").value = payment?.notes || "";
+    if (id) {
+      const payment = state.payments.find((p) => p.id === id);
+      if (!payment) return;
+      title.textContent = "Edit Payment";
+      $("#paymentId").value = payment.id;
+      $("#fClientName").value = payment.clientName || "";
+      $("#fMobile").value = payment.mobile || "";
+      $("#fBusinessName").value = payment.businessName || "";
+      $("#fInstagram").value = payment.instagram || "";
+      $("#fWorkDetails").value = payment.workDetails || "";
+      $("#fCategory").value = payment.category || "";
+      $("#fDate").value = payment.date || "";
+      $("#fTotalAmount").value = payment.totalAmount || 0;
+      $("#fPaidAmount").value = payment.paidAmount || 0;
+      $("#fPendingAmount").value = payment.pendingAmount || 0;
+      $("#fStatus").value = payment.status || "Pending";
+      $("#fDueDate").value = payment.dueDate || "";
+      $("#fNotes").value = payment.notes || "";
+    } else {
+      title.textContent = "Add Payment";
+      $("#paymentId").value = "";
+      $("#fDate").value = new Date().toISOString().slice(0, 10);
+      $("#fPaidAmount").value = 0;
+      $("#fPendingAmount").value = 0;
+      $("#fStatus").value = "Pending";
+    }
 
-    $("#paymentModalOverlay").hidden = false;
-    setTimeout(() => $("#fClientName").focus(), 60);
+    overlay.hidden = false;
   }
-  function closePaymentModal() { $("#paymentModalOverlay").hidden = true; }
 
-  $("#addPaymentBtn")?.addEventListener("click", () => openPaymentModal());
-  $("#closePaymentModal")?.addEventListener("click", closePaymentModal);
-  $("#cancelPaymentBtn")?.addEventListener("click", closePaymentModal);
-  $("#paymentModalOverlay")?.addEventListener("click", (e) => {
-    if (e.target.id === "paymentModalOverlay") closePaymentModal();
-  });
+  function closePaymentModal() {
+    $("#paymentModalOverlay").hidden = true;
+    state.editingPaymentId = null;
+  }
 
-  $("#paymentForm")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const payload = {
+  function collectPaymentFormData() {
+    return {
       clientName: $("#fClientName").value.trim(),
       mobile: $("#fMobile").value.trim(),
       businessName: $("#fBusinessName").value.trim(),
@@ -530,38 +640,87 @@
       dueDate: $("#fDueDate").value,
       notes: $("#fNotes").value.trim()
     };
-    const saveBtn = $("#savePaymentBtn");
-    saveBtn.disabled = true;
-    try {
-      if (state.editingPaymentId) {
-        await api(`/api/payments/${state.editingPaymentId}`, { method: "PUT", body: JSON.stringify(payload) });
-        toast("success", "Payment updated");
-      } else {
-        await api("/api/payments", { method: "POST", body: JSON.stringify(payload) });
-        toast("success", "Payment added");
+  }
+
+  async function refreshPaymentsData() {
+    state.payments = await Api.getPayments();
+    renderPaymentsView();
+    await loadDashboard();
+  }
+
+  function initPaymentModal() {
+    $("#quickAddBtn").addEventListener("click", () => openPaymentModal());
+    $("#addPaymentBtn").addEventListener("click", () => openPaymentModal());
+    $("#closePaymentModal").addEventListener("click", closePaymentModal);
+    $("#cancelPaymentBtn").addEventListener("click", closePaymentModal);
+    $("#paymentModalOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "paymentModalOverlay") closePaymentModal();
+    });
+
+    $("#fTotalAmount").addEventListener("input", recalcPendingAmount);
+    $("#fPaidAmount").addEventListener("input", recalcPendingAmount);
+
+    $("#paymentForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const data = collectPaymentFormData();
+      const id = $("#paymentId").value;
+      try {
+        if (id) {
+          await Api.updatePayment(id, data);
+          showToast("Payment updated", "success");
+        } else {
+          await Api.createPayment(data);
+          showToast("Payment added", "success");
+        }
+        closePaymentModal();
+        await refreshPaymentsData();
+      } catch (err) {
+        showToast(err.message, "error");
       }
-      closePaymentModal();
-      await refreshEverything();
-    } catch (err) {
-      toast("error", "Could not save payment", err.message);
-    } finally {
-      saveBtn.disabled = false;
-    }
-  });
+    });
+  }
 
-  /* ---------------------------------------------------------------------- */
-  /* CLIENTS                                                                */
-  /* ---------------------------------------------------------------------- */
+  /* ------------------------------------------------------------------ */
+  /* Confirmation dialog                                                */
+  /* ------------------------------------------------------------------ */
+  function openConfirm(title, message, action) {
+    $("#confirmTitle").textContent = title;
+    $("#confirmMessage").textContent = message;
+    state.confirmAction = action;
+    $("#confirmOverlay").hidden = false;
+  }
+  function closeConfirm() {
+    $("#confirmOverlay").hidden = true;
+    state.confirmAction = null;
+  }
+  function initConfirmDialog() {
+    $("#confirmCancelBtn").addEventListener("click", closeConfirm);
+    $("#confirmOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "confirmOverlay") closeConfirm();
+    });
+    $("#confirmOkBtn").addEventListener("click", async () => {
+      const action = state.confirmAction;
+      closeConfirm();
+      if (action) await action();
+    });
+  }
 
-  function renderClients() {
+  /* ------------------------------------------------------------------ */
+  /* Clients view                                                       */
+  /* ------------------------------------------------------------------ */
+  async function renderClientsView() {
+    state.clients = await Api.getClients();
+    renderClientGrid(state.clients);
+  }
+
+  function renderClientGrid(clients) {
     const grid = $("#clientGrid");
-    if (!grid) return;
-    const q = ($("#clientSearch")?.value || "").toLowerCase();
-    const list = state.clients.filter((c) => !q || [c.clientName, c.mobile, c.businessName, c.instagram]
-      .some((f) => String(f || "").toLowerCase().includes(q)));
-
-    grid.innerHTML = list.length ? list.map((c, idx) => `
-      <div class="client-card" data-idx="${idx}">
+    if (!clients.length) {
+      grid.innerHTML = `<p style="color:var(--text-muted);">No clients yet.</p>`;
+      return;
+    }
+    grid.innerHTML = clients.map((c, idx) => `
+      <div class="client-card" data-index="${idx}">
         <div class="client-card-head">
           <div class="client-avatar">${initials(c.clientName)}</div>
           <div>
@@ -570,274 +729,375 @@
           </div>
         </div>
         <div class="client-stats">
-          <div><span class="cs-label">Business</span><span class="cs-value">${fmtMoney(c.totalBusiness)}</span></div>
-          <div><span class="cs-label">Received</span><span class="cs-value">${fmtMoney(c.totalReceived)}</span></div>
-          <div><span class="cs-label">Pending</span><span class="cs-value">${fmtMoney(c.totalPending)}</span></div>
+          <div>
+            <span class="cs-label">Business</span>
+            <span class="cs-value">${fmtMoney(c.totalBusiness)}</span>
+          </div>
+          <div>
+            <span class="cs-label">Received</span>
+            <span class="cs-value">${fmtMoney(c.totalReceived)}</span>
+          </div>
+          <div>
+            <span class="cs-label">Pending</span>
+            <span class="cs-value">${fmtMoney(c.totalPending)}</span>
+          </div>
         </div>
       </div>
-    `).join("") : `<div class="empty-state"><i class="fa-solid fa-address-book"></i><p>No clients yet. Add a payment to create your first client.</p></div>`;
+    `).join("");
 
-    $$(".client-card", grid).forEach((card) => {
-      card.addEventListener("click", () => openClientDrawer(list[Number(card.dataset.idx)]));
+    $$(".client-card").forEach((card) => {
+      card.addEventListener("click", () => openClientDrawer(clients[Number(card.dataset.index)]));
     });
   }
-  $("#clientSearch")?.addEventListener("input", debounce(renderClients, 200));
+
+  function initClientSearch() {
+    $("#clientSearch").addEventListener("input", debounce(() => {
+      const search = $("#clientSearch").value.toLowerCase();
+      const filtered = state.clients.filter((c) =>
+        [c.clientName, c.mobile, c.businessName, c.instagram].some((f) => (f || "").toLowerCase().includes(search))
+      );
+      renderClientGrid(filtered);
+    }, 200));
+  }
 
   function openClientDrawer(client) {
     $("#clientDrawerTitle").textContent = client.clientName;
-    $("#clientDrawerBody").innerHTML = `
-      <div class="drawer-head-row">
-        <div class="drawer-avatar">${initials(client.clientName)}</div>
-        <div>
-          <h3>${escapeHtml(client.clientName)}</h3>
-          <p class="view-subtitle">${escapeHtml(client.mobile || "")}${client.businessName ? " · " + escapeHtml(client.businessName) : ""}${client.instagram ? " · " + escapeHtml(client.instagram) : ""}</p>
+    const body = $("#clientDrawerBody");
+    body.innerHTML = `
+      <div style="display:flex; flex-direction:column; gap:16px;">
+        <div class="client-stats" style="border-top:none; padding-top:0;">
+          <div><span class="cs-label">Business</span><span class="cs-value">${fmtMoney(client.totalBusiness)}</span></div>
+          <div><span class="cs-label">Received</span><span class="cs-value">${fmtMoney(client.totalReceived)}</span></div>
+          <div><span class="cs-label">Pending</span><span class="cs-value">${fmtMoney(client.totalPending)}</span></div>
+        </div>
+        <p style="font-size:13px; color:var(--text-muted);">
+          <b>Mobile:</b> ${escapeHtml(client.mobile || "—")}<br/>
+          <b>Instagram:</b> ${escapeHtml(client.instagram || "—")}
+        </p>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>Date</th><th>Category</th><th>Total</th><th>Status</th></tr></thead>
+            <tbody>
+              ${client.payments.map((p) => `
+                <tr>
+                  <td>${fmtDate(p.date)}</td>
+                  <td>${escapeHtml(p.category)}</td>
+                  <td>${fmtMoney(p.totalAmount)}</td>
+                  <td><span class="badge ${statusClass(p.status)}">${escapeHtml(p.status)}</span></td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
         </div>
       </div>
-      <div class="drawer-stats">
-        <div class="drawer-stat"><span class="ds-label">Total Business</span><span class="ds-value">${fmtMoney(client.totalBusiness)}</span></div>
-        <div class="drawer-stat"><span class="ds-label">Received</span><span class="ds-value">${fmtMoney(client.totalReceived)}</span></div>
-        <div class="drawer-stat"><span class="ds-label">Pending</span><span class="ds-value">${fmtMoney(client.totalPending)}</span></div>
-      </div>
-      <table class="data-table">
-        <thead><tr><th>Date</th><th>Category</th><th>Total</th><th>Status</th></tr></thead>
-        <tbody>
-          ${[...client.payments].sort((a, b) => new Date(b.date) - new Date(a.date)).map((p) => `
-            <tr>
-              <td>${fmtDate(p.date)}</td>
-              <td><span class="badge-cat">${escapeHtml(p.category)}</span></td>
-              <td class="cell-amount">${fmtMoney(p.totalAmount)}</td>
-              <td><span class="badge ${p.status}">${p.status}</span></td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
     `;
     $("#clientDrawerOverlay").hidden = false;
   }
-  $("#closeClientDrawer")?.addEventListener("click", () => { $("#clientDrawerOverlay").hidden = true; });
-  $("#clientDrawerOverlay")?.addEventListener("click", (e) => {
-    if (e.target.id === "clientDrawerOverlay") $("#clientDrawerOverlay").hidden = true;
-  });
 
-  /* ---------------------------------------------------------------------- */
-  /* REPORTS                                                                */
-  /* ---------------------------------------------------------------------- */
+  function initClientDrawer() {
+    $("#closeClientDrawer").addEventListener("click", () => { $("#clientDrawerOverlay").hidden = true; });
+    $("#clientDrawerOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "clientDrawerOverlay") $("#clientDrawerOverlay").hidden = true;
+    });
+  }
 
+  /* ------------------------------------------------------------------ */
+  /* Reports view                                                       */
+  /* ------------------------------------------------------------------ */
   async function runReport() {
-    const type = $("#reportType")?.value || "monthly";
-    const status = $("#reportStatus")?.value || "";
+    const type = $("#reportType").value;
+    const status = $("#reportStatus").value;
+    try {
+      const [report, topClients] = await Promise.all([Api.getReport(type, status), Api.getTopClients()]);
+      renderReportTable(report);
+      renderTopClientsTable(topClients);
+    } catch (err) {
+      showToast(err.message, "error");
+    }
+  }
+
+  function renderReportTable(rows) {
     const tbody = $("#reportTable tbody");
-    if (!tbody) return;
-    try {
-      const rows = await api(`/api/reports?type=${encodeURIComponent(type)}&status=${encodeURIComponent(status)}`);
-      tbody.innerHTML = rows.length ? rows.map((r) => `
-        <tr>
-          <td class="cell-name">${escapeHtml(r.key)}</td>
-          <td>${r.count}</td>
-          <td class="cell-amount">${fmtMoney(r.totalAmount)}</td>
-          <td class="cell-amount">${fmtMoney(r.paidAmount)}</td>
-          <td class="cell-amount">${fmtMoney(r.pendingAmount)}</td>
-        </tr>
-      `).join("") : `<tr><td colspan="5" style="text-align:center;color:var(--text-faint);padding:20px;">No data for this report</td></tr>`;
-    } catch (err) {
-      toast("error", "Could not load report", err.message);
-    }
+    tbody.innerHTML = rows.map((r) => `
+      <tr>
+        <td>${escapeHtml(r.key)}</td>
+        <td>${r.count}</td>
+        <td>${fmtMoney(r.totalAmount)}</td>
+        <td>${fmtMoney(r.paidAmount)}</td>
+        <td>${fmtMoney(r.pendingAmount)}</td>
+      </tr>
+    `).join("") || `<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No data for this report.</td></tr>`;
   }
-  $("#runReportBtn")?.addEventListener("click", runReport);
-  $("#reportType")?.addEventListener("change", runReport);
-  $("#reportStatus")?.addEventListener("change", runReport);
 
-  async function loadTopClients() {
+  function renderTopClientsTable(clients) {
     const tbody = $("#topClientsTable tbody");
-    if (!tbody) return;
-    try {
-      const clients = await api("/api/reports/top-clients");
-      tbody.innerHTML = clients.length ? clients.map((c) => `
-        <tr>
-          <td class="cell-name">${escapeHtml(c.clientName)}</td>
-          <td>${escapeHtml(c.businessName) || "—"}</td>
-          <td class="cell-amount">${fmtMoney(c.totalBusiness)}</td>
-          <td class="cell-amount">${fmtMoney(c.totalPending)}</td>
-        </tr>
-      `).join("") : `<tr><td colspan="4" style="text-align:center;color:var(--text-faint);padding:20px;">No clients yet</td></tr>`;
-    } catch (err) {
-      toast("error", "Could not load top clients", err.message);
-    }
+    tbody.innerHTML = clients.map((c) => `
+      <tr>
+        <td>${escapeHtml(c.clientName)}</td>
+        <td>${escapeHtml(c.businessName || "—")}</td>
+        <td>${fmtMoney(c.totalBusiness)}</td>
+        <td>${fmtMoney(c.totalPending)}</td>
+      </tr>
+    `).join("") || `<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">No clients yet.</td></tr>`;
   }
 
-  /* ---------------------------------------------------------------------- */
-  /* CATEGORIES                                                             */
-  /* ---------------------------------------------------------------------- */
-
-  function renderCategories() {
-    const grid = $("#categoryGrid");
-    if (!grid) return;
-    grid.innerHTML = state.categories.length ? state.categories.map((c) => `
-      <div class="category-chip">
-        <span class="cat-name"><i class="fa-solid fa-tag"></i>${escapeHtml(c)}</span>
-        <button data-name="${escapeHtml(c)}" title="Delete category"><i class="fa-solid fa-xmark"></i></button>
-      </div>
-    `).join("") : `<div class="empty-state"><i class="fa-solid fa-tags"></i><p>No categories yet.</p></div>`;
-
-    $$(".category-chip button", grid).forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const name = btn.dataset.name;
-        const ok = await askConfirm("Delete category?", `"${name}" will be removed from your category list.`);
-        if (!ok) return;
-        try {
-          state.categories = await api(`/api/categories/${encodeURIComponent(name)}`, { method: "DELETE" });
-          renderCategories();
-          populateCategorySelects();
-          toast("success", "Category deleted");
-        } catch (err) {
-          toast("error", "Could not delete category", err.message);
-        }
-      });
-    });
+  function initReportsToolbar() {
+    $("#runReportBtn").addEventListener("click", runReport);
   }
 
-  $("#addCategoryForm")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const input = $("#newCategoryInput");
-    const name = input.value.trim();
-    if (!name) return;
-    try {
-      state.categories = await api("/api/categories", { method: "POST", body: JSON.stringify({ name }) });
-      input.value = "";
-      renderCategories();
-      populateCategorySelects();
-      toast("success", "Category added");
-    } catch (err) {
-      toast("error", "Could not add category", err.message);
-    }
-  });
-
-  /* ---------------------------------------------------------------------- */
-  /* EXPORT                                                                 */
-  /* ---------------------------------------------------------------------- */
-
-  $("#exportCsvBtn")?.addEventListener("click", () => {
-    window.location.href = "/api/export/csv";
-  });
-
-  $("#exportExcelBtn")?.addEventListener("click", () => {
-    if (typeof XLSX === "undefined") { toast("error", "Excel export unavailable", "Library failed to load."); return; }
-    const rows = state.payments.map((p) => ({
-      Client: p.clientName, Mobile: p.mobile, Business: p.businessName, Instagram: p.instagram,
-      Category: p.category, Date: p.date, Total: p.totalAmount, Paid: p.paidAmount,
-      Pending: p.pendingAmount, Status: p.status, "Due Date": p.dueDate, Notes: p.notes
-    }));
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Payments");
-    XLSX.writeFile(wb, `payflow-payments-${Date.now()}.xlsx`);
-  });
-
-  $("#exportPdfBtn")?.addEventListener("click", () => {
-    if (typeof jspdf === "undefined") { toast("error", "PDF export unavailable", "Library failed to load."); return; }
-    const { jsPDF } = jspdf;
-    const doc = new jsPDF();
-    doc.setFontSize(16);
-    doc.text(state.settings.companyName || "PayFlow", 14, 16);
-    doc.setFontSize(10);
-    doc.text("Payment Summary", 14, 23);
-    doc.autoTable({
-      startY: 28,
-      head: [["Client", "Category", "Total", "Paid", "Pending", "Status", "Date"]],
-      body: state.payments.map((p) => [p.clientName, p.category, fmtMoney(p.totalAmount), fmtMoney(p.paidAmount), fmtMoney(p.pendingAmount), p.status, fmtDate(p.date)]),
-      styles: { fontSize: 8 }
-    });
-    doc.save(`payflow-summary-${Date.now()}.pdf`);
-  });
-
+  /* ------------------------------------------------------------------ */
+  /* Export (Excel / CSV / PDF / Invoice)                                */
+  /* ------------------------------------------------------------------ */
   function populateInvoiceSelect() {
-    const sel = $("#invoicePaymentSelect");
-    if (!sel) return;
-    sel.innerHTML = state.payments.map((p) => `<option value="${p.id}">${escapeHtml(p.clientName)} — ${fmtMoney(p.totalAmount)} (${fmtDate(p.date)})</option>`).join("");
+    const select = $("#invoicePaymentSelect");
+    select.innerHTML = state.payments.map((p) =>
+      `<option value="${p.id}">${escapeHtml(p.clientName)} — ${fmtMoney(p.totalAmount)} (${fmtDate(p.date)})</option>`
+    ).join("") || `<option value="">No payments available</option>`;
   }
 
-  $("#printInvoiceBtn")?.addEventListener("click", () => {
-    const id = $("#invoicePaymentSelect")?.value;
-    const p = state.payments.find((x) => x.id === id);
-    if (!p) { toast("error", "Select a payment first"); return; }
-    $("#invoicePrintArea").innerHTML = `
-      <h2>${escapeHtml(state.settings.companyName || "PayFlow")}</h2>
-      <p>Invoice for: <b>${escapeHtml(p.clientName)}</b> (${escapeHtml(p.mobile)})</p>
-      <p>Business: ${escapeHtml(p.businessName) || "—"} &nbsp; Category: ${escapeHtml(p.category)}</p>
-      <table border="1" cellpadding="8" cellspacing="0" style="width:100%;border-collapse:collapse;margin-top:16px;">
-        <tr><td>Date</td><td>${fmtDate(p.date)}</td></tr>
-        <tr><td>Total Amount</td><td>${fmtMoney(p.totalAmount)}</td></tr>
-        <tr><td>Paid Amount</td><td>${fmtMoney(p.paidAmount)}</td></tr>
-        <tr><td>Pending Amount</td><td>${fmtMoney(p.pendingAmount)}</td></tr>
-        <tr><td>Status</td><td>${p.status}</td></tr>
-        <tr><td>Notes</td><td>${escapeHtml(p.notes) || "—"}</td></tr>
-      </table>
+  function initExportButtons() {
+    $("#exportExcelBtn").addEventListener("click", () => {
+      if (typeof XLSX === "undefined") { showToast("Excel library not loaded", "error"); return; }
+      const rows = state.payments.map((p) => ({
+        Client: p.clientName, Mobile: p.mobile, Business: p.businessName, Instagram: p.instagram,
+        Category: p.category, Date: p.date, Total: p.totalAmount, Paid: p.paidAmount,
+        Pending: p.pendingAmount, Status: p.status, "Due Date": p.dueDate, Notes: p.notes
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Payments");
+      XLSX.writeFile(wb, `payflow-payments-${Date.now()}.xlsx`);
+      showToast("Excel file downloaded", "success");
+    });
+
+    $("#exportCsvBtn").addEventListener("click", () => {
+      window.location.href = "/api/export/csv";
+    });
+
+    $("#exportPdfBtn").addEventListener("click", () => {
+      if (typeof window.jspdf === "undefined") { showToast("PDF library not loaded", "error"); return; }
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      doc.setFontSize(16);
+      doc.text(`${state.settings.companyName || "PayFlow"} — Payments Summary`, 14, 16);
+      const body = state.payments.map((p) => [
+        p.clientName, p.category, fmtMoney(p.totalAmount), fmtMoney(p.paidAmount), fmtMoney(p.pendingAmount), p.status, fmtDate(p.date)
+      ]);
+      doc.autoTable({
+        head: [["Client", "Category", "Total", "Paid", "Pending", "Status", "Date"]],
+        body,
+        startY: 22,
+        styles: { fontSize: 9 }
+      });
+      doc.save(`payflow-payments-${Date.now()}.pdf`);
+      showToast("PDF downloaded", "success");
+    });
+
+    $("#printInvoiceBtn").addEventListener("click", () => {
+      const id = $("#invoicePaymentSelect").value;
+      const payment = state.payments.find((p) => p.id === id);
+      if (!payment) { showToast("Select a payment first", "error"); return; }
+      renderInvoiceAndPrint(payment);
+    });
+  }
+
+  function renderInvoiceAndPrint(p) {
+    const area = $("#invoicePrintArea");
+    area.innerHTML = `
+      <div style="font-family:sans-serif; max-width:700px; margin:0 auto;">
+        <h1 style="margin-bottom:4px;">${escapeHtml(state.settings.companyName || "PayFlow")}</h1>
+        <p style="color:#555; margin-bottom:24px;">Invoice — ${escapeHtml(p.id)}</p>
+        <table style="width:100%; border-collapse:collapse; font-size:14px;">
+          <tr><td style="padding:6px 0;"><b>Client</b></td><td>${escapeHtml(p.clientName)}</td></tr>
+          <tr><td style="padding:6px 0;"><b>Mobile</b></td><td>${escapeHtml(p.mobile)}</td></tr>
+          <tr><td style="padding:6px 0;"><b>Business</b></td><td>${escapeHtml(p.businessName)}</td></tr>
+          <tr><td style="padding:6px 0;"><b>Category</b></td><td>${escapeHtml(p.category)}</td></tr>
+          <tr><td style="padding:6px 0;"><b>Work Details</b></td><td>${escapeHtml(p.workDetails)}</td></tr>
+          <tr><td style="padding:6px 0;"><b>Date</b></td><td>${fmtDate(p.date)}</td></tr>
+          <tr><td style="padding:6px 0;"><b>Total Amount</b></td><td>${fmtMoney(p.totalAmount)}</td></tr>
+          <tr><td style="padding:6px 0;"><b>Paid Amount</b></td><td>${fmtMoney(p.paidAmount)}</td></tr>
+          <tr><td style="padding:6px 0;"><b>Pending Amount</b></td><td>${fmtMoney(p.pendingAmount)}</td></tr>
+          <tr><td style="padding:6px 0;"><b>Status</b></td><td>${escapeHtml(p.status)}</td></tr>
+          <tr><td style="padding:6px 0;"><b>Notes</b></td><td>${escapeHtml(p.notes)}</td></tr>
+        </table>
+      </div>
     `;
     window.print();
-  });
+  }
 
-  /* ---------------------------------------------------------------------- */
-  /* BACKUP / RESTORE                                                       */
-  /* ---------------------------------------------------------------------- */
+  /* ------------------------------------------------------------------ */
+  /* Backup / Restore                                                    */
+  /* ------------------------------------------------------------------ */
+  function initBackupRestore() {
+    $("#backupBtn").addEventListener("click", () => {
+      window.location.href = "/api/backup";
+    });
 
-  $("#backupBtn")?.addEventListener("click", () => {
-    window.location.href = "/api/backup";
-  });
-  $("#restoreBtn")?.addEventListener("click", () => $("#restoreFileInput").click());
-  $("#restoreFileInput")?.addEventListener("change", async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const ok = await askConfirm("Restore backup?", "This will overwrite all current data with the uploaded backup.", "Restore");
-    if (!ok) { e.target.value = ""; return; }
-    const formData = new FormData();
-    formData.append("backupFile", file);
-    try {
-      await api("/api/restore", { method: "POST", body: formData });
-      toast("success", "Backup restored");
-      await refreshEverything();
-    } catch (err) {
-      toast("error", "Restore failed", err.message);
-    } finally {
-      e.target.value = "";
-    }
-  });
+    $("#restoreBtn").addEventListener("click", () => {
+      $("#restoreFileInput").click();
+    });
 
-  /* ---------------------------------------------------------------------- */
-  /* Load / refresh                                                        */
-  /* ---------------------------------------------------------------------- */
+    $("#restoreFileInput").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const formData = new FormData();
+      formData.append("backupFile", file);
+      try {
+        const res = await fetch("/api/restore", { method: "POST", body: formData });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || "Restore failed");
+        showToast(body.message || "Backup restored", "success");
+        await loadInitialData();
+      } catch (err) {
+        showToast(err.message, "error");
+      } finally {
+        e.target.value = "";
+      }
+    });
+  }
 
-  async function refreshEverything() {
-    const [payments, clients, categories, dashboard] = await Promise.all([
-      api("/api/payments"),
-      api("/api/clients"),
-      api("/api/categories"),
-      api("/api/dashboard")
+  /* ------------------------------------------------------------------ */
+  /* Settings view                                                       */
+  /* ------------------------------------------------------------------ */
+  function renderSettingsForm() {
+    $("#settingCompanyName").value = state.settings.companyName || "";
+    $("#settingCurrency").value = state.settings.currency || "₹";
+    $$(".swatch").forEach((s) => s.classList.toggle("active", s.dataset.theme === state.settings.themeColor));
+    $("#lightModeBtn").classList.toggle("active", !state.settings.darkMode);
+    $("#darkModeBtn").classList.toggle("active", !!state.settings.darkMode);
+  }
+
+  function initSettingsView() {
+    $$(".swatch").forEach((swatch) => {
+      swatch.addEventListener("click", async () => {
+        state.settings.themeColor = swatch.dataset.theme;
+        applySettingsToUI();
+        renderSettingsForm();
+        try { await Api.updateSettings({ themeColor: state.settings.themeColor }); }
+        catch (err) { showToast(err.message, "error"); }
+      });
+    });
+
+    $("#lightModeBtn").addEventListener("click", async () => {
+      state.settings.darkMode = false;
+      applySettingsToUI();
+      renderSettingsForm();
+      try { await Api.updateSettings({ darkMode: false }); } catch (err) { showToast(err.message, "error"); }
+    });
+    $("#darkModeBtn").addEventListener("click", async () => {
+      state.settings.darkMode = true;
+      applySettingsToUI();
+      renderSettingsForm();
+      try { await Api.updateSettings({ darkMode: true }); } catch (err) { showToast(err.message, "error"); }
+    });
+
+    $("#settingsForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        state.settings = await Api.updateSettings({
+          companyName: $("#settingCompanyName").value.trim(),
+          currency: $("#settingCurrency").value.trim() || "₹"
+        });
+        applySettingsToUI();
+        renderGreeting();
+        showToast("Settings saved", "success");
+      } catch (err) {
+        showToast(err.message, "error");
+      }
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Dashboard month filter                                              */
+  /* ------------------------------------------------------------------ */
+  function initDashboardFilter() {
+    const sel = $("#dashboardMonthFilter");
+    if (!sel) return;
+    sel.addEventListener("change", async () => {
+      state.dashboardMonth = sel.value;
+      try {
+        await loadDashboard();
+      } catch (err) {
+        showToast("Failed to load dashboard: " + err.message, "error");
+      }
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Global search (topbar) — jumps to Payments view & filters           */
+  /* ------------------------------------------------------------------ */
+  function initGlobalSearch() {
+    $("#globalSearch").addEventListener("input", debounce(() => {
+      const value = $("#globalSearch").value;
+      if (!value) return;
+      window.location.hash = "payments";
+      setActiveView("payments");
+      $("#paymentSearch").value = value;
+      renderPaymentsView();
+    }, 300));
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Profile chip / logout                                              */
+  /* ------------------------------------------------------------------ */
+  function initProfileAndLogout() {
+    $("#logoutBtn").addEventListener("click", () => {
+      showToast("Logged out (demo only — no auth backend).", "info");
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Initial data load                                                   */
+  /* ------------------------------------------------------------------ */
+  async function loadInitialData() {
+    const [payments, categories, settings] = await Promise.all([
+      Api.getPayments(),
+      Api.getCategories(),
+      Api.getSettings()
     ]);
     state.payments = payments;
-    state.clients = clients;
     state.categories = categories;
-    state.dashboard = dashboard;
+    state.settings = settings;
 
+    applySettingsToUI();
+    renderGreeting();
     populateCategorySelects();
-    renderDashboard();
-    renderPayments();
-    if ($("#view-clients")?.classList.contains("active")) renderClients();
-    if ($("#view-categories")?.classList.contains("active")) renderCategories();
-    if ($("#view-export")?.classList.contains("active")) populateInvoiceSelect();
+
+    await loadDashboard();
+
+    const view = (window.location.hash || "#dashboard").slice(1);
+    setActiveView(view);
   }
 
-  async function loadAll() {
+  /* ------------------------------------------------------------------ */
+  /* Boot                                                                */
+  /* ------------------------------------------------------------------ */
+  document.addEventListener("DOMContentLoaded", async () => {
+    initNavigation();
+    initSidebarToggle();
+    initDarkModeToggle();
+    initNotifications();
+    initPaymentsToolbar();
+    initPaymentModal();
+    initConfirmDialog();
+    initClientSearch();
+    initClientDrawer();
+    initCategoryForm();
+    initReportsToolbar();
+    initExportButtons();
+    initBackupRestore();
+    initSettingsView();
+    initGlobalSearch();
+    initProfileAndLogout();
+    initDashboardFilter();
+
     try {
-      renderGreeting();
-      state.settings = await api("/api/settings");
-      applySettingsToUI();
-      await refreshEverything();
+      await loadInitialData();
     } catch (err) {
-      toast("error", "Could not load PayFlow", err.message);
+      showToast("Failed to load data: " + err.message, "error");
     } finally {
-      $("#appLoader")?.classList.add("hide");
+      const loader = $("#appLoader");
+      if (loader) loader.style.display = "none";
     }
-  }
-
-  loadAll();
+  });
 })();

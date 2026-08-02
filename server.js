@@ -144,12 +144,24 @@ function buildClients(payments) {
   return Array.from(map.values()).sort((a, b) => b.totalBusiness - a.totalBusiness);
 }
 
-function buildDashboard(payments) {
-  const totalBusiness = payments.reduce((sum, p) => sum + (Number(p.totalAmount) || 0), 0);
-  const received = payments.reduce((sum, p) => sum + (Number(p.paidAmount) || 0), 0);
-  const pending = payments.reduce((sum, p) => sum + (Number(p.pendingAmount) || 0), 0);
+function buildDashboard(payments, monthKey) {
+  // Full list of months present in the data, newest first — used to populate
+  // the dashboard's month filter dropdown.
+  const availableMonths = Array.from(
+    new Set(payments.map((p) => (p.date || "").slice(0, 7)).filter(Boolean))
+  ).sort((a, b) => b.localeCompare(a));
 
-  const clientKeys = new Set(payments.map((p) => p.mobile || p.clientName));
+  // "all" (or no month passed) keeps the original all-time view.
+  const selectedMonth = monthKey && monthKey !== "all" ? monthKey : "all";
+  const scoped = selectedMonth === "all"
+    ? payments
+    : payments.filter((p) => (p.date || "").slice(0, 7) === selectedMonth);
+
+  const totalBusiness = scoped.reduce((sum, p) => sum + (Number(p.totalAmount) || 0), 0);
+  const received = scoped.reduce((sum, p) => sum + (Number(p.paidAmount) || 0), 0);
+  const pending = scoped.reduce((sum, p) => sum + (Number(p.pendingAmount) || 0), 0);
+
+  const clientKeys = new Set(scoped.map((p) => p.mobile || p.clientName));
   const totalClients = clientKeys.size;
 
   const now = new Date();
@@ -159,29 +171,31 @@ function buildDashboard(payments) {
     .reduce((sum, p) => sum + (Number(p.totalAmount) || 0), 0);
 
   const todayStr = now.toISOString().slice(0, 10);
-  const todaysCollection = payments
+  const todaysCollection = scoped
     .filter((p) => p.date === todayStr)
     .reduce((sum, p) => sum + (Number(p.paidAmount) || 0), 0);
-  const todaysPending = payments
+  const todaysPending = scoped
     .filter((p) => p.date === todayStr)
     .reduce((sum, p) => sum + (Number(p.pendingAmount) || 0), 0);
 
   const paymentProgress = totalBusiness > 0 ? Math.round((received / totalBusiness) * 100) : 0;
 
-  const recentPayments = [...payments]
+  const recentPayments = [...scoped]
     .sort((a, b) => new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date))
     .slice(0, 6);
 
-  const upcomingDue = payments
+  const upcomingDue = scoped
     .filter((p) => p.pendingAmount > 0 && p.dueDate)
     .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
     .slice(0, 6);
 
   const statusCounts = { Paid: 0, Partial: 0, Pending: 0 };
-  payments.forEach((p) => {
+  scoped.forEach((p) => {
     if (statusCounts[p.status] !== undefined) statusCounts[p.status] += 1;
   });
 
+  // Monthly income trend always spans every month so the line chart keeps
+  // its full history regardless of which month is selected.
   const monthlyIncome = {};
   payments.forEach((p) => {
     const key = (p.date || "").slice(0, 7);
@@ -190,11 +204,13 @@ function buildDashboard(payments) {
   });
 
   const categoryTotals = {};
-  payments.forEach((p) => {
+  scoped.forEach((p) => {
     categoryTotals[p.category] = (categoryTotals[p.category] || 0) + (Number(p.totalAmount) || 0);
   });
 
   return {
+    selectedMonth,
+    availableMonths,
     totalBusiness,
     received,
     pending,
@@ -446,7 +462,7 @@ app.put("/api/settings", (req, res) => {
 
 app.get("/api/dashboard", (req, res) => {
   const data = loadData();
-  res.json(buildDashboard(data.payments));
+  res.json(buildDashboard(data.payments, req.query.month));
 });
 
 /* ---------------------------------------------------------------------- */

@@ -16,8 +16,11 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.19.2",
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/cli": "^8.4.2",
+    "@capacitor/core": "^8.4.2",
     "cors": "^2.8.5",
+    "express": "^4.19.2",
     "multer": "^2.0.0"
   }
 }

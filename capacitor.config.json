@@ -1,0 +1,9 @@
+{
+"appId": "com.dasev.aos",
+"appName": "Agency Operating System",
+  "webDir": "www",
+  "server": {
+    "url": "https://payflow-o49g.onrender.com",
+    "cleartext": true
+  }
+}

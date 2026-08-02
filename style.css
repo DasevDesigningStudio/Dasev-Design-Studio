@@ -287,6 +287,8 @@ input, select, textarea { font-family: inherit; }
 }
 .view-header h1 { font-size: 24px; font-weight: 700; }
 .view-subtitle { color: var(--text-muted); font-size: 13.5px; margin-top: 5px; }
+.dash-header-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dash-month-select { font-weight: 600; min-width: 150px; }
 
 /* =========================================================================
    Buttons
@@ -550,7 +552,6 @@ select:focus { border-color: var(--accent); }
   padding: 20px; backdrop-filter: blur(3px);
   animation: fade-in .2s var(--ease);
 }
-.modal-overlay[hidden] { display: none; }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 .modal {
   background: var(--card); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg);
@@ -666,4 +667,6 @@ select:focus { border-color: var(--accent); }
   .category-grid { grid-template-columns: 1fr; }
   .toolbar-filters { flex-direction: column; align-items: stretch; }
   .toolbar-filters select { width: 100%; }
+  .dash-header-actions { width: 100%; }
+  .dash-header-actions .dash-month-select { flex: 1; }
 }

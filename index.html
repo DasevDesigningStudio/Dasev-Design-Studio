@@ -29,7 +29,7 @@
   <div class="sidebar-brand">
     <div class="brand-mark"><i class="fa-solid fa-wave-square"></i></div>
     <div class="brand-text">
-      <span class="brand-name">PayFlow</span>
+      <span class="brand-name">AgencyOS</span>
       <span class="brand-sub">Agency Payments</span>
     </div>
     <button class="sidebar-close" id="sidebarClose" aria-label="Close menu"><i class="fa-solid fa-xmark"></i></button>
@@ -119,7 +119,10 @@
           <h1 id="greetingText">Good morning, Admin 👋</h1>
           <p class="view-subtitle">Here's what's happening with your agency's payments today.</p>
         </div>
-        <button class="btn btn-primary" id="quickAddBtn"><i class="fa-solid fa-plus"></i> Add Payment</button>
+        <div class="dash-header-actions">
+          <select id="dashboardMonthFilter" class="dash-month-select"></select>
+          <button class="btn btn-primary" id="quickAddBtn"><i class="fa-solid fa-plus"></i> Add Payment</button>
+        </div>
       </div>
 
       <div class="stat-grid">
