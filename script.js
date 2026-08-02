@@ -12,13 +12,19 @@
   const state = {
     payments: [],
     categories: [],
+    expenses: [],
+    expenseCategories: [],
     settings: { companyName: "My Agency", currency: "₹", themeColor: "teal", darkMode: false },
     dashboard: null,
     dashboardMonth: currentMonthKey(),
     clients: [],
+    paymentsFilterMonth: "all",
+    clientsFilterMonth: "all",
+    expensesFilterMonth: "all",
     editingPaymentId: null,
+    editingExpenseId: null,
     confirmAction: null,
-    charts: { pie: null, monthly: null, category: null }
+    charts: { pie: null, monthly: null, category: null, expenseCategory: null }
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -52,11 +58,18 @@
     deletePayment: (id) => api(`/api/payments/${id}`, { method: "DELETE" }),
     duplicatePayment: (id) => api(`/api/payments/${id}/duplicate`, { method: "POST" }),
 
-    getClients: () => api("/api/clients"),
+    getClients: (month) => api(`/api/clients?month=${encodeURIComponent(month || "all")}`),
 
     getCategories: () => api("/api/categories"),
     addCategory: (name) => api("/api/categories", { method: "POST", body: JSON.stringify({ name }) }),
     deleteCategory: (name) => api(`/api/categories/${encodeURIComponent(name)}`, { method: "DELETE" }),
+
+    getExpenses: () => api("/api/expenses"),
+    createExpense: (data) => api("/api/expenses", { method: "POST", body: JSON.stringify(data) }),
+    updateExpense: (id, data) => api(`/api/expenses/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    deleteExpense: (id) => api(`/api/expenses/${id}`, { method: "DELETE" }),
+    getExpenseCategories: () => api("/api/expense-categories"),
+    addExpenseCategory: (name) => api("/api/expense-categories", { method: "POST", body: JSON.stringify({ name }) }),
 
     getSettings: () => api("/api/settings"),
     updateSettings: (data) => api("/api/settings", { method: "PUT", body: JSON.stringify(data) }),
@@ -79,6 +92,71 @@
   function currentMonthKey() {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  }
+
+  function monthKeyOf(dateStr) {
+    return (dateStr || "").slice(0, 7);
+  }
+
+  // Short "Jul 2026" style label used for month dropdowns and chart axes.
+  function monthShortLabel(key) {
+    if (!key || key === "all") return "All Months";
+    const [y, m] = key.split("-");
+    const date = new Date(Number(y), Number(m) - 1, 1);
+    if (isNaN(date)) return key;
+    return date.toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+  }
+
+  // Just the 3-letter month abbreviation ("Jul"), used for compact chart axes.
+  function monthAbbrev(key) {
+    if (!key || key === "all") return key;
+    const [y, m] = key.split("-");
+    const date = new Date(Number(y), Number(m) - 1, 1);
+    if (isNaN(date)) return key;
+    return date.toLocaleDateString("en-IN", { month: "short" });
+  }
+
+  function availableMonthsFrom(list, dateField = "date") {
+    const months = new Set(list.map((item) => monthKeyOf(item[dateField])).filter(Boolean));
+    return Array.from(months).sort((a, b) => b.localeCompare(a));
+  }
+
+  function populateMonthSelect(sel, months, currentValue) {
+    if (!sel) return;
+    sel.innerHTML = `<option value="all">All Months</option>` +
+      months.map((key) => `<option value="${key}">${monthShortLabel(key)}</option>`).join("");
+    sel.value = months.includes(currentValue) || currentValue === "all" ? currentValue : "all";
+  }
+
+  // Mirrors server-side buildClients() so we can group the already-loaded
+  // payments list by client without another round trip to the API.
+  function buildClientsFromPayments(payments) {
+    const map = new Map();
+    payments.forEach((p) => {
+      const key = p.mobile || p.clientName;
+      if (!map.has(key)) {
+        map.set(key, {
+          clientName: p.clientName,
+          mobile: p.mobile,
+          businessName: p.businessName,
+          instagram: p.instagram,
+          totalBusiness: 0,
+          totalReceived: 0,
+          totalPending: 0,
+          paymentsCount: 0,
+          payments: []
+        });
+      }
+      const c = map.get(key);
+      c.totalBusiness += Number(p.totalAmount) || 0;
+      c.totalReceived += Number(p.paidAmount) || 0;
+      c.totalPending += Number(p.pendingAmount) || 0;
+      c.paymentsCount += 1;
+      c.payments.push(p);
+      if (p.businessName) c.businessName = p.businessName;
+      if (p.instagram) c.instagram = p.instagram;
+    });
+    return Array.from(map.values()).sort((a, b) => b.totalBusiness - a.totalBusiness);
   }
 
   function fmtDate(d) {
@@ -156,6 +234,7 @@
     if (view === "clients") renderClientsView();
     if (view === "reports") runReport();
     if (view === "categories") renderCategoriesView();
+    if (view === "expenses") renderExpensesView();
     if (view === "export") populateInvoiceSelect();
     if (view === "settings") renderSettingsForm();
 
@@ -317,6 +396,8 @@
     $("#statPending").textContent = fmtMoney(d.pending);
     $("#statClients").textContent = d.totalClients;
     $("#statMonthlyIncome").textContent = fmtMoney(d.monthlyBusiness);
+    const monthlyIncomeLabel = $("#statMonthlyIncomeLabel");
+    if (monthlyIncomeLabel) monthlyIncomeLabel.textContent = `Monthly Income (${monthShortLabel(currentMonthKey())})`;
 
     $("#todayCollected").textContent = fmtMoney(d.todaysCollection);
     $("#todayPending").textContent = fmtMoney(d.todaysPending);
@@ -378,7 +459,7 @@
       state.charts.monthly = new Chart(monthlyCtx, {
         type: "line",
         data: {
-          labels: entries.map(([k]) => k),
+          labels: entries.map(([k]) => monthAbbrev(k)),
           datasets: [{
             label: "Income",
             data: entries.map(([, v]) => v),
@@ -481,6 +562,7 @@
   /* ------------------------------------------------------------------ */
   function getFilteredSortedPayments() {
     const search = ($("#paymentSearch").value || "").toLowerCase();
+    const month = $("#filterMonth") ? $("#filterMonth").value : "all";
     const category = $("#filterCategory").value;
     const status = $("#filterStatus").value;
     const sort = $("#sortPayments").value;
@@ -489,9 +571,10 @@
       const matchesSearch = !search ||
         [p.clientName, p.mobile, p.businessName, p.instagram, p.category, p.status, String(p.totalAmount)]
           .some((f) => (f || "").toString().toLowerCase().includes(search));
+      const matchesMonth = !month || month === "all" || monthKeyOf(p.date) === month;
       const matchesCategory = !category || p.category === category;
       const matchesStatus = !status || p.status === status;
-      return matchesSearch && matchesCategory && matchesStatus;
+      return matchesSearch && matchesMonth && matchesCategory && matchesStatus;
     });
 
     list.sort((a, b) => {
@@ -508,7 +591,15 @@
     return list;
   }
 
+  function populatePaymentsMonthFilter() {
+    const sel = $("#filterMonth");
+    if (!sel) return;
+    const months = availableMonthsFrom(state.payments);
+    populateMonthSelect(sel, months, state.paymentsFilterMonth);
+  }
+
   function renderPaymentsView() {
+    populatePaymentsMonthFilter();
     const list = getFilteredSortedPayments();
     const tbody = $("#paymentsTable tbody");
     const empty = $("#paymentsEmpty");
@@ -570,6 +661,10 @@
 
   function initPaymentsToolbar() {
     $("#paymentSearch").addEventListener("input", debounce(renderPaymentsView, 200));
+    $("#filterMonth").addEventListener("change", () => {
+      state.paymentsFilterMonth = $("#filterMonth").value;
+      renderPaymentsView();
+    });
     $("#filterCategory").addEventListener("change", renderPaymentsView);
     $("#filterStatus").addEventListener("change", renderPaymentsView);
     $("#sortPayments").addEventListener("change", renderPaymentsView);
@@ -717,8 +812,25 @@
   /* ------------------------------------------------------------------ */
   /* Clients view                                                       */
   /* ------------------------------------------------------------------ */
+  function populateClientsMonthFilter() {
+    const sel = $("#clientFilterMonth");
+    if (!sel) return;
+    const months = availableMonthsFrom(state.payments);
+    populateMonthSelect(sel, months, state.clientsFilterMonth);
+  }
+
   async function renderClientsView() {
-    state.clients = await Api.getClients();
+    populateClientsMonthFilter();
+    try {
+      state.clients = await Api.getClients(state.clientsFilterMonth);
+    } catch (err) {
+      showToast(err.message, "error");
+      state.clients = buildClientsFromPayments(
+        state.clientsFilterMonth === "all"
+          ? state.payments
+          : state.payments.filter((p) => monthKeyOf(p.date) === state.clientsFilterMonth)
+      );
+    }
     renderClientGrid(state.clients);
   }
 
@@ -767,6 +879,11 @@
       );
       renderClientGrid(filtered);
     }, 200));
+
+    $("#clientFilterMonth").addEventListener("change", async () => {
+      state.clientsFilterMonth = $("#clientFilterMonth").value;
+      await renderClientsView();
+    });
   }
 
   function openClientDrawer(client) {
@@ -818,36 +935,87 @@
     const status = $("#reportStatus").value;
     try {
       const [report, topClients] = await Promise.all([Api.getReport(type, status), Api.getTopClients()]);
-      renderReportTable(report);
+      renderReportTable(report, type);
+      renderReportSummary(report);
       renderTopClientsTable(topClients);
     } catch (err) {
       showToast(err.message, "error");
     }
   }
 
-  function renderReportTable(rows) {
+  function formatReportKey(key, type) {
+    switch (type) {
+      case "monthly": return monthShortLabel(key);
+      case "daily": return fmtDate(key);
+      case "weekly": return `Week of ${fmtDate(key)}`;
+      case "yearly": return key;
+      default: return key || "—";
+    }
+  }
+
+  function renderReportSummary(rows) {
+    const totals = rows.reduce((acc, r) => {
+      acc.count += r.count;
+      acc.totalAmount += r.totalAmount;
+      acc.paidAmount += r.paidAmount;
+      acc.pendingAmount += r.pendingAmount;
+      return acc;
+    }, { count: 0, totalAmount: 0, paidAmount: 0, pendingAmount: 0 });
+
+    $("#reportStatRecords").textContent = totals.count;
+    $("#reportStatTotal").textContent = fmtMoney(totals.totalAmount);
+    $("#reportStatPaid").textContent = fmtMoney(totals.paidAmount);
+    $("#reportStatPending").textContent = fmtMoney(totals.pendingAmount);
+  }
+
+  function renderReportTable(rows, type) {
     const tbody = $("#reportTable tbody");
     tbody.innerHTML = rows.map((r) => `
       <tr>
-        <td>${escapeHtml(r.key)}</td>
+        <td>${escapeHtml(formatReportKey(r.key, type))}</td>
         <td>${r.count}</td>
         <td>${fmtMoney(r.totalAmount)}</td>
-        <td>${fmtMoney(r.paidAmount)}</td>
-        <td>${fmtMoney(r.pendingAmount)}</td>
+        <td class="amount-paid">${fmtMoney(r.paidAmount)}</td>
+        <td class="amount-pending">${fmtMoney(r.pendingAmount)}</td>
       </tr>
     `).join("") || `<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No data for this report.</td></tr>`;
+
+    const tfoot = $("#reportTable tfoot");
+    if (tfoot) {
+      if (!rows.length) {
+        tfoot.innerHTML = "";
+      } else {
+        const totals = rows.reduce((acc, r) => {
+          acc.count += r.count;
+          acc.totalAmount += r.totalAmount;
+          acc.paidAmount += r.paidAmount;
+          acc.pendingAmount += r.pendingAmount;
+          return acc;
+        }, { count: 0, totalAmount: 0, paidAmount: 0, pendingAmount: 0 });
+        tfoot.innerHTML = `
+          <tr>
+            <td>Total</td>
+            <td>${totals.count}</td>
+            <td>${fmtMoney(totals.totalAmount)}</td>
+            <td class="amount-paid">${fmtMoney(totals.paidAmount)}</td>
+            <td class="amount-pending">${fmtMoney(totals.pendingAmount)}</td>
+          </tr>
+        `;
+      }
+    }
   }
 
   function renderTopClientsTable(clients) {
     const tbody = $("#topClientsTable tbody");
-    tbody.innerHTML = clients.map((c) => `
+    tbody.innerHTML = clients.map((c, idx) => `
       <tr>
+        <td><span class="rank-chip">${idx + 1}</span></td>
         <td>${escapeHtml(c.clientName)}</td>
         <td>${escapeHtml(c.businessName || "—")}</td>
         <td>${fmtMoney(c.totalBusiness)}</td>
-        <td>${fmtMoney(c.totalPending)}</td>
+        <td class="amount-pending">${fmtMoney(c.totalPending)}</td>
       </tr>
-    `).join("") || `<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">No clients yet.</td></tr>`;
+    `).join("") || `<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No clients yet.</td></tr>`;
   }
 
   function initReportsToolbar() {
@@ -887,17 +1055,61 @@
       if (typeof window.jspdf === "undefined") { showToast("PDF library not loaded", "error"); return; }
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF();
+
+      // jsPDF's built-in fonts (Helvetica) don't include the ₹ glyph, so it
+      // renders as a broken/garbled character. Use a plain "Rs." prefix in
+      // PDFs specifically so every amount is fully readable.
+      const pdfMoney = (n) => "Rs. " + (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+
+      const companyName = state.settings.companyName || "PayFlow";
       doc.setFontSize(16);
-      doc.text(`${state.settings.companyName || "PayFlow"} — Payments Summary`, 14, 16);
+      doc.text(`${companyName} — Payments Summary`, 14, 16);
+      doc.setFontSize(9);
+      doc.setTextColor(120);
+      doc.text(`Generated on ${new Date().toLocaleString("en-IN")} • ${state.payments.length} records`, 14, 22);
+      doc.setTextColor(20);
+
       const body = state.payments.map((p) => [
-        p.clientName, p.category, fmtMoney(p.totalAmount), fmtMoney(p.paidAmount), fmtMoney(p.pendingAmount), p.status, fmtDate(p.date)
+        p.clientName || "—",
+        p.businessName || "—",
+        p.category || "—",
+        pdfMoney(p.totalAmount),
+        pdfMoney(p.paidAmount),
+        pdfMoney(p.pendingAmount),
+        p.status || "—",
+        fmtDate(p.date)
       ]);
+
+      const totals = state.payments.reduce((acc, p) => {
+        acc.total += Number(p.totalAmount) || 0;
+        acc.paid += Number(p.paidAmount) || 0;
+        acc.pending += Number(p.pendingAmount) || 0;
+        return acc;
+      }, { total: 0, paid: 0, pending: 0 });
+
       doc.autoTable({
-        head: [["Client", "Category", "Total", "Paid", "Pending", "Status", "Date"]],
+        head: [["Client", "Business", "Category", "Total", "Paid", "Pending", "Status", "Date"]],
         body,
-        startY: 22,
-        styles: { fontSize: 9 }
+        foot: [["", "", "Totals", pdfMoney(totals.total), pdfMoney(totals.paid), pdfMoney(totals.pending), "", ""]],
+        startY: 28,
+        styles: { fontSize: 8.5, cellPadding: 4, overflow: "linebreak" },
+        headStyles: { fillColor: [18, 117, 108], textColor: 255, fontStyle: "bold" },
+        footStyles: { fillColor: [230, 240, 239], textColor: 20, fontStyle: "bold" },
+        alternateRowStyles: { fillColor: [247, 250, 250] },
+        columnStyles: {
+          0: { cellWidth: 26 }, 1: { cellWidth: 26 }, 2: { cellWidth: 18 },
+          3: { cellWidth: 20 }, 4: { cellWidth: 20 }, 5: { cellWidth: 20 },
+          6: { cellWidth: 16 }, 7: { cellWidth: 20 }
+        },
+        margin: { left: 14, right: 14 },
+        didDrawPage: () => {
+          const pageCount = doc.internal.getNumberOfPages();
+          doc.setFontSize(8);
+          doc.setTextColor(150);
+          doc.text(`Page ${doc.internal.getCurrentPageInfo().pageNumber} of ${pageCount}`, 14, doc.internal.pageSize.height - 8);
+        }
       });
+
       doc.save(`payflow-payments-${Date.now()}.pdf`);
       showToast("PDF downloaded", "success");
     });
@@ -932,6 +1144,202 @@
       </div>
     `;
     window.print();
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Expenses view                                                       */
+  /* ------------------------------------------------------------------ */
+  function populateExpenseCategorySelect() {
+    const sel = $("#eCategory");
+    if (!sel) return;
+    sel.innerHTML = state.expenseCategories.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+  }
+
+  function populateExpensesMonthFilter() {
+    const sel = $("#expenseFilterMonth");
+    if (!sel) return;
+    const months = availableMonthsFrom(state.expenses);
+    populateMonthSelect(sel, months, state.expensesFilterMonth);
+  }
+
+  function getFilteredExpenses() {
+    const month = state.expensesFilterMonth;
+    let list = state.expenses.filter((e) => month === "all" || monthKeyOf(e.date) === month);
+    list.sort((a, b) => new Date(b.date) - new Date(a.date));
+    return list;
+  }
+
+  function renderExpenseStats() {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const thisMonth = currentMonthKey();
+
+    const spentToday = state.expenses
+      .filter((e) => e.date === todayStr)
+      .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+    const spentThisMonth = state.expenses
+      .filter((e) => monthKeyOf(e.date) === thisMonth)
+      .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+    const spentAllTime = state.expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+    $("#expenseStatToday").textContent = fmtMoney(spentToday);
+    $("#expenseStatMonth").textContent = fmtMoney(spentThisMonth);
+    $("#expenseStatAllTime").textContent = fmtMoney(spentAllTime);
+    const label = $("#expenseStatMonthLabel");
+    if (label) label.textContent = `Spent in ${monthShortLabel(thisMonth)}`;
+  }
+
+  function renderExpensesTable() {
+    const list = getFilteredExpenses();
+    const tbody = $("#expensesTable tbody");
+    const empty = $("#expensesEmpty");
+
+    if (!list.length) {
+      tbody.innerHTML = "";
+      empty.hidden = false;
+      return;
+    }
+    empty.hidden = true;
+
+    tbody.innerHTML = list.map((e) => `
+      <tr>
+        <td>${fmtDate(e.date)}</td>
+        <td><span class="badge-cat">${escapeHtml(e.category)}</span></td>
+        <td class="amount-pending">${fmtMoney(e.amount)}</td>
+        <td>${escapeHtml(e.notes || "—")}</td>
+        <td class="row-actions">
+          <button class="icon-btn edit-expense-btn" data-id="${e.id}" title="Edit"><i class="fa-solid fa-pen"></i></button>
+          <button class="icon-btn delete-expense-btn" data-id="${e.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>
+        </td>
+      </tr>
+    `).join("");
+
+    $$(".edit-expense-btn").forEach((btn) => btn.addEventListener("click", () => openExpenseModal(btn.dataset.id)));
+    $$(".delete-expense-btn").forEach((btn) => btn.addEventListener("click", () => {
+      const expense = state.expenses.find((e) => e.id === btn.dataset.id);
+      openConfirm(
+        "Delete this expense?",
+        `This will permanently delete the ${expense ? escapeHtml(expense.category) : "expense"} record.`,
+        async () => {
+          try {
+            await Api.deleteExpense(btn.dataset.id);
+            await refreshExpensesData();
+            showToast("Expense deleted", "success");
+          } catch (err) {
+            showToast(err.message, "error");
+          }
+        }
+      );
+    }));
+  }
+
+  function renderExpenseChart() {
+    if (typeof Chart === "undefined") return;
+    const ctx = $("#expenseCategoryChart");
+    if (!ctx) return;
+
+    const totals = {};
+    getFilteredExpenses().forEach((e) => {
+      totals[e.category] = (totals[e.category] || 0) + (Number(e.amount) || 0);
+    });
+    const entries = Object.entries(totals);
+
+    if (state.charts.expenseCategory) state.charts.expenseCategory.destroy();
+    state.charts.expenseCategory = new Chart(ctx, {
+      type: "doughnut",
+      data: {
+        labels: entries.map(([k]) => k),
+        datasets: [{
+          data: entries.map(([, v]) => v),
+          backgroundColor: ["#e0555c", "#dd9a2e", "#7c6cf0", "#3b82f6", "#17a072", "#e15b7c", "#12756c", "#a7b7b5"],
+          borderWidth: 0
+        }]
+      },
+      options: { plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } } }, cutout: "60%" }
+    });
+  }
+
+  function renderExpensesView() {
+    populateExpensesMonthFilter();
+    populateExpenseCategorySelect();
+    renderExpenseStats();
+    renderExpensesTable();
+    renderExpenseChart();
+  }
+
+  async function refreshExpensesData() {
+    state.expenses = await Api.getExpenses();
+    renderExpensesView();
+  }
+
+  function openExpenseModal(id = null) {
+    state.editingExpenseId = id;
+    const overlay = $("#expenseModalOverlay");
+    const title = $("#expenseModalTitle");
+    const form = $("#expenseForm");
+    form.reset();
+    populateExpenseCategorySelect();
+
+    if (id) {
+      const expense = state.expenses.find((e) => e.id === id);
+      if (!expense) return;
+      title.textContent = "Edit Expense";
+      $("#expenseId").value = expense.id;
+      $("#eDate").value = expense.date || "";
+      $("#eCategory").value = expense.category || "";
+      $("#eAmount").value = expense.amount || 0;
+      $("#eNotes").value = expense.notes || "";
+    } else {
+      title.textContent = "Add Expense";
+      $("#expenseId").value = "";
+      $("#eDate").value = new Date().toISOString().slice(0, 10);
+    }
+    overlay.hidden = false;
+  }
+
+  function closeExpenseModal() {
+    $("#expenseModalOverlay").hidden = true;
+    state.editingExpenseId = null;
+  }
+
+  function initExpenseModal() {
+    $("#addExpenseBtn").addEventListener("click", () => openExpenseModal());
+    $("#closeExpenseModal").addEventListener("click", closeExpenseModal);
+    $("#cancelExpenseBtn").addEventListener("click", closeExpenseModal);
+    $("#expenseModalOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "expenseModalOverlay") closeExpenseModal();
+    });
+
+    $("#expenseForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const data = {
+        date: $("#eDate").value,
+        category: $("#eCategory").value,
+        amount: Number($("#eAmount").value) || 0,
+        notes: $("#eNotes").value.trim()
+      };
+      const id = $("#expenseId").value;
+      try {
+        if (id) {
+          await Api.updateExpense(id, data);
+          showToast("Expense updated", "success");
+        } else {
+          await Api.createExpense(data);
+          showToast("Expense added", "success");
+        }
+        closeExpenseModal();
+        await refreshExpensesData();
+      } catch (err) {
+        showToast(err.message, "error");
+      }
+    });
+  }
+
+  function initExpensesToolbar() {
+    $("#expenseFilterMonth").addEventListener("change", () => {
+      state.expensesFilterMonth = $("#expenseFilterMonth").value;
+      renderExpensesTable();
+      renderExpenseChart();
+    });
   }
 
   /* ------------------------------------------------------------------ */
@@ -1059,14 +1467,18 @@
   /* Initial data load                                                   */
   /* ------------------------------------------------------------------ */
   async function loadInitialData() {
-    const [payments, categories, settings] = await Promise.all([
+    const [payments, categories, settings, expenses, expenseCategories] = await Promise.all([
       Api.getPayments(),
       Api.getCategories(),
-      Api.getSettings()
+      Api.getSettings(),
+      Api.getExpenses(),
+      Api.getExpenseCategories()
     ]);
     state.payments = payments;
     state.categories = categories;
     state.settings = settings;
+    state.expenses = expenses;
+    state.expenseCategories = expenseCategories;
 
     applySettingsToUI();
     renderGreeting();
@@ -1093,6 +1505,8 @@
     initClientDrawer();
     initCategoryForm();
     initReportsToolbar();
+    initExpenseModal();
+    initExpensesToolbar();
     initExportButtons();
     initBackupRestore();
     initSettingsView();

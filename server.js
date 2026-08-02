@@ -25,6 +25,8 @@ const DATA_FILE = path.join(__dirname, "data.json");
 const DEFAULT_DATA = {
   payments: [],
   categories: ["Post", "Reel", "Video", "Design", "Ads", "Management", "Other"],
+  expenses: [],
+  expenseCategories: ["Ad Spend", "Software/Tools", "Salary", "Freelancer", "Rent", "Internet/Phone", "Travel", "Other"],
   settings: {
     companyName: "My Agency",
     currency: "₹",
@@ -53,6 +55,8 @@ function loadData() {
   const data = {
     payments: Array.isArray(raw.payments) ? raw.payments : [],
     categories: Array.isArray(raw.categories) ? raw.categories : [...DEFAULT_DATA.categories],
+    expenses: Array.isArray(raw.expenses) ? raw.expenses : [],
+    expenseCategories: Array.isArray(raw.expenseCategories) ? raw.expenseCategories : [...DEFAULT_DATA.expenseCategories],
     settings: {
       ...DEFAULT_DATA.settings,
       ...(raw.settings && typeof raw.settings === "object" ? raw.settings : {})
@@ -105,6 +109,29 @@ function normalizePayment(input, existing = {}) {
     pendingAmount,
     status,
     dueDate: input.dueDate ?? existing.dueDate ?? "",
+    notes: (input.notes ?? existing.notes ?? "").toString().trim(),
+    createdAt: existing.createdAt || new Date().toISOString()
+  };
+}
+
+function nextExpenseId(expenses) {
+  let maxNum = 1000;
+  expenses.forEach((e) => {
+    const match = /^EXP-(\d+)$/.exec(e.id || "");
+    if (match) {
+      const n = parseInt(match[1], 10);
+      if (n > maxNum) maxNum = n;
+    }
+  });
+  return `EXP-${maxNum + 1}`;
+}
+
+function normalizeExpense(input, existing = {}) {
+  return {
+    id: existing.id,
+    date: input.date ?? existing.date ?? new Date().toISOString().slice(0, 10),
+    category: (input.category ?? existing.category ?? "Other").toString().trim() || "Other",
+    amount: Number(input.amount ?? existing.amount ?? 0) || 0,
     notes: (input.notes ?? existing.notes ?? "").toString().trim(),
     createdAt: existing.createdAt || new Date().toISOString()
   };
@@ -395,7 +422,11 @@ app.post("/api/payments/:id/duplicate", (req, res) => {
 
 app.get("/api/clients", (req, res) => {
   const data = loadData();
-  res.json(buildClients(data.payments));
+  const month = req.query.month;
+  const payments = (month && month !== "all")
+    ? data.payments.filter((p) => (p.date || "").slice(0, 7) === month)
+    : data.payments;
+  res.json(buildClients(payments));
 });
 
 /* ---------------------------------------------------------------------- */
@@ -436,6 +467,84 @@ app.delete("/api/categories/:name", (req, res) => {
     data.categories.splice(idx, 1);
     saveData(data);
     res.json(data.categories);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ---------------------------------------------------------------------- */
+/* Expenses                                                               */
+/* ---------------------------------------------------------------------- */
+
+app.get("/api/expenses", (req, res) => {
+  const data = loadData();
+  res.json(data.expenses);
+});
+
+app.post("/api/expenses", (req, res) => {
+  try {
+    const data = loadData();
+    const expense = normalizeExpense(req.body, {});
+    expense.id = nextExpenseId(data.expenses);
+    expense.createdAt = new Date().toISOString();
+    data.expenses.push(expense);
+    saveData(data);
+    res.json(expense);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/expenses/:id", (req, res) => {
+  try {
+    const data = loadData();
+    const idx = data.expenses.findIndex((e) => e.id === req.params.id);
+    if (idx === -1) {
+      return res.status(404).json({ error: "Expense not found" });
+    }
+    const updated = normalizeExpense(req.body, data.expenses[idx]);
+    updated.id = data.expenses[idx].id;
+    data.expenses[idx] = updated;
+    saveData(data);
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/expenses/:id", (req, res) => {
+  try {
+    const data = loadData();
+    const idx = data.expenses.findIndex((e) => e.id === req.params.id);
+    if (idx === -1) {
+      return res.status(404).json({ error: "Expense not found" });
+    }
+    data.expenses.splice(idx, 1);
+    saveData(data);
+    res.json({ success: true, message: "Expense deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/expense-categories", (req, res) => {
+  const data = loadData();
+  res.json(data.expenseCategories);
+});
+
+app.post("/api/expense-categories", (req, res) => {
+  try {
+    const data = loadData();
+    const name = (req.body.name || "").toString().trim();
+    if (!name) {
+      return res.status(400).json({ error: "Category name is required" });
+    }
+    if (data.expenseCategories.some((c) => c.toLowerCase() === name.toLowerCase())) {
+      return res.status(400).json({ error: "Category already exists" });
+    }
+    data.expenseCategories.push(name);
+    saveData(data);
+    res.json(data.expenseCategories);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -527,6 +636,8 @@ app.post("/api/restore", upload.single("backupFile"), (req, res) => {
     const restored = {
       payments: Array.isArray(parsed.payments) ? parsed.payments : [],
       categories: Array.isArray(parsed.categories) ? parsed.categories : [...DEFAULT_DATA.categories],
+      expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
+      expenseCategories: Array.isArray(parsed.expenseCategories) ? parsed.expenseCategories : [...DEFAULT_DATA.expenseCategories],
       settings: {
         ...DEFAULT_DATA.settings,
         ...(parsed.settings && typeof parsed.settings === "object" ? parsed.settings : {})

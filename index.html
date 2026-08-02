@@ -51,6 +51,9 @@
     <a href="#categories" class="nav-item" data-view="categories">
       <i class="fa-solid fa-tags"></i><span>Categories</span>
     </a>
+    <a href="#expenses" class="nav-item" data-view="expenses">
+      <i class="fa-solid fa-wallet"></i><span>Expenses</span>
+    </a>
     <a href="#export" class="nav-item" data-view="export">
       <i class="fa-solid fa-file-export"></i><span>Export</span>
     </a>
@@ -164,7 +167,7 @@
         <div class="stat-card blue">
           <div class="stat-icon"><i class="fa-solid fa-calendar-days"></i></div>
           <div class="stat-info">
-            <span class="stat-label">Monthly Income</span>
+            <span class="stat-label" id="statMonthlyIncomeLabel">Monthly Income</span>
             <span class="stat-value" id="statMonthlyIncome">₹0</span>
           </div>
           <span class="stat-trend up"><i class="fa-solid fa-arrow-trend-up"></i></span>
@@ -263,6 +266,7 @@
           <input type="text" id="paymentSearch" placeholder="Search payments…" />
         </div>
         <div class="toolbar-filters">
+          <select id="filterMonth"><option value="all">All Months</option></select>
           <select id="filterCategory"><option value="">All Categories</option></select>
           <select id="filterStatus">
             <option value="">All Status</option>
@@ -313,6 +317,9 @@
           <i class="fa-solid fa-magnifying-glass"></i>
           <input type="text" id="clientSearch" placeholder="Search clients…" />
         </div>
+        <div class="toolbar-filters">
+          <select id="clientFilterMonth"><option value="all">All Months</option></select>
+        </div>
       </div>
 
       <div class="client-grid" id="clientGrid"></div>
@@ -347,6 +354,37 @@
         </div>
       </div>
 
+      <div class="stat-grid report-stat-grid">
+        <div class="stat-card teal">
+          <div class="stat-icon"><i class="fa-solid fa-layer-group"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Records</span>
+            <span class="stat-value" id="reportStatRecords">0</span>
+          </div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-icon"><i class="fa-solid fa-sack-dollar"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Total Business</span>
+            <span class="stat-value" id="reportStatTotal">₹0</span>
+          </div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-icon"><i class="fa-solid fa-circle-check"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Total Paid</span>
+            <span class="stat-value" id="reportStatPaid">₹0</span>
+          </div>
+        </div>
+        <div class="stat-card amber">
+          <div class="stat-icon"><i class="fa-solid fa-hourglass-half"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Total Pending</span>
+            <span class="stat-value" id="reportStatPending">₹0</span>
+          </div>
+        </div>
+      </div>
+
       <div class="dash-grid two-col">
         <div class="card table-card">
           <div class="card-head"><h3>Report Breakdown</h3></div>
@@ -354,6 +392,7 @@
             <table class="data-table" id="reportTable">
               <thead><tr><th>Period / Group</th><th>Records</th><th>Total</th><th>Paid</th><th>Pending</th></tr></thead>
               <tbody></tbody>
+              <tfoot></tfoot>
             </table>
           </div>
         </div>
@@ -361,7 +400,7 @@
           <div class="card-head"><h3>Top Clients</h3></div>
           <div class="table-scroll">
             <table class="data-table" id="topClientsTable">
-              <thead><tr><th>Client</th><th>Business</th><th>Total</th><th>Pending</th></tr></thead>
+              <thead><tr><th>#</th><th>Client</th><th>Business</th><th>Total</th><th>Pending</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -386,6 +425,64 @@
       </div>
 
       <div class="category-grid" id="categoryGrid"></div>
+    </section>
+
+    <!-- ======================= EXPENSES ======================= -->
+    <section class="view" id="view-expenses">
+      <div class="view-header">
+        <div>
+          <h1>Expenses</h1>
+          <p class="view-subtitle">Track your daily spend — ad spend, tools, salary and more.</p>
+        </div>
+        <button class="btn btn-primary" id="addExpenseBtn"><i class="fa-solid fa-plus"></i> Add Expense</button>
+      </div>
+
+      <div class="stat-grid expense-stat-grid">
+        <div class="stat-card rose">
+          <div class="stat-icon"><i class="fa-solid fa-calendar-day"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Spent Today</span>
+            <span class="stat-value" id="expenseStatToday">₹0</span>
+          </div>
+        </div>
+        <div class="stat-card amber">
+          <div class="stat-icon"><i class="fa-solid fa-calendar-week"></i></div>
+          <div class="stat-info">
+            <span class="stat-label" id="expenseStatMonthLabel">This Month</span>
+            <span class="stat-value" id="expenseStatMonth">₹0</span>
+          </div>
+        </div>
+        <div class="stat-card violet">
+          <div class="stat-icon"><i class="fa-solid fa-wallet"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">All Time Spend</span>
+            <span class="stat-value" id="expenseStatAllTime">₹0</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="dash-grid two-col">
+        <div class="card table-card">
+          <div class="card-head">
+            <h3>Expense Log</h3>
+            <select id="expenseFilterMonth"><option value="all">All Months</option></select>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table" id="expensesTable">
+              <thead><tr><th>Date</th><th>Category</th><th>Amount</th><th>Notes</th><th>Actions</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="empty-state" id="expensesEmpty" hidden>
+            <i class="fa-solid fa-wallet"></i>
+            <p>No expenses logged yet. Add your first expense to start tracking spend.</p>
+          </div>
+        </div>
+        <div class="card chart-card">
+          <div class="card-head"><h3>Spend by Category</h3></div>
+          <canvas id="expenseCategoryChart" height="220"></canvas>
+        </div>
+      </div>
     </section>
 
     <!-- ======================= EXPORT ======================= -->
@@ -567,6 +664,41 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" id="cancelPaymentBtn">Cancel</button>
         <button type="submit" class="btn btn-primary" id="savePaymentBtn"><i class="fa-solid fa-check"></i> Save Payment</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Expense Add/Edit Modal -->
+<div class="modal-overlay" id="expenseModalOverlay" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="expenseModalTitle">Add Expense</h2>
+      <button class="icon-btn" id="closeExpenseModal"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="expenseForm" class="modal-body">
+      <input type="hidden" id="expenseId" />
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Date *</label>
+          <input type="date" id="eDate" required />
+        </div>
+        <div class="form-group">
+          <label>Category *</label>
+          <select id="eCategory" required></select>
+        </div>
+        <div class="form-group full">
+          <label>Amount (₹) *</label>
+          <input type="number" id="eAmount" min="0" step="0.01" required />
+        </div>
+        <div class="form-group full">
+          <label>Notes</label>
+          <textarea id="eNotes" rows="2" placeholder="e.g. Facebook ads for Client X…"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="cancelExpenseBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveExpenseBtn"><i class="fa-solid fa-check"></i> Save Expense</button>
       </div>
     </form>
   </div>
