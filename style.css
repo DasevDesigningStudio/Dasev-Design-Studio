@@ -444,9 +444,10 @@ input, select, textarea { font-family: inherit; }
   text-transform: uppercase; letter-spacing: .03em;
 }
 .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.badge.Paid { background: var(--success-bg); color: var(--success); }
-.badge.Partial { background: var(--warning-bg); color: var(--warning); }
-.badge.Pending { background: var(--danger-bg); color: var(--danger); }
+.badge.Paid { background: var(--success); color: #fff; }
+.badge.Partial { background: var(--warning); color: #fff; }
+.badge.Pending { background: var(--danger); color: #fff; }
+.badge.Paid::before, .badge.Partial::before, .badge.Pending::before { background: rgba(255,255,255,.85); }
 
 .badge-cat { background: var(--accent-light); color: var(--accent-dark); font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 8px; }
 
