@@ -145,14 +145,21 @@ function buildClients(payments) {
 }
 
 function buildDashboard(payments, monthKey) {
-  // Full list of months present in the data, newest first — used to populate
-  // the dashboard's month filter dropdown.
-  const availableMonths = Array.from(
-    new Set(payments.map((p) => (p.date || "").slice(0, 7)).filter(Boolean))
-  ).sort((a, b) => b.localeCompare(a));
+  // Dropdown should always list the full current year (Jan–Dec) so every
+  // month is selectable even before it has any payments, plus any other
+  // months that actually have data (e.g. from a previous year).
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonthKey = `${currentYear}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const yearMonths = Array.from({ length: 12 }, (_, i) => `${currentYear}-${String(i + 1).padStart(2, "0")}`);
+  const dataMonths = Array.from(new Set(payments.map((p) => (p.date || "").slice(0, 7)).filter(Boolean)));
+  const availableMonths = Array.from(new Set([...yearMonths, ...dataMonths])).sort((a, b) => b.localeCompare(a));
 
-  // "all" (or no month passed) keeps the original all-time view.
-  const selectedMonth = monthKey && monthKey !== "all" ? monthKey : "all";
+  let selectedMonth;
+  if (monthKey === "all") selectedMonth = "all";
+  else if (monthKey) selectedMonth = monthKey;
+  else selectedMonth = currentMonthKey;
+
   const scoped = selectedMonth === "all"
     ? payments
     : payments.filter((p) => (p.date || "").slice(0, 7) === selectedMonth);
@@ -164,8 +171,6 @@ function buildDashboard(payments, monthKey) {
   const clientKeys = new Set(scoped.map((p) => p.mobile || p.clientName));
   const totalClients = clientKeys.size;
 
-  const now = new Date();
-  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const monthlyBusiness = payments
     .filter((p) => (p.date || "").slice(0, 7) === currentMonthKey)
     .reduce((sum, p) => sum + (Number(p.totalAmount) || 0), 0);
