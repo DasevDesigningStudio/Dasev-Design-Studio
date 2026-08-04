@@ -172,6 +172,22 @@
           </div>
           <span class="stat-trend up"><i class="fa-solid fa-arrow-trend-up"></i></span>
         </div>
+        <div class="stat-card rose">
+          <div class="stat-icon"><i class="fa-solid fa-wallet"></i></div>
+          <div class="stat-info">
+            <span class="stat-label" id="statMonthlyExpensesLabel">This Month Expenses</span>
+            <span class="stat-value" id="statMonthlyExpenses">₹0</span>
+          </div>
+          <span class="stat-trend down"><i class="fa-solid fa-arrow-trend-down"></i></span>
+        </div>
+        <div class="stat-card green profit-card" id="statMonthlyProfitCard">
+          <div class="stat-icon"><i class="fa-solid fa-chart-pie"></i></div>
+          <div class="stat-info">
+            <span class="stat-label" id="statMonthlyProfitLabel">This Month Profit</span>
+            <span class="stat-value" id="statMonthlyProfit">₹0</span>
+          </div>
+          <span class="stat-trend up" id="statMonthlyProfitTrend"><i class="fa-solid fa-arrow-trend-up"></i></span>
+        </div>
       </div>
 
       <div class="dash-grid">
@@ -185,6 +201,10 @@
             <div>
               <span class="today-label">Pending Today</span>
               <span class="today-value warning" id="todayPending">₹0</span>
+            </div>
+            <div>
+              <span class="today-label">Spent Today</span>
+              <span class="today-value danger" id="todaySpent">₹0</span>
             </div>
           </div>
           <div class="progress-wrap">
@@ -465,7 +485,10 @@
         <div class="card table-card">
           <div class="card-head">
             <h3>Expense Log</h3>
-            <select id="expenseFilterMonth"><option value="all">All Months</option></select>
+            <div style="display:flex; gap:10px; align-items:center;">
+              <select id="expenseFilterMonth"><option value="all">All Months</option></select>
+              <button type="button" class="icon-btn" id="exportExpensesQuickBtn" title="Export expenses as CSV"><i class="fa-solid fa-file-csv"></i></button>
+            </div>
           </div>
           <div class="table-scroll">
             <table class="data-table" id="expensesTable">
@@ -498,19 +521,22 @@
         <div class="card export-card">
           <div class="export-icon green"><i class="fa-solid fa-file-excel"></i></div>
           <h3>Excel Export</h3>
-          <p>Download all payments as a formatted .xlsx spreadsheet.</p>
+          <p>Download a formatted .xlsx with Payments, Expenses and a monthly Profit summary — all in one file.</p>
           <button class="btn btn-outline" id="exportExcelBtn">Export Excel</button>
         </div>
         <div class="card export-card">
           <div class="export-icon blue"><i class="fa-solid fa-file-csv"></i></div>
           <h3>CSV Export</h3>
-          <p>Download raw payment data as a CSV file.</p>
-          <button class="btn btn-outline" id="exportCsvBtn">Export CSV</button>
+          <p>Download raw data as CSV files — payments and expenses separately.</p>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn btn-outline" id="exportCsvBtn">Payments CSV</button>
+            <button class="btn btn-outline" id="exportExpensesCsvBtn">Expenses CSV</button>
+          </div>
         </div>
         <div class="card export-card">
           <div class="export-icon red"><i class="fa-solid fa-file-pdf"></i></div>
           <h3>PDF Export</h3>
-          <p>Download a printable PDF summary of all payments.</p>
+          <p>Download a printable PDF with Payments, Expenses and Profit — for every month.</p>
           <button class="btn btn-outline" id="exportPdfBtn">Export PDF</button>
         </div>
         <div class="card export-card">

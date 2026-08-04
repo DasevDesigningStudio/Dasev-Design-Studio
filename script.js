@@ -399,8 +399,42 @@
     const monthlyIncomeLabel = $("#statMonthlyIncomeLabel");
     if (monthlyIncomeLabel) monthlyIncomeLabel.textContent = `Monthly Income (${monthShortLabel(currentMonthKey())})`;
 
+    // Expenses + profit for the current calendar month (mirrors how
+    // Monthly Income always reflects the actual current month too).
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const thisMonth = currentMonthKey();
+    const monthlyExpenses = state.expenses
+      .filter((e) => monthKeyOf(e.date) === thisMonth)
+      .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+    const spentToday = state.expenses
+      .filter((e) => e.date === todayStr)
+      .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+    const monthlyProfit = (d.monthlyBusiness || 0) - monthlyExpenses;
+
+    const monthlyExpensesLabel = $("#statMonthlyExpensesLabel");
+    if (monthlyExpensesLabel) monthlyExpensesLabel.textContent = `This Month Expenses (${monthShortLabel(thisMonth)})`;
+    $("#statMonthlyExpenses").textContent = fmtMoney(monthlyExpenses);
+
+    const monthlyProfitLabel = $("#statMonthlyProfitLabel");
+    if (monthlyProfitLabel) monthlyProfitLabel.textContent = `This Month Profit (${monthShortLabel(thisMonth)})`;
+    $("#statMonthlyProfit").textContent = fmtMoney(monthlyProfit);
+
+    const profitCard = $("#statMonthlyProfitCard");
+    const profitTrend = $("#statMonthlyProfitTrend");
+    if (profitCard && profitTrend) {
+      profitCard.classList.remove("green", "rose");
+      profitCard.classList.add(monthlyProfit >= 0 ? "green" : "rose");
+      profitTrend.classList.remove("up", "down");
+      profitTrend.classList.add(monthlyProfit >= 0 ? "up" : "down");
+      profitTrend.innerHTML = monthlyProfit >= 0
+        ? `<i class="fa-solid fa-arrow-trend-up"></i>`
+        : `<i class="fa-solid fa-arrow-trend-down"></i>`;
+    }
+
     $("#todayCollected").textContent = fmtMoney(d.todaysCollection);
     $("#todayPending").textContent = fmtMoney(d.todaysPending);
+    const todaySpentEl = $("#todaySpent");
+    if (todaySpentEl) todaySpentEl.textContent = fmtMoney(spentToday);
     $("#progressPercent").textContent = `${d.paymentProgress}%`;
     $("#progressFill").style.width = `${Math.min(d.paymentProgress, 100)}%`;
 
@@ -1032,23 +1066,56 @@
     ).join("") || `<option value="">No payments available</option>`;
   }
 
+  function buildMonthlyProfitSummary() {
+    const incomeByMonth = {};
+    state.payments.forEach((p) => {
+      const key = monthKeyOf(p.date);
+      if (!key) return;
+      incomeByMonth[key] = (incomeByMonth[key] || 0) + (Number(p.totalAmount) || 0);
+    });
+    const expensesByMonth = {};
+    state.expenses.forEach((e) => {
+      const key = monthKeyOf(e.date);
+      if (!key) return;
+      expensesByMonth[key] = (expensesByMonth[key] || 0) + (Number(e.amount) || 0);
+    });
+    const months = Array.from(new Set([...Object.keys(incomeByMonth), ...Object.keys(expensesByMonth)])).sort();
+    return months.map((key) => {
+      const income = incomeByMonth[key] || 0;
+      const expenses = expensesByMonth[key] || 0;
+      return { month: key, label: monthShortLabel(key), income, expenses, profit: income - expenses };
+    });
+  }
+
   function initExportButtons() {
     $("#exportExcelBtn").addEventListener("click", () => {
       if (typeof XLSX === "undefined") { showToast("Excel library not loaded", "error"); return; }
-      const rows = state.payments.map((p) => ({
+      const paymentRows = state.payments.map((p) => ({
         Client: p.clientName, Mobile: p.mobile, Business: p.businessName, Instagram: p.instagram,
         Category: p.category, Date: p.date, Total: p.totalAmount, Paid: p.paidAmount,
         Pending: p.pendingAmount, Status: p.status, "Due Date": p.dueDate, Notes: p.notes
       }));
-      const ws = XLSX.utils.json_to_sheet(rows);
+      const expenseRows = state.expenses.map((e) => ({
+        Date: e.date, Category: e.category, Amount: e.amount, Notes: e.notes
+      }));
+      const profitRows = buildMonthlyProfitSummary().map((r) => ({
+        Month: r.label, Income: r.income, Expenses: r.expenses, Profit: r.profit
+      }));
+
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Payments");
-      XLSX.writeFile(wb, `payflow-payments-${Date.now()}.xlsx`);
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(paymentRows), "Payments");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(expenseRows), "Expenses");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(profitRows), "Monthly Profit");
+      XLSX.writeFile(wb, `payflow-export-${Date.now()}.xlsx`);
       showToast("Excel file downloaded", "success");
     });
 
     $("#exportCsvBtn").addEventListener("click", () => {
       window.location.href = "/api/export/csv";
+    });
+
+    $("#exportExpensesCsvBtn").addEventListener("click", () => {
+      window.location.href = "/api/export/expenses-csv";
     });
 
     $("#exportPdfBtn").addEventListener("click", () => {
@@ -1062,14 +1129,23 @@
       const pdfMoney = (n) => "Rs. " + (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 });
 
       const companyName = state.settings.companyName || "PayFlow";
+      const addFooter = () => {
+        const pageCount = doc.internal.getNumberOfPages();
+        doc.setFontSize(8);
+        doc.setTextColor(150);
+        doc.text(`Page ${doc.internal.getCurrentPageInfo().pageNumber} of ${pageCount}`, 14, doc.internal.pageSize.height - 8);
+      };
+
+      // ---- Page 1: Payments -------------------------------------------------
       doc.setFontSize(16);
+      doc.setTextColor(20);
       doc.text(`${companyName} — Payments Summary`, 14, 16);
       doc.setFontSize(9);
       doc.setTextColor(120);
       doc.text(`Generated on ${new Date().toLocaleString("en-IN")} • ${state.payments.length} records`, 14, 22);
       doc.setTextColor(20);
 
-      const body = state.payments.map((p) => [
+      const paymentBody = state.payments.map((p) => [
         p.clientName || "—",
         p.businessName || "—",
         p.category || "—",
@@ -1079,8 +1155,7 @@
         p.status || "—",
         fmtDate(p.date)
       ]);
-
-      const totals = state.payments.reduce((acc, p) => {
+      const paymentTotals = state.payments.reduce((acc, p) => {
         acc.total += Number(p.totalAmount) || 0;
         acc.paid += Number(p.paidAmount) || 0;
         acc.pending += Number(p.pendingAmount) || 0;
@@ -1089,8 +1164,8 @@
 
       doc.autoTable({
         head: [["Client", "Business", "Category", "Total", "Paid", "Pending", "Status", "Date"]],
-        body,
-        foot: [["", "", "Totals", pdfMoney(totals.total), pdfMoney(totals.paid), pdfMoney(totals.pending), "", ""]],
+        body: paymentBody,
+        foot: [["", "", "Totals", pdfMoney(paymentTotals.total), pdfMoney(paymentTotals.paid), pdfMoney(paymentTotals.pending), "", ""]],
         startY: 28,
         styles: { fontSize: 8.5, cellPadding: 4, overflow: "linebreak" },
         headStyles: { fillColor: [18, 117, 108], textColor: 255, fontStyle: "bold" },
@@ -1102,15 +1177,70 @@
           6: { cellWidth: 16 }, 7: { cellWidth: 20 }
         },
         margin: { left: 14, right: 14 },
-        didDrawPage: () => {
-          const pageCount = doc.internal.getNumberOfPages();
-          doc.setFontSize(8);
-          doc.setTextColor(150);
-          doc.text(`Page ${doc.internal.getCurrentPageInfo().pageNumber} of ${pageCount}`, 14, doc.internal.pageSize.height - 8);
-        }
+        didDrawPage: addFooter
       });
 
-      doc.save(`payflow-payments-${Date.now()}.pdf`);
+      // ---- Page 2: Expenses ---------------------------------------------
+      doc.addPage();
+      doc.setFontSize(16);
+      doc.setTextColor(20);
+      doc.text(`${companyName} — Expenses Summary`, 14, 16);
+      doc.setFontSize(9);
+      doc.setTextColor(120);
+      doc.text(`${state.expenses.length} records`, 14, 22);
+      doc.setTextColor(20);
+
+      const expenseBody = state.expenses
+        .slice()
+        .sort((a, b) => new Date(b.date) - new Date(a.date))
+        .map((e) => [fmtDate(e.date), e.category || "—", pdfMoney(e.amount), e.notes || "—"]);
+      const expenseTotal = state.expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+      doc.autoTable({
+        head: [["Date", "Category", "Amount", "Notes"]],
+        body: expenseBody,
+        foot: [["", "Total", pdfMoney(expenseTotal), ""]],
+        startY: 28,
+        styles: { fontSize: 8.5, cellPadding: 4, overflow: "linebreak" },
+        headStyles: { fillColor: [200, 70, 80], textColor: 255, fontStyle: "bold" },
+        footStyles: { fillColor: [250, 232, 233], textColor: 20, fontStyle: "bold" },
+        alternateRowStyles: { fillColor: [250, 248, 248] },
+        margin: { left: 14, right: 14 },
+        didDrawPage: addFooter
+      });
+
+      // ---- Page 3: Monthly Profit ----------------------------------------
+      doc.addPage();
+      doc.setFontSize(16);
+      doc.setTextColor(20);
+      doc.text(`${companyName} — Monthly Profit`, 14, 16);
+      doc.setFontSize(9);
+      doc.setTextColor(120);
+      doc.text(`Income minus Expenses, by month`, 14, 22);
+      doc.setTextColor(20);
+
+      const profitRows = buildMonthlyProfitSummary();
+      const profitBody = profitRows.map((r) => [r.label, pdfMoney(r.income), pdfMoney(r.expenses), pdfMoney(r.profit)]);
+
+      doc.autoTable({
+        head: [["Month", "Income", "Expenses", "Profit"]],
+        body: profitBody,
+        startY: 28,
+        styles: { fontSize: 9, cellPadding: 5 },
+        headStyles: { fillColor: [18, 117, 108], textColor: 255, fontStyle: "bold" },
+        alternateRowStyles: { fillColor: [247, 250, 250] },
+        didParseCell: (hookData) => {
+          if (hookData.section === "body" && hookData.column.index === 3) {
+            const profit = profitRows[hookData.row.index]?.profit ?? 0;
+            hookData.cell.styles.textColor = profit >= 0 ? [20, 140, 100] : [200, 60, 60];
+            hookData.cell.styles.fontStyle = "bold";
+          }
+        },
+        margin: { left: 14, right: 14 },
+        didDrawPage: addFooter
+      });
+
+      doc.save(`payflow-export-${Date.now()}.pdf`);
       showToast("PDF downloaded", "success");
     });
 
@@ -1269,6 +1399,7 @@
   async function refreshExpensesData() {
     state.expenses = await Api.getExpenses();
     renderExpensesView();
+    if (state.dashboard) renderDashboard();
   }
 
   function openExpenseModal(id = null) {
@@ -1339,6 +1470,9 @@
       state.expensesFilterMonth = $("#expenseFilterMonth").value;
       renderExpensesTable();
       renderExpenseChart();
+    });
+    $("#exportExpensesQuickBtn").addEventListener("click", () => {
+      window.location.href = "/api/export/expenses-csv";
     });
   }
 

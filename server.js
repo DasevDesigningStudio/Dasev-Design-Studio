@@ -26,7 +26,7 @@ const DEFAULT_DATA = {
   payments: [],
   categories: ["Post", "Reel", "Video", "Design", "Ads", "Management", "Other"],
   expenses: [],
-  expenseCategories: ["Ad Spend", "Software/Tools", "Salary", "Freelancer", "Rent", "Internet/Phone", "Travel", "Other"],
+  expenseCategories: ["Ad Spend", "Software/Tools", "Salary", "Freelancer", "Rent", "Internet/Phone", "Travel", "Nasto", "Other"],
   settings: {
     companyName: "My Agency",
     currency: "₹",
@@ -62,6 +62,14 @@ function loadData() {
       ...(raw.settings && typeof raw.settings === "object" ? raw.settings : {})
     }
   };
+
+  // One-time migration: make sure the "Nasto" expense category exists on
+  // data.json files that were created before it was added to the defaults.
+  if (!data.expenseCategories.some((c) => c.toLowerCase() === "nasto")) {
+    data.expenseCategories.push("Nasto");
+    saveData(data);
+  }
+
   return data;
 }
 
@@ -322,6 +330,14 @@ function paymentsToCsv(payments) {
     p.id, p.clientName, p.mobile, p.businessName, p.instagram, p.workDetails,
     p.category, p.date, p.totalAmount, p.paidAmount, p.pendingAmount, p.status, p.dueDate, p.notes
   ]);
+  const lines = [headers.join(",")];
+  rows.forEach((row) => lines.push(row.map(csvEscape).join(",")));
+  return lines.join("\n");
+}
+
+function expensesToCsv(expenses) {
+  const headers = ["ID", "Date", "Category", "Amount", "Notes"];
+  const rows = expenses.map((e) => [e.id, e.date, e.category, e.amount, e.notes]);
   const lines = [headers.join(",")];
   rows.forEach((row) => lines.push(row.map(csvEscape).join(",")));
   return lines.join("\n");
@@ -613,6 +629,14 @@ app.get("/api/export/csv", (req, res) => {
   const csv = paymentsToCsv(data.payments);
   res.setHeader("Content-Type", "text/csv");
   res.setHeader("Content-Disposition", `attachment; filename="payments-export-${Date.now()}.csv"`);
+  res.send(csv);
+});
+
+app.get("/api/export/expenses-csv", (req, res) => {
+  const data = loadData();
+  const csv = expensesToCsv(data.expenses);
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="expenses-export-${Date.now()}.csv"`);
   res.send(csv);
 });
 
