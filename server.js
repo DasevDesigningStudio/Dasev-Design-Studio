@@ -27,6 +27,8 @@ const DEFAULT_DATA = {
   categories: ["Post", "Reel", "Video", "Design", "Ads", "Management", "Other"],
   expenses: [],
   expenseCategories: ["Ad Spend", "Software/Tools", "Salary", "Freelancer", "Rent", "Internet/Phone", "Travel", "Nasto", "Other"],
+  leads: [],
+  leadSources: ["Instagram DM", "Referral", "Cold Call", "Website", "Other"],
   settings: {
     companyName: "My Agency",
     currency: "₹",
@@ -57,6 +59,8 @@ function loadData() {
     categories: Array.isArray(raw.categories) ? raw.categories : [...DEFAULT_DATA.categories],
     expenses: Array.isArray(raw.expenses) ? raw.expenses : [],
     expenseCategories: Array.isArray(raw.expenseCategories) ? raw.expenseCategories : [...DEFAULT_DATA.expenseCategories],
+    leads: Array.isArray(raw.leads) ? raw.leads : [],
+    leadSources: Array.isArray(raw.leadSources) ? raw.leadSources : [...DEFAULT_DATA.leadSources],
     settings: {
       ...DEFAULT_DATA.settings,
       ...(raw.settings && typeof raw.settings === "object" ? raw.settings : {})
@@ -141,6 +145,41 @@ function normalizeExpense(input, existing = {}) {
     category: (input.category ?? existing.category ?? "Other").toString().trim() || "Other",
     amount: Number(input.amount ?? existing.amount ?? 0) || 0,
     notes: (input.notes ?? existing.notes ?? "").toString().trim(),
+    createdAt: existing.createdAt || new Date().toISOString()
+  };
+}
+
+const LEAD_STATUSES = ["New", "Contacted", "Follow-up", "Interested", "Converted", "Lost"];
+
+function nextLeadId(leads) {
+  let maxNum = 1000;
+  leads.forEach((l) => {
+    const match = /^LED-(\d+)$/.exec(l.id || "");
+    if (match) {
+      const n = parseInt(match[1], 10);
+      if (n > maxNum) maxNum = n;
+    }
+  });
+  return `LED-${maxNum + 1}`;
+}
+
+function normalizeLead(input, existing = {}) {
+  const status = LEAD_STATUSES.includes(input.status)
+    ? input.status
+    : (existing.status || "New");
+
+  return {
+    id: existing.id,
+    name: (input.name ?? existing.name ?? "").toString().trim(),
+    mobile: (input.mobile ?? existing.mobile ?? "").toString().trim(),
+    businessName: (input.businessName ?? existing.businessName ?? "").toString().trim(),
+    instagram: (input.instagram ?? existing.instagram ?? "").toString().trim(),
+    source: (input.source ?? existing.source ?? "Other").toString().trim() || "Other",
+    status,
+    expectedValue: Number(input.expectedValue ?? existing.expectedValue ?? 0) || 0,
+    nextFollowupDate: input.nextFollowupDate ?? existing.nextFollowupDate ?? "",
+    notes: (input.notes ?? existing.notes ?? "").toString().trim(),
+    convertedPaymentId: existing.convertedPaymentId ?? null,
     createdAt: existing.createdAt || new Date().toISOString()
   };
 }
@@ -343,6 +382,20 @@ function expensesToCsv(expenses) {
   return lines.join("\n");
 }
 
+function leadsToCsv(leads) {
+  const headers = [
+    "ID", "Name", "Mobile", "Business", "Instagram", "Source",
+    "Status", "Expected Value", "Next Follow-up", "Notes", "Created"
+  ];
+  const rows = leads.map((l) => [
+    l.id, l.name, l.mobile, l.businessName, l.instagram, l.source,
+    l.status, l.expectedValue, l.nextFollowupDate, l.notes, l.createdAt
+  ]);
+  const lines = [headers.join(",")];
+  rows.forEach((row) => lines.push(row.map(csvEscape).join(",")));
+  return lines.join("\n");
+}
+
 /* ---------------------------------------------------------------------- */
 /* File upload (for restore)                                              */
 /* ---------------------------------------------------------------------- */
@@ -443,6 +496,127 @@ app.get("/api/clients", (req, res) => {
     ? data.payments.filter((p) => (p.date || "").slice(0, 7) === month)
     : data.payments;
   res.json(buildClients(payments));
+});
+
+/* ---------------------------------------------------------------------- */
+/* Leads                                                                  */
+/* ---------------------------------------------------------------------- */
+
+app.get("/api/leads", (req, res) => {
+  const data = loadData();
+  res.json(data.leads);
+});
+
+app.post("/api/leads", (req, res) => {
+  try {
+    const data = loadData();
+    const lead = normalizeLead(req.body, {});
+    lead.id = nextLeadId(data.leads);
+    lead.createdAt = new Date().toISOString();
+    data.leads.push(lead);
+    saveData(data);
+    res.json(lead);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/leads/:id", (req, res) => {
+  try {
+    const data = loadData();
+    const idx = data.leads.findIndex((l) => l.id === req.params.id);
+    if (idx === -1) {
+      return res.status(404).json({ error: "Lead not found" });
+    }
+    const updated = normalizeLead(req.body, data.leads[idx]);
+    updated.id = data.leads[idx].id;
+    data.leads[idx] = updated;
+    saveData(data);
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/leads/:id", (req, res) => {
+  try {
+    const data = loadData();
+    const idx = data.leads.findIndex((l) => l.id === req.params.id);
+    if (idx === -1) {
+      return res.status(404).json({ error: "Lead not found" });
+    }
+    data.leads.splice(idx, 1);
+    saveData(data);
+    res.json({ success: true, message: "Lead deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Convert a lead into a paying client: creates a payment record from the
+// lead's details and marks the lead as "Converted", linking the two so the
+// lead keeps a reference to the payment it produced.
+app.post("/api/leads/:id/convert", (req, res) => {
+  try {
+    const data = loadData();
+    const idx = data.leads.findIndex((l) => l.id === req.params.id);
+    if (idx === -1) {
+      return res.status(404).json({ error: "Lead not found" });
+    }
+    const lead = data.leads[idx];
+
+    const payment = normalizePayment(
+      {
+        clientName: lead.name,
+        mobile: lead.mobile,
+        businessName: lead.businessName,
+        instagram: lead.instagram,
+        workDetails: req.body.workDetails || "",
+        category: req.body.category || "Other",
+        date: req.body.date || new Date().toISOString().slice(0, 10),
+        totalAmount: req.body.totalAmount ?? lead.expectedValue,
+        paidAmount: req.body.paidAmount ?? 0,
+        dueDate: req.body.dueDate || "",
+        notes: lead.notes
+      },
+      {}
+    );
+    payment.id = nextPaymentId(data.payments);
+    payment.createdAt = new Date().toISOString();
+    data.payments.push(payment);
+
+    lead.status = "Converted";
+    lead.convertedPaymentId = payment.id;
+    data.leads[idx] = lead;
+
+    saveData(data);
+    res.json({ lead, payment });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/lead-sources", (req, res) => {
+  const data = loadData();
+  res.json(data.leadSources);
+});
+
+app.post("/api/lead-sources", (req, res) => {
+  try {
+    const data = loadData();
+    const name = (req.body.name || "").toString().trim();
+    if (!name) {
+      return res.status(400).json({ error: "Source name is required" });
+    }
+    if (data.leadSources.some((s) => s.toLowerCase() === name.toLowerCase())) {
+      return res.status(400).json({ error: "Source already exists" });
+    }
+    data.leadSources.push(name);
+    saveData(data);
+    res.json(data.leadSources);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /* ---------------------------------------------------------------------- */
@@ -640,6 +814,14 @@ app.get("/api/export/expenses-csv", (req, res) => {
   res.send(csv);
 });
 
+app.get("/api/export/leads-csv", (req, res) => {
+  const data = loadData();
+  const csv = leadsToCsv(data.leads);
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="leads-export-${Date.now()}.csv"`);
+  res.send(csv);
+});
+
 /* ---------------------------------------------------------------------- */
 /* Backup / Restore                                                       */
 /* ---------------------------------------------------------------------- */
@@ -662,6 +844,8 @@ app.post("/api/restore", upload.single("backupFile"), (req, res) => {
       categories: Array.isArray(parsed.categories) ? parsed.categories : [...DEFAULT_DATA.categories],
       expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
       expenseCategories: Array.isArray(parsed.expenseCategories) ? parsed.expenseCategories : [...DEFAULT_DATA.expenseCategories],
+      leads: Array.isArray(parsed.leads) ? parsed.leads : [],
+      leadSources: Array.isArray(parsed.leadSources) ? parsed.leadSources : [...DEFAULT_DATA.leadSources],
       settings: {
         ...DEFAULT_DATA.settings,
         ...(parsed.settings && typeof parsed.settings === "object" ? parsed.settings : {})

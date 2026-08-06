@@ -18,11 +18,13 @@
     dashboard: null,
     dashboardMonth: currentMonthKey(),
     clients: [],
+    leads: [],
     paymentsFilterMonth: "all",
     clientsFilterMonth: "all",
     expensesFilterMonth: "all",
     editingPaymentId: null,
     editingExpenseId: null,
+    editingLeadId: null,
     confirmAction: null,
     charts: { pie: null, monthly: null, category: null, expenseCategory: null }
   };
@@ -59,6 +61,12 @@
     duplicatePayment: (id) => api(`/api/payments/${id}/duplicate`, { method: "POST" }),
 
     getClients: (month) => api(`/api/clients?month=${encodeURIComponent(month || "all")}`),
+
+    getLeads: () => api("/api/leads"),
+    createLead: (data) => api("/api/leads", { method: "POST", body: JSON.stringify(data) }),
+    updateLead: (id, data) => api(`/api/leads/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    deleteLead: (id) => api(`/api/leads/${id}`, { method: "DELETE" }),
+    convertLead: (id, data) => api(`/api/leads/${id}/convert`, { method: "POST", body: JSON.stringify(data || {}) }),
 
     getCategories: () => api("/api/categories"),
     addCategory: (name) => api("/api/categories", { method: "POST", body: JSON.stringify({ name }) }),
@@ -232,6 +240,7 @@
     // Lazy-load per-view data
     if (view === "payments") renderPaymentsView();
     if (view === "clients") renderClientsView();
+    if (view === "leads") renderLeadsView();
     if (view === "reports") runReport();
     if (view === "categories") renderCategoriesView();
     if (view === "expenses") renderExpensesView();
@@ -962,6 +971,291 @@
   }
 
   /* ------------------------------------------------------------------ */
+  /* Leads view                                                         */
+  /* ------------------------------------------------------------------ */
+  function todayStr() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  function leadSourceBadge(source) {
+    return `<span class="badge-source">${escapeHtml(source || "—")}</span>`;
+  }
+
+  async function refreshLeadsData() {
+    state.leads = await Api.getLeads();
+    renderLeadsView();
+  }
+
+  function getFilteredSortedLeads() {
+    const search = ($("#leadSearch").value || "").toLowerCase();
+    const status = $("#leadFilterStatus").value;
+    const source = $("#leadFilterSource").value;
+    const sort = $("#sortLeads").value;
+
+    let list = state.leads.filter((l) => {
+      const matchesSearch = !search ||
+        [l.name, l.mobile, l.businessName, l.instagram, l.source, l.status]
+          .some((f) => (f || "").toString().toLowerCase().includes(search));
+      const matchesStatus = !status || l.status === status;
+      const matchesSource = !source || l.source === source;
+      return matchesSearch && matchesStatus && matchesSource;
+    });
+
+    list.sort((a, b) => {
+      switch (sort) {
+        case "date-desc": return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+        case "date-asc": return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
+        case "value-desc": return (Number(b.expectedValue) || 0) - (Number(a.expectedValue) || 0);
+        case "name-asc": return (a.name || "").localeCompare(b.name || "");
+        case "followup-asc":
+        default: {
+          // Leads without a next follow-up date sort to the end.
+          if (!a.nextFollowup && !b.nextFollowup) return 0;
+          if (!a.nextFollowup) return 1;
+          if (!b.nextFollowup) return -1;
+          return new Date(a.nextFollowup) - new Date(b.nextFollowup);
+        }
+      }
+    });
+
+    return list;
+  }
+
+  function renderLeadStats() {
+    const leads = state.leads;
+    const total = leads.length;
+    const inProgress = leads.filter((l) => ["Contacted", "Follow-up", "Interested"].includes(l.status)).length;
+    const today = todayStr();
+    const followupToday = leads.filter((l) => l.nextFollowup && l.nextFollowup <= today && !["Converted", "Lost"].includes(l.status)).length;
+    const converted = leads.filter((l) => l.status === "Converted").length;
+    const lost = leads.filter((l) => l.status === "Lost").length;
+    const pipelineValue = leads
+      .filter((l) => !["Converted", "Lost"].includes(l.status))
+      .reduce((sum, l) => sum + (Number(l.expectedValue) || 0), 0);
+
+    $("#leadStatTotal").textContent = total;
+    $("#leadStatInProgress").textContent = inProgress;
+    $("#leadStatFollowupToday").textContent = followupToday;
+    $("#leadStatConverted").textContent = converted;
+    $("#leadStatLost").textContent = lost;
+    $("#leadStatPipelineValue").textContent = fmtMoney(pipelineValue);
+  }
+
+  function renderLeadsView() {
+    renderLeadStats();
+    const list = getFilteredSortedLeads();
+    const tbody = $("#leadsTable tbody");
+    const empty = $("#leadsEmpty");
+
+    if (!list.length) {
+      tbody.innerHTML = "";
+      empty.hidden = false;
+      return;
+    }
+    empty.hidden = true;
+
+    const today = todayStr();
+
+    tbody.innerHTML = list.map((l) => {
+      const overdue = l.nextFollowup && l.nextFollowup <= today && !["Converted", "Lost"].includes(l.status);
+      return `
+      <tr data-id="${l.id}">
+        <td>${escapeHtml(l.name)}</td>
+        <td>${escapeHtml(l.businessName || "—")}</td>
+        <td>${escapeHtml(l.mobile)}</td>
+        <td>${leadSourceBadge(l.source)}</td>
+        <td><span class="badge ${escapeHtml(l.status)}">${escapeHtml(l.status)}</span></td>
+        <td>${fmtMoney(l.expectedValue)}</td>
+        <td style="${overdue ? "color:var(--danger); font-weight:600;" : ""}">${l.nextFollowup ? fmtDate(l.nextFollowup) : "—"}</td>
+        <td class="row-actions">
+          <button class="icon-btn view-lead-btn" data-id="${l.id}" title="View"><i class="fa-solid fa-eye"></i></button>
+          <button class="icon-btn edit-lead-btn" data-id="${l.id}" title="Edit"><i class="fa-solid fa-pen"></i></button>
+          ${!["Converted", "Lost"].includes(l.status) ? `<button class="icon-btn convert-lead-btn" data-id="${l.id}" title="Convert to Client"><i class="fa-solid fa-right-left"></i></button>` : ""}
+          <button class="icon-btn delete-lead-btn" data-id="${l.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>
+        </td>
+      </tr>
+    `;
+    }).join("");
+
+    $$(".view-lead-btn").forEach((btn) => btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const lead = state.leads.find((l) => l.id === btn.dataset.id);
+      if (lead) openLeadDrawer(lead);
+    }));
+
+    $$(".edit-lead-btn").forEach((btn) => btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openLeadModal(btn.dataset.id);
+    }));
+
+    $$(".convert-lead-btn").forEach((btn) => btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const lead = state.leads.find((l) => l.id === btn.dataset.id);
+      if (!lead) return;
+      openConfirmConvert(lead);
+    }));
+
+    $$(".delete-lead-btn").forEach((btn) => btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const lead = state.leads.find((l) => l.id === btn.dataset.id);
+      openConfirm(
+        "Delete this lead?",
+        `This will permanently delete the lead record for ${lead ? escapeHtml(lead.name) : "this contact"}.`,
+        async () => {
+          try {
+            await Api.deleteLead(btn.dataset.id);
+            await refreshLeadsData();
+            showToast("Lead deleted", "success");
+          } catch (err) {
+            showToast(err.message, "error");
+          }
+        }
+      );
+    }));
+  }
+
+  // Re-uses the shared confirm dialog to ask before turning a lead into a
+  // paying client (creates a payment record + wipes the lead from the list).
+  function openConfirmConvert(lead) {
+    openConfirm(
+      "Convert to Client?",
+      `This will move "${escapeHtml(lead.name)}" into Clients/Payments using their expected value as the opening amount, and remove them from Leads.`,
+      async () => {
+        try {
+          await Api.convertLead(lead.id, {
+            totalAmount: Number(lead.expectedValue) || 0,
+            category: state.categories[0] || "Other"
+          });
+          await refreshLeadsData();
+          await refreshPaymentsData();
+          showToast(`${lead.name} converted to client`, "success");
+        } catch (err) {
+          showToast(err.message, "error");
+        }
+      }
+    );
+  }
+
+  function openLeadModal(id = null) {
+    state.editingLeadId = id;
+    const overlay = $("#leadModalOverlay");
+    const title = $("#leadModalTitle");
+    const form = $("#leadForm");
+    form.reset();
+
+    if (id) {
+      const lead = state.leads.find((l) => l.id === id);
+      if (!lead) return;
+      title.textContent = "Edit Lead";
+      $("#leadId").value = lead.id;
+      $("#lName").value = lead.name || "";
+      $("#lMobile").value = lead.mobile || "";
+      $("#lBusinessName").value = lead.businessName || "";
+      $("#lInstagram").value = lead.instagram || "";
+      $("#lSource").value = lead.source || "Instagram DM";
+      $("#lStatus").value = lead.status || "New";
+      $("#lExpectedValue").value = lead.expectedValue || 0;
+      $("#lNextFollowup").value = lead.nextFollowup || "";
+      $("#lNotes").value = lead.notes || "";
+    } else {
+      title.textContent = "Add Lead";
+      $("#leadId").value = "";
+      $("#lSource").value = "Instagram DM";
+      $("#lStatus").value = "New";
+      $("#lExpectedValue").value = 0;
+    }
+
+    overlay.hidden = false;
+  }
+
+  function closeLeadModal() {
+    $("#leadModalOverlay").hidden = true;
+    state.editingLeadId = null;
+  }
+
+  function collectLeadFormData() {
+    return {
+      name: $("#lName").value.trim(),
+      mobile: $("#lMobile").value.trim(),
+      businessName: $("#lBusinessName").value.trim(),
+      instagram: $("#lInstagram").value.trim(),
+      source: $("#lSource").value,
+      status: $("#lStatus").value,
+      expectedValue: Number($("#lExpectedValue").value) || 0,
+      nextFollowup: $("#lNextFollowup").value,
+      notes: $("#lNotes").value.trim()
+    };
+  }
+
+  function initLeadModal() {
+    $("#addLeadBtn").addEventListener("click", () => openLeadModal());
+    $("#closeLeadModal").addEventListener("click", closeLeadModal);
+    $("#cancelLeadBtn").addEventListener("click", closeLeadModal);
+    $("#leadModalOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "leadModalOverlay") closeLeadModal();
+    });
+
+    $("#leadForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const data = collectLeadFormData();
+      const id = $("#leadId").value;
+      try {
+        if (id) {
+          await Api.updateLead(id, data);
+          showToast("Lead updated", "success");
+        } else {
+          await Api.createLead(data);
+          showToast("Lead added", "success");
+        }
+        closeLeadModal();
+        await refreshLeadsData();
+      } catch (err) {
+        showToast(err.message, "error");
+      }
+    });
+  }
+
+  function openLeadDrawer(lead) {
+    $("#leadDrawerTitle").textContent = lead.name;
+    const body = $("#leadDrawerBody");
+    body.innerHTML = `
+      <div style="display:flex; flex-direction:column; gap:16px;">
+        <div class="client-stats" style="border-top:none; padding-top:0;">
+          <div><span class="cs-label">Status</span><span class="cs-value"><span class="badge ${escapeHtml(lead.status)}">${escapeHtml(lead.status)}</span></span></div>
+          <div><span class="cs-label">Expected Value</span><span class="cs-value">${fmtMoney(lead.expectedValue)}</span></div>
+          <div><span class="cs-label">Next Follow-up</span><span class="cs-value">${lead.nextFollowup ? fmtDate(lead.nextFollowup) : "—"}</span></div>
+        </div>
+        <p style="font-size:13px; color:var(--text-muted);">
+          <b>Mobile:</b> ${escapeHtml(lead.mobile || "—")}<br/>
+          <b>Business:</b> ${escapeHtml(lead.businessName || "—")}<br/>
+          <b>Instagram:</b> ${escapeHtml(lead.instagram || "—")}<br/>
+          <b>Source:</b> ${leadSourceBadge(lead.source)}<br/>
+          <b>Added:</b> ${lead.createdAt ? fmtDate(lead.createdAt) : "—"}
+        </p>
+        <div>
+          <b style="font-size:13px;">Notes</b>
+          <p style="font-size:13px; color:var(--text-muted); white-space:pre-wrap;">${escapeHtml(lead.notes || "No notes yet.")}</p>
+        </div>
+      </div>
+    `;
+    $("#leadDrawerOverlay").hidden = false;
+  }
+
+  function initLeadDrawer() {
+    $("#closeLeadDrawer").addEventListener("click", () => { $("#leadDrawerOverlay").hidden = true; });
+    $("#leadDrawerOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "leadDrawerOverlay") $("#leadDrawerOverlay").hidden = true;
+    });
+  }
+
+  function initLeadsToolbar() {
+    $("#leadSearch").addEventListener("input", debounce(renderLeadsView, 200));
+    $("#leadFilterStatus").addEventListener("change", renderLeadsView);
+    $("#leadFilterSource").addEventListener("change", renderLeadsView);
+    $("#sortLeads").addEventListener("change", renderLeadsView);
+  }
+
+  /* ------------------------------------------------------------------ */
   /* Reports view                                                       */
   /* ------------------------------------------------------------------ */
   async function runReport() {
@@ -1601,18 +1895,20 @@
   /* Initial data load                                                   */
   /* ------------------------------------------------------------------ */
   async function loadInitialData() {
-    const [payments, categories, settings, expenses, expenseCategories] = await Promise.all([
+    const [payments, categories, settings, expenses, expenseCategories, leads] = await Promise.all([
       Api.getPayments(),
       Api.getCategories(),
       Api.getSettings(),
       Api.getExpenses(),
-      Api.getExpenseCategories()
+      Api.getExpenseCategories(),
+      Api.getLeads()
     ]);
     state.payments = payments;
     state.categories = categories;
     state.settings = settings;
     state.expenses = expenses;
     state.expenseCategories = expenseCategories;
+    state.leads = leads;
 
     applySettingsToUI();
     renderGreeting();
@@ -1637,6 +1933,9 @@
     initConfirmDialog();
     initClientSearch();
     initClientDrawer();
+    initLeadModal();
+    initLeadDrawer();
+    initLeadsToolbar();
     initCategoryForm();
     initReportsToolbar();
     initExpenseModal();
