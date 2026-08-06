@@ -336,6 +336,8 @@ input, select, textarea { font-family: inherit; }
 .btn-ghost:hover { background: var(--bg); color: var(--text); }
 .btn-danger { background: var(--danger); color: #fff; }
 .btn-danger:hover { background: #c8434a; }
+.btn-success { background: var(--success); color: #fff; box-shadow: 0 8px 18px -6px color-mix(in srgb, var(--success) 60%, transparent); }
+.btn-success:hover { background: #128a5f; transform: translateY(-1px); }
 .btn:active { transform: scale(.97); }
 
 .link-btn { font-size: 12.5px; font-weight: 600; color: var(--accent); }
@@ -389,9 +391,9 @@ input, select, textarea { font-family: inherit; }
 .stat-card.rose::after { background: var(--danger); }
 
 /* Reports & Expenses polish */
-.report-stat-grid, .expense-stat-grid { margin-bottom: 18px; }
-.report-stat-grid .stat-card, .expense-stat-grid .stat-card { cursor: default; }
-.report-stat-grid .stat-card:hover, .expense-stat-grid .stat-card:hover { transform: none; }
+.report-stat-grid, .expense-stat-grid, .lead-stat-grid { margin-bottom: 18px; }
+.report-stat-grid .stat-card, .expense-stat-grid .stat-card, .lead-stat-grid .stat-card { cursor: default; }
+.report-stat-grid .stat-card:hover, .expense-stat-grid .stat-card:hover, .lead-stat-grid .stat-card:hover { transform: none; }
 .data-table td.amount-paid { color: var(--success); font-weight: 600; }
 .data-table td.amount-pending { color: var(--danger); font-weight: 600; }
 .data-table tfoot td { font-weight: 700; border-top: 2px solid var(--border); background: var(--card-alt); }
@@ -465,7 +467,22 @@ input, select, textarea { font-family: inherit; }
 .badge.Partial { color: var(--warning); }
 .badge.Pending { color: var(--danger); }
 
+/* Lead status badges */
+.badge.New { color: var(--blue); }
+.badge.Contacted { color: var(--violet); }
+.badge.Follow-up { color: var(--warning); }
+.badge.Interested { color: var(--accent); }
+.badge.Converted { color: var(--success); }
+.badge.Lost { color: var(--danger); }
+
 .badge-cat { background: var(--accent-light); color: var(--accent-dark); font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 8px; }
+
+/* Lead source chip */
+.badge-source { background: var(--violet-bg); color: var(--violet); font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 8px; white-space: nowrap; }
+
+/* Follow-up date — highlight when due today / overdue */
+.followup-due { color: var(--warning); font-weight: 700; }
+.followup-overdue { color: var(--danger); font-weight: 700; }
 
 .row-actions { display: flex; gap: 6px; }
 .row-actions button {
@@ -475,6 +492,8 @@ input, select, textarea { font-family: inherit; }
 }
 .row-actions button:hover { background: var(--accent-light); color: var(--accent-dark); border-color: transparent; }
 .row-actions button.danger:hover { background: var(--danger-bg); color: var(--danger); }
+.row-actions button.convert:hover { background: var(--success-bg); color: var(--success); }
+.row-actions button.lost:hover { background: var(--danger-bg); color: var(--danger); }
 
 .empty-state { text-align: center; padding: 60px 20px; color: var(--text-faint); }
 .empty-state i { font-size: 34px; margin-bottom: 12px; display: block; }

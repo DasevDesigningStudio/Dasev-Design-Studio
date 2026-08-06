@@ -45,6 +45,9 @@
     <a href="#clients" class="nav-item" data-view="clients">
       <i class="fa-solid fa-address-book"></i><span>Clients</span>
     </a>
+    <a href="#leads" class="nav-item" data-view="leads">
+      <i class="fa-solid fa-user-plus"></i><span>Leads</span>
+    </a>
     <a href="#reports" class="nav-item" data-view="reports">
       <i class="fa-solid fa-chart-line"></i><span>Reports</span>
     </a>
@@ -343,6 +346,113 @@
       </div>
 
       <div class="client-grid" id="clientGrid"></div>
+    </section>
+
+    <!-- ======================= LEADS ======================= -->
+    <section class="view" id="view-leads">
+      <div class="view-header">
+        <div>
+          <h1>Leads</h1>
+          <p class="view-subtitle">Track inquiries and follow-ups before they become paying clients.</p>
+        </div>
+        <button class="btn btn-primary" id="addLeadBtn"><i class="fa-solid fa-plus"></i> Add Lead</button>
+      </div>
+
+      <div class="stat-grid lead-stat-grid">
+        <div class="stat-card teal">
+          <div class="stat-icon"><i class="fa-solid fa-user-plus"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Total Leads</span>
+            <span class="stat-value" id="leadStatTotal">0</span>
+          </div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-icon"><i class="fa-solid fa-comment-dots"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">In Progress</span>
+            <span class="stat-value" id="leadStatInProgress">0</span>
+          </div>
+        </div>
+        <div class="stat-card amber">
+          <div class="stat-icon"><i class="fa-solid fa-calendar-check"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Follow-up Today</span>
+            <span class="stat-value" id="leadStatFollowupToday">0</span>
+          </div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-icon"><i class="fa-solid fa-circle-check"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Converted</span>
+            <span class="stat-value" id="leadStatConverted">0</span>
+          </div>
+        </div>
+        <div class="stat-card rose">
+          <div class="stat-icon"><i class="fa-solid fa-circle-xmark"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Lost</span>
+            <span class="stat-value" id="leadStatLost">0</span>
+          </div>
+        </div>
+        <div class="stat-card violet">
+          <div class="stat-icon"><i class="fa-solid fa-sack-dollar"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Pipeline Value</span>
+            <span class="stat-value" id="leadStatPipelineValue">₹0</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="toolbar card">
+        <div class="toolbar-search">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input type="text" id="leadSearch" placeholder="Search leads, business, mobile, Instagram…" />
+        </div>
+        <div class="toolbar-filters wrap">
+          <select id="leadFilterStatus">
+            <option value="">All Status</option>
+            <option value="New">New</option>
+            <option value="Contacted">Contacted</option>
+            <option value="Follow-up">Follow-up</option>
+            <option value="Interested">Interested</option>
+            <option value="Converted">Converted</option>
+            <option value="Lost">Lost</option>
+          </select>
+          <select id="leadFilterSource">
+            <option value="">All Sources</option>
+            <option value="Instagram DM">Instagram DM</option>
+            <option value="Referral">Referral</option>
+            <option value="Cold Call">Cold Call</option>
+            <option value="Website">Website</option>
+            <option value="Other">Other</option>
+          </select>
+          <select id="sortLeads">
+            <option value="followup-asc">Next Follow-up (Soonest)</option>
+            <option value="date-desc">Newest First</option>
+            <option value="date-asc">Oldest First</option>
+            <option value="value-desc">Expected Value High → Low</option>
+            <option value="name-asc">Name A → Z</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card table-card">
+        <div class="table-scroll">
+          <table class="data-table" id="leadsTable">
+            <thead>
+              <tr>
+                <th>Name</th><th>Business</th><th>Mobile</th><th>Source</th>
+                <th>Status</th><th>Expected Value</th><th>Next Follow-up</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="leadsEmpty" hidden>
+          <i class="fa-solid fa-user-plus"></i>
+          <p>No leads yet. Add your first lead to start tracking inquiries.</p>
+        </div>
+      </div>
     </section>
 
     <!-- ======================= REPORTS ======================= -->
@@ -730,6 +840,74 @@
   </div>
 </div>
 
+<!-- Lead Add/Edit Modal -->
+<div class="modal-overlay" id="leadModalOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h2 id="leadModalTitle">Add Lead</h2>
+      <button class="icon-btn" id="closeLeadModal"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="leadForm" class="modal-body">
+      <input type="hidden" id="leadId" />
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Name *</label>
+          <input type="text" id="lName" required />
+        </div>
+        <div class="form-group">
+          <label>Mobile *</label>
+          <input type="tel" id="lMobile" required pattern="[0-9+\-\s]{7,15}" />
+        </div>
+        <div class="form-group">
+          <label>Business Name</label>
+          <input type="text" id="lBusinessName" />
+        </div>
+        <div class="form-group">
+          <label>Instagram Handle</label>
+          <input type="text" id="lInstagram" placeholder="@handle" />
+        </div>
+        <div class="form-group">
+          <label>Source *</label>
+          <select id="lSource" required>
+            <option value="Instagram DM">Instagram DM</option>
+            <option value="Referral">Referral</option>
+            <option value="Cold Call">Cold Call</option>
+            <option value="Website">Website</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="lStatus">
+            <option value="New">New</option>
+            <option value="Contacted">Contacted</option>
+            <option value="Follow-up">Follow-up</option>
+            <option value="Interested">Interested</option>
+            <option value="Converted">Converted</option>
+            <option value="Lost">Lost</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Expected Value (₹)</label>
+          <input type="number" id="lExpectedValue" min="0" step="0.01" />
+        </div>
+        <div class="form-group">
+          <label>Next Follow-up Date</label>
+          <input type="date" id="lNextFollowup" />
+        </div>
+        <div class="form-group full">
+          <label>Notes</label>
+          <textarea id="lNotes" rows="3" placeholder="Conversation details…"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="cancelLeadBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveLeadBtn"><i class="fa-solid fa-check"></i> Save Lead</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Confirmation Dialog -->
 <div class="modal-overlay" id="confirmOverlay" hidden>
   <div class="modal modal-sm">
@@ -753,6 +931,17 @@
       <button class="icon-btn" id="closeClientDrawer"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="modal-body" id="clientDrawerBody"></div>
+  </div>
+</div>
+
+<!-- Lead Detail Drawer -->
+<div class="modal-overlay" id="leadDrawerOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h2 id="leadDrawerTitle">Lead</h2>
+      <button class="icon-btn" id="closeLeadDrawer"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body" id="leadDrawerBody"></div>
   </div>
 </div>
 

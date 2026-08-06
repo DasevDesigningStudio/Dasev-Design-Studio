@@ -20,7 +20,9 @@
     "@capacitor/cli": "^8.4.2",
     "@capacitor/core": "^8.4.2",
     "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
     "express": "^4.19.2",
+    "mongoose": "^9.9.1",
     "multer": "^2.0.0"
   }
 }

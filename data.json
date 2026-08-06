@@ -305,6 +305,23 @@
       "dueDate": "",
       "notes": "",
       "createdAt": "2026-07-28T15:18:42.046Z"
+    },
+    {
+      "id": "PMT-1019",
+      "clientName": "Nilam Madam",
+      "mobile": "+91 78638 48828",
+      "businessName": "Nilam Madam",
+      "instagram": "nilamv680",
+      "workDetails": "",
+      "category": "Post",
+      "date": "2026-08-05",
+      "totalAmount": 199,
+      "paidAmount": 199,
+      "pendingAmount": 0,
+      "status": "Paid",
+      "dueDate": "",
+      "notes": "",
+      "createdAt": "2026-08-05T15:21:34.701Z"
     }
   ],
   "categories": [
@@ -317,6 +334,18 @@
     "Other",
     "Logo",
     "Story"
+  ],
+  "expenses": [],
+  "expenseCategories": [
+    "Ad Spend",
+    "Software/Tools",
+    "Salary",
+    "Freelancer",
+    "Rent",
+    "Internet/Phone",
+    "Travel",
+    "Nasto",
+    "Other"
   ],
   "settings": {
     "companyName": "Dasev Design Studio",
