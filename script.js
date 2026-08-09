@@ -302,9 +302,48 @@
     if (darkIcon) darkIcon.className = state.settings.darkMode ? "fa-solid fa-sun" : "fa-solid fa-moon";
   }
 
+  /* Reads live CSS custom properties so Chart.js matches the current
+     theme color + light/dark mode without hardcoding hex values. */
+  function chartTheme() {
+    const css = getComputedStyle(document.body);
+    const v = (name, fallback) => (css.getPropertyValue(name) || "").trim() || fallback;
+    return {
+      accent: v("--accent", "#14a690"),
+      accent2: v("--accent-2", "#0d8a77"),
+      success: v("--success", "#14a06f"),
+      warning: v("--warning", "#d99424"),
+      danger: v("--danger", "#e4534e"),
+      violet: v("--violet", "#7c6cf0"),
+      text: v("--text-muted", "#647c79"),
+      grid: v("--border", "#e6edec"),
+      font: "'Inter', 'Noto Sans Gujarati', sans-serif",
+    };
+  }
+
+  function applyChartDefaults() {
+    if (typeof Chart === "undefined") return;
+    const t = chartTheme();
+    Chart.defaults.font.family = t.font;
+    Chart.defaults.font.size = 12;
+    Chart.defaults.color = t.text;
+    Chart.defaults.plugins.tooltip.backgroundColor = state.settings.darkMode ? "#0d1a18" : "#0f2422";
+    Chart.defaults.plugins.tooltip.titleFont = { family: t.font, weight: "700" };
+    Chart.defaults.plugins.tooltip.bodyFont = { family: t.font };
+    Chart.defaults.plugins.tooltip.padding = 10;
+    Chart.defaults.plugins.tooltip.cornerRadius = 8;
+    Chart.defaults.plugins.tooltip.displayColors = true;
+    Chart.defaults.plugins.legend.labels.usePointStyle = true;
+    Chart.defaults.plugins.legend.labels.boxWidth = 8;
+    Chart.defaults.plugins.legend.labels.padding = 14;
+  }
+
   async function toggleDarkMode() {
     state.settings.darkMode = !state.settings.darkMode;
     applySettingsToUI();
+    applyChartDefaults();
+    // Re-render any visible charts so gridlines/text recolor for the new mode
+    if (state.dashboard) renderCharts(state.dashboard);
+    if ($("#view-expenses")?.classList.contains("active")) renderExpenseChart();
     try {
       await Api.updateSettings({ darkMode: state.settings.darkMode });
     } catch (err) {
@@ -474,6 +513,7 @@
 
   function renderCharts(d) {
     if (typeof Chart === "undefined") return;
+    const t = chartTheme();
 
     // Status pie chart
     const pieCtx = $("#statusPieChart");
@@ -486,11 +526,18 @@
           labels: ["Paid", "Partial", "Pending"],
           datasets: [{
             data: [counts.Paid, counts.Partial, counts.Pending],
-            backgroundColor: ["#1f9d75", "#e0a300", "#e2544c"],
-            borderWidth: 0
+            backgroundColor: [t.success, t.warning, t.danger],
+            hoverOffset: 6,
+            borderWidth: 3,
+            borderColor: state.settings.darkMode ? "#0d1a18" : "#ffffff",
+            spacing: 2
           }]
         },
-        options: { plugins: { legend: { position: "bottom" } }, cutout: "65%" }
+        options: {
+          plugins: { legend: { position: "bottom" } },
+          cutout: "70%",
+          animation: { animateRotate: true, duration: 700, easing: "easeOutQuart" }
+        }
       });
     }
 
@@ -499,6 +546,9 @@
     if (monthlyCtx) {
       const entries = Object.entries(d.monthlyIncome || {}).sort(([a], [b]) => a.localeCompare(b));
       if (state.charts.monthly) state.charts.monthly.destroy();
+      const gradient = monthlyCtx.getContext("2d").createLinearGradient(0, 0, 0, 220);
+      gradient.addColorStop(0, colorWithAlpha(t.accent, 0.28));
+      gradient.addColorStop(1, colorWithAlpha(t.accent, 0.02));
       state.charts.monthly = new Chart(monthlyCtx, {
         type: "line",
         data: {
@@ -506,13 +556,26 @@
           datasets: [{
             label: "Income",
             data: entries.map(([, v]) => v),
-            borderColor: "#12756c",
-            backgroundColor: "rgba(18,117,108,0.12)",
+            borderColor: t.accent,
+            backgroundColor: gradient,
+            pointBackgroundColor: t.accent,
+            pointBorderColor: state.settings.darkMode ? "#0d1a18" : "#ffffff",
+            pointBorderWidth: 2,
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            borderWidth: 2.5,
             fill: true,
-            tension: 0.35
+            tension: 0.4
           }]
         },
-        options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+        options: {
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: true, grid: { color: t.grid }, border: { display: false } },
+            x: { grid: { display: false }, border: { display: false } }
+          },
+          animation: { duration: 700, easing: "easeOutQuart" }
+        }
       });
     }
 
@@ -528,12 +591,32 @@
           datasets: [{
             label: "Business",
             data: entries.map(([, v]) => v),
-            backgroundColor: "#7c6cf0"
+            backgroundColor: t.violet,
+            borderRadius: 8,
+            maxBarThickness: 34
           }]
         },
-        options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+        options: {
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: true, grid: { color: t.grid }, border: { display: false } },
+            x: { grid: { display: false }, border: { display: false } }
+          },
+          animation: { duration: 700, easing: "easeOutQuart" }
+        }
       });
     }
+  }
+
+  /* Adds alpha transparency to a hex or rgb() color string, used for chart fills. */
+  function colorWithAlpha(color, alpha) {
+    if (color.startsWith("#")) {
+      const hex = color.replace("#", "");
+      const bigint = parseInt(hex.length === 3 ? hex.split("").map((c) => c + c).join("") : hex, 16);
+      const r = (bigint >> 16) & 255, g = (bigint >> 8) & 255, b = bigint & 255;
+      return `rgba(${r},${g},${b},${alpha})`;
+    }
+    return color;
   }
 
   /* ------------------------------------------------------------------ */
@@ -1548,23 +1631,33 @@
 
   function renderInvoiceAndPrint(p) {
     const area = $("#invoicePrintArea");
+    const statusColor = p.status === "Paid" ? "#0d7a54" : p.status === "Partial" ? "#b3760f" : "#c53a37";
     area.innerHTML = `
-      <div style="font-family:sans-serif; max-width:700px; margin:0 auto;">
-        <h1 style="margin-bottom:4px;">${escapeHtml(state.settings.companyName || "PayFlow")}</h1>
-        <p style="color:#555; margin-bottom:24px;">Invoice — ${escapeHtml(p.id)}</p>
+      <div style="font-family:'Inter','Noto Sans Gujarati',sans-serif; max-width:700px; margin:0 auto; color:#0f2422;">
+        <div style="display:flex; align-items:center; justify-content:space-between; border-bottom:3px solid #14a690; padding-bottom:18px; margin-bottom:24px;">
+          <div>
+            <h1 style="margin:0 0 4px; font-family:'Plus Jakarta Sans','Noto Sans Gujarati',sans-serif; font-size:24px; letter-spacing:-0.02em;">${escapeHtml(state.settings.companyName || "AgencyOS")}</h1>
+            <p style="color:#647c79; margin:0; font-size:13px;">Payment Invoice</p>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:#a1b5b2;">Invoice ID</div>
+            <div style="font-family:monospace; font-size:13px; font-weight:600;">${escapeHtml(p.id)}</div>
+          </div>
+        </div>
         <table style="width:100%; border-collapse:collapse; font-size:14px;">
-          <tr><td style="padding:6px 0;"><b>Client</b></td><td>${escapeHtml(p.clientName)}</td></tr>
-          <tr><td style="padding:6px 0;"><b>Mobile</b></td><td>${escapeHtml(p.mobile)}</td></tr>
-          <tr><td style="padding:6px 0;"><b>Business</b></td><td>${escapeHtml(p.businessName)}</td></tr>
-          <tr><td style="padding:6px 0;"><b>Category</b></td><td>${escapeHtml(p.category)}</td></tr>
-          <tr><td style="padding:6px 0;"><b>Work Details</b></td><td>${escapeHtml(p.workDetails)}</td></tr>
-          <tr><td style="padding:6px 0;"><b>Date</b></td><td>${fmtDate(p.date)}</td></tr>
-          <tr><td style="padding:6px 0;"><b>Total Amount</b></td><td>${fmtMoney(p.totalAmount)}</td></tr>
-          <tr><td style="padding:6px 0;"><b>Paid Amount</b></td><td>${fmtMoney(p.paidAmount)}</td></tr>
-          <tr><td style="padding:6px 0;"><b>Pending Amount</b></td><td>${fmtMoney(p.pendingAmount)}</td></tr>
-          <tr><td style="padding:6px 0;"><b>Status</b></td><td>${escapeHtml(p.status)}</td></tr>
-          <tr><td style="padding:6px 0;"><b>Notes</b></td><td>${escapeHtml(p.notes)}</td></tr>
+          <tr><td style="padding:9px 0; border-bottom:1px solid #e6edec; color:#647c79;">Client</td><td style="padding:9px 0; border-bottom:1px solid #e6edec; font-weight:600; text-align:right;">${escapeHtml(p.clientName)}</td></tr>
+          <tr><td style="padding:9px 0; border-bottom:1px solid #e6edec; color:#647c79;">Mobile</td><td style="padding:9px 0; border-bottom:1px solid #e6edec; text-align:right;">${escapeHtml(p.mobile)}</td></tr>
+          <tr><td style="padding:9px 0; border-bottom:1px solid #e6edec; color:#647c79;">Business</td><td style="padding:9px 0; border-bottom:1px solid #e6edec; text-align:right;">${escapeHtml(p.businessName)}</td></tr>
+          <tr><td style="padding:9px 0; border-bottom:1px solid #e6edec; color:#647c79;">Category</td><td style="padding:9px 0; border-bottom:1px solid #e6edec; text-align:right;">${escapeHtml(p.category)}</td></tr>
+          <tr><td style="padding:9px 0; border-bottom:1px solid #e6edec; color:#647c79;">Work Details</td><td style="padding:9px 0; border-bottom:1px solid #e6edec; text-align:right;">${escapeHtml(p.workDetails)}</td></tr>
+          <tr><td style="padding:9px 0; border-bottom:1px solid #e6edec; color:#647c79;">Date</td><td style="padding:9px 0; border-bottom:1px solid #e6edec; text-align:right;">${fmtDate(p.date)}</td></tr>
+          <tr><td style="padding:9px 0; border-bottom:1px solid #e6edec; color:#647c79;">Total Amount</td><td style="padding:9px 0; border-bottom:1px solid #e6edec; font-weight:700; text-align:right;">${fmtMoney(p.totalAmount)}</td></tr>
+          <tr><td style="padding:9px 0; border-bottom:1px solid #e6edec; color:#647c79;">Paid Amount</td><td style="padding:9px 0; border-bottom:1px solid #e6edec; color:#0d7a54; font-weight:700; text-align:right;">${fmtMoney(p.paidAmount)}</td></tr>
+          <tr><td style="padding:9px 0; border-bottom:1px solid #e6edec; color:#647c79;">Pending Amount</td><td style="padding:9px 0; border-bottom:1px solid #e6edec; color:#c53a37; font-weight:700; text-align:right;">${fmtMoney(p.pendingAmount)}</td></tr>
+          <tr><td style="padding:9px 0; border-bottom:1px solid #e6edec; color:#647c79;">Status</td><td style="padding:9px 0; border-bottom:1px solid #e6edec; text-align:right;"><span style="color:${statusColor}; font-weight:700; text-transform:uppercase; font-size:12px; letter-spacing:.03em;">${escapeHtml(p.status)}</span></td></tr>
+          <tr><td style="padding:9px 0; color:#647c79; vertical-align:top;">Notes</td><td style="padding:9px 0; text-align:right;">${escapeHtml(p.notes || "—")}</td></tr>
         </table>
+        <p style="margin-top:28px; text-align:center; color:#a1b5b2; font-size:11.5px;">Generated via ${escapeHtml(state.settings.companyName || "AgencyOS")} · ${fmtDate(new Date().toISOString().slice(0,10))}</p>
       </div>
     `;
     window.print();
@@ -1668,17 +1761,25 @@
     const entries = Object.entries(totals);
 
     if (state.charts.expenseCategory) state.charts.expenseCategory.destroy();
+    const t = chartTheme();
     state.charts.expenseCategory = new Chart(ctx, {
       type: "doughnut",
       data: {
         labels: entries.map(([k]) => k),
         datasets: [{
           data: entries.map(([, v]) => v),
-          backgroundColor: ["#e0555c", "#dd9a2e", "#7c6cf0", "#3b82f6", "#17a072", "#e15b7c", "#12756c", "#a7b7b5"],
-          borderWidth: 0
+          backgroundColor: [t.danger, t.warning, t.violet, "#3b82f6", t.success, "#e15b7c", t.accent, "#a1b5b2"],
+          hoverOffset: 6,
+          borderWidth: 3,
+          borderColor: state.settings.darkMode ? "#0d1a18" : "#ffffff",
+          spacing: 2
         }]
       },
-      options: { plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } } }, cutout: "60%" }
+      options: {
+        plugins: { legend: { position: "bottom", labels: { boxWidth: 8, font: { size: 11 } } } },
+        cutout: "66%",
+        animation: { duration: 700, easing: "easeOutQuart" }
+      }
     });
   }
 
@@ -1818,6 +1919,9 @@
         state.settings.themeColor = swatch.dataset.theme;
         applySettingsToUI();
         renderSettingsForm();
+        applyChartDefaults();
+        if (state.dashboard) renderCharts(state.dashboard);
+        if ($("#view-expenses")?.classList.contains("active")) renderExpenseChart();
         try { await Api.updateSettings({ themeColor: state.settings.themeColor }); }
         catch (err) { showToast(err.message, "error"); }
       });
@@ -1827,12 +1931,18 @@
       state.settings.darkMode = false;
       applySettingsToUI();
       renderSettingsForm();
+      applyChartDefaults();
+      if (state.dashboard) renderCharts(state.dashboard);
+      if ($("#view-expenses")?.classList.contains("active")) renderExpenseChart();
       try { await Api.updateSettings({ darkMode: false }); } catch (err) { showToast(err.message, "error"); }
     });
     $("#darkModeBtn").addEventListener("click", async () => {
       state.settings.darkMode = true;
       applySettingsToUI();
       renderSettingsForm();
+      applyChartDefaults();
+      if (state.dashboard) renderCharts(state.dashboard);
+      if ($("#view-expenses")?.classList.contains("active")) renderExpenseChart();
       try { await Api.updateSettings({ darkMode: true }); } catch (err) { showToast(err.message, "error"); }
     });
 
@@ -1911,6 +2021,7 @@
     state.leads = leads;
 
     applySettingsToUI();
+    applyChartDefaults();
     renderGreeting();
     populateCategorySelects();
 
