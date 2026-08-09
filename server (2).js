@@ -7,6 +7,7 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
+const { Pool } = require("pg");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -16,7 +17,30 @@ app.use(express.json());
 // Static files (index.html, style.css, script.js, etc.)
 app.use(express.static(__dirname));
 
-const DATA_FILE = path.join(__dirname, "data.json");
+/* ---------------------------------------------------------------------- */
+/* Database (Supabase Postgres) — replaces the old data.json file so data */
+/* survives restarts / free-tier spin-downs.                              */
+/* ---------------------------------------------------------------------- */
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
+
+const ROW_ID = "main";
+
+async function initDb() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_data (
+      id TEXT PRIMARY KEY,
+      data JSONB NOT NULL
+    )
+  `);
+  const { rows } = await pool.query("SELECT 1 FROM app_data WHERE id = $1", [ROW_ID]);
+  if (rows.length === 0) {
+    await pool.query("INSERT INTO app_data (id, data) VALUES ($1, $2)", [ROW_ID, DEFAULT_DATA]);
+  }
+}
 
 /* ---------------------------------------------------------------------- */
 /* Data helpers                                                           */
@@ -37,21 +61,9 @@ const DEFAULT_DATA = {
   }
 };
 
-function ensureDataFile() {
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(DEFAULT_DATA, null, 2));
-  }
-}
-ensureDataFile();
-
-function loadData() {
-  ensureDataFile();
-  let raw;
-  try {
-    raw = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-  } catch (err) {
-    raw = {};
-  }
+async function loadData() {
+  const { rows } = await pool.query("SELECT data FROM app_data WHERE id = $1", [ROW_ID]);
+  const raw = rows[0] ? rows[0].data : {};
 
   // Normalize shape / fill in defaults defensively
   const data = {
@@ -68,17 +80,17 @@ function loadData() {
   };
 
   // One-time migration: make sure the "Nasto" expense category exists on
-  // data.json files that were created before it was added to the defaults.
+  // data that was created before it was added to the defaults.
   if (!data.expenseCategories.some((c) => c.toLowerCase() === "nasto")) {
     data.expenseCategories.push("Nasto");
-    saveData(data);
+    await saveData(data);
   }
 
   return data;
 }
 
-function saveData(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+async function saveData(data) {
+  await pool.query("UPDATE app_data SET data = $1 WHERE id = $2", [data, ROW_ID]);
 }
 
 function nextPaymentId(payments) {
@@ -406,7 +418,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 /* Home page                                                              */
 /* ---------------------------------------------------------------------- */
 
-app.get("/", (req, res) => {
+app.get("/", async (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
@@ -414,28 +426,28 @@ app.get("/", (req, res) => {
 /* Payments CRUD                                                          */
 /* ---------------------------------------------------------------------- */
 
-app.get("/api/payments", (req, res) => {
-  const data = loadData();
+app.get("/api/payments", async (req, res) => {
+  const data = await loadData();
   res.json(data.payments);
 });
 
-app.post("/api/payments", (req, res) => {
+app.post("/api/payments", async (req, res) => {
   try {
-    const data = loadData();
+    const data = await loadData();
     const payment = normalizePayment(req.body, {});
     payment.id = nextPaymentId(data.payments);
     payment.createdAt = new Date().toISOString();
     data.payments.push(payment);
-    saveData(data);
+    await saveData(data);
     res.json(payment);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put("/api/payments/:id", (req, res) => {
+app.put("/api/payments/:id", async (req, res) => {
   try {
-    const data = loadData();
+    const data = await loadData();
     const idx = data.payments.findIndex((p) => p.id === req.params.id);
     if (idx === -1) {
       return res.status(404).json({ error: "Payment not found" });
@@ -443,31 +455,31 @@ app.put("/api/payments/:id", (req, res) => {
     const updated = normalizePayment(req.body, data.payments[idx]);
     updated.id = data.payments[idx].id;
     data.payments[idx] = updated;
-    saveData(data);
+    await saveData(data);
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete("/api/payments/:id", (req, res) => {
+app.delete("/api/payments/:id", async (req, res) => {
   try {
-    const data = loadData();
+    const data = await loadData();
     const idx = data.payments.findIndex((p) => p.id === req.params.id);
     if (idx === -1) {
       return res.status(404).json({ error: "Payment not found" });
     }
     data.payments.splice(idx, 1);
-    saveData(data);
+    await saveData(data);
     res.json({ success: true, message: "Payment deleted successfully" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post("/api/payments/:id/duplicate", (req, res) => {
+app.post("/api/payments/:id/duplicate", async (req, res) => {
   try {
-    const data = loadData();
+    const data = await loadData();
     const original = data.payments.find((p) => p.id === req.params.id);
     if (!original) {
       return res.status(404).json({ error: "Payment not found" });
@@ -478,7 +490,7 @@ app.post("/api/payments/:id/duplicate", (req, res) => {
       createdAt: new Date().toISOString()
     };
     data.payments.push(copy);
-    saveData(data);
+    await saveData(data);
     res.json(copy);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -489,8 +501,8 @@ app.post("/api/payments/:id/duplicate", (req, res) => {
 /* Clients                                                                */
 /* ---------------------------------------------------------------------- */
 
-app.get("/api/clients", (req, res) => {
-  const data = loadData();
+app.get("/api/clients", async (req, res) => {
+  const data = await loadData();
   const month = req.query.month;
   const payments = (month && month !== "all")
     ? data.payments.filter((p) => (p.date || "").slice(0, 7) === month)
@@ -502,28 +514,28 @@ app.get("/api/clients", (req, res) => {
 /* Leads                                                                  */
 /* ---------------------------------------------------------------------- */
 
-app.get("/api/leads", (req, res) => {
-  const data = loadData();
+app.get("/api/leads", async (req, res) => {
+  const data = await loadData();
   res.json(data.leads);
 });
 
-app.post("/api/leads", (req, res) => {
+app.post("/api/leads", async (req, res) => {
   try {
-    const data = loadData();
+    const data = await loadData();
     const lead = normalizeLead(req.body, {});
     lead.id = nextLeadId(data.leads);
     lead.createdAt = new Date().toISOString();
     data.leads.push(lead);
-    saveData(data);
+    await saveData(data);
     res.json(lead);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put("/api/leads/:id", (req, res) => {
+app.put("/api/leads/:id", async (req, res) => {
   try {
-    const data = loadData();
+    const data = await loadData();
     const idx = data.leads.findIndex((l) => l.id === req.params.id);
     if (idx === -1) {
       return res.status(404).json({ error: "Lead not found" });
@@ -531,22 +543,22 @@ app.put("/api/leads/:id", (req, res) => {
     const updated = normalizeLead(req.body, data.leads[idx]);
     updated.id = data.leads[idx].id;
     data.leads[idx] = updated;
-    saveData(data);
+    await saveData(data);
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete("/api/leads/:id", (req, res) => {
+app.delete("/api/leads/:id", async (req, res) => {
   try {
-    const data = loadData();
+    const data = await loadData();
     const idx = data.leads.findIndex((l) => l.id === req.params.id);
     if (idx === -1) {
       return res.status(404).json({ error: "Lead not found" });
     }
     data.leads.splice(idx, 1);
-    saveData(data);
+    await saveData(data);
     res.json({ success: true, message: "Lead deleted successfully" });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -556,9 +568,9 @@ app.delete("/api/leads/:id", (req, res) => {
 // Convert a lead into a paying client: creates a payment record from the
 // lead's details and marks the lead as "Converted", linking the two so the
 // lead keeps a reference to the payment it produced.
-app.post("/api/leads/:id/convert", (req, res) => {
+app.post("/api/leads/:id/convert", async (req, res) => {
   try {
-    const data = loadData();
+    const data = await loadData();
     const idx = data.leads.findIndex((l) => l.id === req.params.id);
     if (idx === -1) {
       return res.status(404).json({ error: "Lead not found" });
@@ -589,21 +601,21 @@ app.post("/api/leads/:id/convert", (req, res) => {
     lead.convertedPaymentId = payment.id;
     data.leads[idx] = lead;
 
-    saveData(data);
+    await saveData(data);
     res.json({ lead, payment });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get("/api/lead-sources", (req, res) => {
-  const data = loadData();
+app.get("/api/lead-sources", async (req, res) => {
+  const data = await loadData();
   res.json(data.leadSources);
 });
 
-app.post("/api/lead-sources", (req, res) => {
+app.post("/api/lead-sources", async (req, res) => {
   try {
-    const data = loadData();
+    const data = await loadData();
     const name = (req.body.name || "").toString().trim();
     if (!name) {
       return res.status(400).json({ error: "Source name is required" });
@@ -612,7 +624,7 @@ app.post("/api/lead-sources", (req, res) => {
       return res.status(400).json({ error: "Source already exists" });
     }
     data.leadSources.push(name);
-    saveData(data);
+    await saveData(data);
     res.json(data.leadSources);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -623,14 +635,14 @@ app.post("/api/lead-sources", (req, res) => {
 /* Categories                                                             */
 /* ---------------------------------------------------------------------- */
 
-app.get("/api/categories", (req, res) => {
-  const data = loadData();
+app.get("/api/categories", async (req, res) => {
+  const data = await loadData();
   res.json(data.categories);
 });
 
-app.post("/api/categories", (req, res) => {
+app.post("/api/categories", async (req, res) => {
   try {
-    const data = loadData();
+    const data = await loadData();
     const name = (req.body.name || "").toString().trim();
     if (!name) {
       return res.status(400).json({ error: "Category name is required" });
@@ -639,23 +651,23 @@ app.post("/api/categories", (req, res) => {
       return res.status(400).json({ error: "Category already exists" });
     }
     data.categories.push(name);
-    saveData(data);
+    await saveData(data);
     res.json(data.categories);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete("/api/categories/:name", (req, res) => {
+app.delete("/api/categories/:name", async (req, res) => {
   try {
-    const data = loadData();
+    const data = await loadData();
     const name = decodeURIComponent(req.params.name);
     const idx = data.categories.findIndex((c) => c === name);
     if (idx === -1) {
       return res.status(404).json({ error: "Category not found" });
     }
     data.categories.splice(idx, 1);
-    saveData(data);
+    await saveData(data);
     res.json(data.categories);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -666,28 +678,28 @@ app.delete("/api/categories/:name", (req, res) => {
 /* Expenses                                                               */
 /* ---------------------------------------------------------------------- */
 
-app.get("/api/expenses", (req, res) => {
-  const data = loadData();
+app.get("/api/expenses", async (req, res) => {
+  const data = await loadData();
   res.json(data.expenses);
 });
 
-app.post("/api/expenses", (req, res) => {
+app.post("/api/expenses", async (req, res) => {
   try {
-    const data = loadData();
+    const data = await loadData();
     const expense = normalizeExpense(req.body, {});
     expense.id = nextExpenseId(data.expenses);
     expense.createdAt = new Date().toISOString();
     data.expenses.push(expense);
-    saveData(data);
+    await saveData(data);
     res.json(expense);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put("/api/expenses/:id", (req, res) => {
+app.put("/api/expenses/:id", async (req, res) => {
   try {
-    const data = loadData();
+    const data = await loadData();
     const idx = data.expenses.findIndex((e) => e.id === req.params.id);
     if (idx === -1) {
       return res.status(404).json({ error: "Expense not found" });
@@ -695,36 +707,36 @@ app.put("/api/expenses/:id", (req, res) => {
     const updated = normalizeExpense(req.body, data.expenses[idx]);
     updated.id = data.expenses[idx].id;
     data.expenses[idx] = updated;
-    saveData(data);
+    await saveData(data);
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete("/api/expenses/:id", (req, res) => {
+app.delete("/api/expenses/:id", async (req, res) => {
   try {
-    const data = loadData();
+    const data = await loadData();
     const idx = data.expenses.findIndex((e) => e.id === req.params.id);
     if (idx === -1) {
       return res.status(404).json({ error: "Expense not found" });
     }
     data.expenses.splice(idx, 1);
-    saveData(data);
+    await saveData(data);
     res.json({ success: true, message: "Expense deleted successfully" });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get("/api/expense-categories", (req, res) => {
-  const data = loadData();
+app.get("/api/expense-categories", async (req, res) => {
+  const data = await loadData();
   res.json(data.expenseCategories);
 });
 
-app.post("/api/expense-categories", (req, res) => {
+app.post("/api/expense-categories", async (req, res) => {
   try {
-    const data = loadData();
+    const data = await loadData();
     const name = (req.body.name || "").toString().trim();
     if (!name) {
       return res.status(400).json({ error: "Category name is required" });
@@ -733,7 +745,7 @@ app.post("/api/expense-categories", (req, res) => {
       return res.status(400).json({ error: "Category already exists" });
     }
     data.expenseCategories.push(name);
-    saveData(data);
+    await saveData(data);
     res.json(data.expenseCategories);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -744,16 +756,16 @@ app.post("/api/expense-categories", (req, res) => {
 /* Settings                                                               */
 /* ---------------------------------------------------------------------- */
 
-app.get("/api/settings", (req, res) => {
-  const data = loadData();
+app.get("/api/settings", async (req, res) => {
+  const data = await loadData();
   res.json(data.settings);
 });
 
-app.put("/api/settings", (req, res) => {
+app.put("/api/settings", async (req, res) => {
   try {
-    const data = loadData();
+    const data = await loadData();
     data.settings = { ...data.settings, ...req.body };
-    saveData(data);
+    await saveData(data);
     res.json(data.settings);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -764,8 +776,8 @@ app.put("/api/settings", (req, res) => {
 /* Dashboard                                                              */
 /* ---------------------------------------------------------------------- */
 
-app.get("/api/dashboard", (req, res) => {
-  const data = loadData();
+app.get("/api/dashboard", async (req, res) => {
+  const data = await loadData();
   res.json(buildDashboard(data.payments, req.query.month));
 });
 
@@ -773,15 +785,15 @@ app.get("/api/dashboard", (req, res) => {
 /* Reports                                                                */
 /* ---------------------------------------------------------------------- */
 
-app.get("/api/reports", (req, res) => {
-  const data = loadData();
+app.get("/api/reports", async (req, res) => {
+  const data = await loadData();
   const type = req.query.type || "monthly";
   const status = req.query.status || "";
   res.json(buildReport(data.payments, type, status));
 });
 
-app.get("/api/reports/top-clients", (req, res) => {
-  const data = loadData();
+app.get("/api/reports/top-clients", async (req, res) => {
+  const data = await loadData();
   const clients = buildClients(data.payments)
     .sort((a, b) => b.totalBusiness - a.totalBusiness)
     .slice(0, 10)
@@ -798,24 +810,24 @@ app.get("/api/reports/top-clients", (req, res) => {
 /* Export CSV                                                             */
 /* ---------------------------------------------------------------------- */
 
-app.get("/api/export/csv", (req, res) => {
-  const data = loadData();
+app.get("/api/export/csv", async (req, res) => {
+  const data = await loadData();
   const csv = paymentsToCsv(data.payments);
   res.setHeader("Content-Type", "text/csv");
   res.setHeader("Content-Disposition", `attachment; filename="payments-export-${Date.now()}.csv"`);
   res.send(csv);
 });
 
-app.get("/api/export/expenses-csv", (req, res) => {
-  const data = loadData();
+app.get("/api/export/expenses-csv", async (req, res) => {
+  const data = await loadData();
   const csv = expensesToCsv(data.expenses);
   res.setHeader("Content-Type", "text/csv");
   res.setHeader("Content-Disposition", `attachment; filename="expenses-export-${Date.now()}.csv"`);
   res.send(csv);
 });
 
-app.get("/api/export/leads-csv", (req, res) => {
-  const data = loadData();
+app.get("/api/export/leads-csv", async (req, res) => {
+  const data = await loadData();
   const csv = leadsToCsv(data.leads);
   res.setHeader("Content-Type", "text/csv");
   res.setHeader("Content-Disposition", `attachment; filename="leads-export-${Date.now()}.csv"`);
@@ -826,14 +838,14 @@ app.get("/api/export/leads-csv", (req, res) => {
 /* Backup / Restore                                                       */
 /* ---------------------------------------------------------------------- */
 
-app.get("/api/backup", (req, res) => {
-  const data = loadData();
+app.get("/api/backup", async (req, res) => {
+  const data = await loadData();
   res.setHeader("Content-Type", "application/json");
   res.setHeader("Content-Disposition", `attachment; filename="payflow-backup-${Date.now()}.json"`);
   res.send(JSON.stringify(data, null, 2));
 });
 
-app.post("/api/restore", upload.single("backupFile"), (req, res) => {
+app.post("/api/restore", upload.single("backupFile"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No backup file provided" });
@@ -851,7 +863,7 @@ app.post("/api/restore", upload.single("backupFile"), (req, res) => {
         ...(parsed.settings && typeof parsed.settings === "object" ? parsed.settings : {})
       }
     };
-    saveData(restored);
+    await saveData(restored);
     res.json({ success: true, message: "Backup restored successfully" });
   } catch (err) {
     res.status(500).json({ error: "Invalid backup file: " + err.message });
@@ -862,6 +874,13 @@ app.post("/api/restore", upload.single("backupFile"), (req, res) => {
 /* Start server                                                           */
 /* ---------------------------------------------------------------------- */
 
-app.listen(PORT, () => {
-  console.log(`Payment Manager running on http://localhost:${PORT}`);
-});
+initDb()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Payment Manager running on http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error("Failed to connect to database:", err.message);
+    process.exit(1);
+  });
