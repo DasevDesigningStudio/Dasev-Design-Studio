@@ -335,7 +335,32 @@
     "Logo",
     "Story"
   ],
-  "expenses": [],
+  "expenses": [
+    {
+      "date": "2026-08-08",
+      "category": "Nasto",
+      "amount": 10,
+      "notes": ""
+    },
+    {
+      "date": "2026-08-04",
+      "category": "Nasto",
+      "amount": 45,
+      "notes": ""
+    },
+    {
+      "date": "2026-08-01",
+      "category": "Nasto",
+      "amount": 20,
+      "notes": ""
+    },
+    {
+      "date": "2026-06-03",
+      "category": "Nasto",
+      "amount": 50,
+      "notes": ""
+    }
+  ],
   "expenseCategories": [
     "Ad Spend",
     "Software/Tools",
@@ -345,6 +370,14 @@
     "Internet/Phone",
     "Travel",
     "Nasto",
+    "Other"
+  ],
+  "leads": [],
+  "leadSources": [
+    "Instagram DM",
+    "Referral",
+    "Cold Call",
+    "Website",
     "Other"
   ],
   "settings": {
