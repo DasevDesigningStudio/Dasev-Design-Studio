@@ -7,6 +7,7 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
+const { Pool } = require("pg");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -17,6 +18,7 @@ app.use(express.json());
 app.use(express.static(__dirname));
 
 const DATA_FILE = path.join(__dirname, "data.json");
+const ROW_ID = "main";
 
 /* ---------------------------------------------------------------------- */
 /* Data helpers                                                           */
@@ -37,23 +39,9 @@ const DEFAULT_DATA = {
   }
 };
 
-function ensureDataFile() {
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(DEFAULT_DATA, null, 2));
-  }
-}
-ensureDataFile();
-
-function loadData() {
-  ensureDataFile();
-  let raw;
-  try {
-    raw = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-  } catch (err) {
-    raw = {};
-  }
-
-  // Normalize shape / fill in defaults defensively
+// Normalize shape / fill in defaults defensively (used for both file and DB reads)
+function normalizeShape(raw) {
+  raw = raw && typeof raw === "object" ? raw : {};
   const data = {
     payments: Array.isArray(raw.payments) ? raw.payments : [],
     categories: Array.isArray(raw.categories) ? raw.categories : [...DEFAULT_DATA.categories],
@@ -68,17 +56,86 @@ function loadData() {
   };
 
   // One-time migration: make sure the "Nasto" expense category exists on
-  // data.json files that were created before it was added to the defaults.
+  // data files that were created before it was added to the defaults.
   if (!data.expenseCategories.some((c) => c.toLowerCase() === "nasto")) {
     data.expenseCategories.push("Nasto");
-    saveData(data);
   }
 
   return data;
 }
 
+/* ---- Local file fallback (used only when DATABASE_URL isn't set, or if
+   Supabase is unreachable at startup) — NOT persistent on Render's free
+   tier, since the disk resets on every restart/redeploy. ---- */
+function ensureDataFile() {
+  if (!fs.existsSync(DATA_FILE)) {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(DEFAULT_DATA, null, 2));
+  }
+}
+function loadFromFile() {
+  ensureDataFile();
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+  } catch (err) {
+    raw = {};
+  }
+  return normalizeShape(raw);
+}
+function saveToFile(data) {
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error("⚠️  Failed to write data.json:", err.message);
+  }
+}
+
+/* ---- Supabase (Postgres) — permanent storage ---- */
+const DATABASE_URL = process.env.DATABASE_URL;
+let pool = DATABASE_URL
+  ? new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } })
+  : null;
+
+// In-memory cache. All routes read/write this synchronously via
+// loadData()/saveData() exactly as before — the async DB work happens
+// underneath, in initData() (on boot) and inside saveData() (fire-and-forget).
+let cachedData = null;
+
+async function initData() {
+  if (pool) {
+    try {
+      await pool.query(`CREATE TABLE IF NOT EXISTS app_data (id TEXT PRIMARY KEY, data JSONB NOT NULL)`);
+      const { rows } = await pool.query("SELECT data FROM app_data WHERE id = $1", [ROW_ID]);
+      if (rows.length > 0) {
+        cachedData = normalizeShape(rows[0].data);
+      } else {
+        cachedData = normalizeShape({});
+        await pool.query("INSERT INTO app_data (id, data) VALUES ($1, $2)", [ROW_ID, cachedData]);
+      }
+      console.log("✅ Connected to Supabase — data is persistent across restarts.");
+    } catch (err) {
+      console.error("⚠️  Could not reach Supabase, falling back to local data.json (NOT persistent on Render restarts):", err.message);
+      pool = null;
+      cachedData = loadFromFile();
+    }
+  } else {
+    console.warn("⚠️  DATABASE_URL not set — using local data.json. This resets on every Render restart/redeploy. See SETUP_SUPABASE.md.");
+    cachedData = loadFromFile();
+  }
+}
+
+function loadData() {
+  return cachedData;
+}
+
 function saveData(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+  cachedData = data;
+  if (pool) {
+    pool.query("UPDATE app_data SET data = $1 WHERE id = $2", [data, ROW_ID])
+      .catch((err) => console.error("⚠️  Failed to persist to Supabase:", err.message));
+  } else {
+    saveToFile(data);
+  }
 }
 
 function nextPaymentId(payments) {
@@ -862,6 +919,8 @@ app.post("/api/restore", upload.single("backupFile"), (req, res) => {
 /* Start server                                                           */
 /* ---------------------------------------------------------------------- */
 
-app.listen(PORT, () => {
-  console.log(`Payment Manager running on http://localhost:${PORT}`);
+initData().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Payment Manager running on http://localhost:${PORT}`);
+  });
 });
