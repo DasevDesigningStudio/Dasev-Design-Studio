@@ -1365,7 +1365,7 @@
     state.payments.forEach((p) => {
       const key = monthKeyOf(p.date);
       if (!key) return;
-      incomeByMonth[key] = (incomeByMonth[key] || 0) + (Number(p.totalAmount) || 0);
+      incomeByMonth[key] = (incomeByMonth[key] || 0) + (Number(p.paidAmount) || 0);
     });
     const expensesByMonth = {};
     state.expenses.forEach((e) => {
