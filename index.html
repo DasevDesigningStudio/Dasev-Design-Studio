@@ -36,7 +36,10 @@
   </div>
 
   <nav class="sidebar-nav">
-    <a href="#dashboard" class="nav-item active" data-view="dashboard">
+    <a href="#overview" class="nav-item active" data-view="overview">
+      <i class="fa-solid fa-chart-simple"></i><span>Overview</span>
+    </a>
+    <a href="#dashboard" class="nav-item" data-view="dashboard">
       <i class="fa-solid fa-grip"></i><span>Dashboard</span>
     </a>
     <a href="#payments" class="nav-item" data-view="payments">
@@ -121,8 +124,162 @@
   <!-- CONTENT -->
   <main class="content" id="content">
 
+    <!-- ======================= OVERVIEW ======================= -->
+    <section class="view active" id="view-overview">
+      <div class="view-header">
+        <div>
+          <h1>Business Overview</h1>
+          <p class="view-subtitle">Computed live from One-Time Jobs + Packages — nothing is stored on this page.</p>
+        </div>
+        <div class="dash-header-actions">
+          <div class="dash-month-filter">
+            <i class="fa-solid fa-calendar-days"></i>
+            <select id="overviewMonthFilter" class="dash-month-select"></select>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3-box architecture strip -->
+      <div class="ov-archrow">
+        <div class="ov-arch-box ov-b1"><div class="ov-n">1</div><div><div class="ov-t">One-Time Jobs</div><div class="ov-s">job status + payment history</div></div></div>
+        <div class="ov-arch-arrow"><i class="fa-solid fa-arrow-right"></i></div>
+        <div class="ov-arch-box ov-b2"><div class="ov-n">2</div><div><div class="ov-t">Packages</div><div class="ov-s">status + platform targets / done</div></div></div>
+        <div class="ov-arch-arrow"><i class="fa-solid fa-arrow-right"></i></div>
+        <div class="ov-arch-box ov-b3"><div class="ov-n">3</div><div><div class="ov-t">Overview (this page)</div><div class="ov-s">100% computed — no data stored here</div></div></div>
+      </div>
+
+      <!-- Top stat cards -->
+      <div class="ov-stat-row">
+        <div class="ov-stat-card">
+          <div class="ov-stat-icon" style="background:var(--accent-light);color:var(--accent);"><i class="fa-solid fa-address-book"></i></div>
+          <div class="ov-stat-label">Total Clients</div>
+          <div class="ov-stat-value" id="ovTotalClients">0</div>
+          <div class="ov-stat-sub"><span class="ov-up" id="ovNewClients">↑ 0</span> new this month</div>
+        </div>
+        <div class="ov-stat-card">
+          <div class="ov-stat-icon" style="background:var(--blue-bg);color:var(--blue);"><i class="fa-solid fa-pen"></i></div>
+          <div class="ov-stat-label">One-Time Only Clients</div>
+          <div class="ov-stat-value" id="ovOneTimeClients">0</div>
+          <div class="ov-stat-sub" id="ovOneTimeClientsPct">0% of total clients</div>
+        </div>
+        <div class="ov-stat-card">
+          <div class="ov-stat-icon" style="background:var(--violet-bg);color:var(--violet);"><i class="fa-solid fa-box-archive"></i></div>
+          <div class="ov-stat-label">Package Clients</div>
+          <div class="ov-stat-value" id="ovPackageClients">0</div>
+          <div class="ov-stat-sub" id="ovPackageClientsPct">0% of total clients</div>
+        </div>
+        <div class="ov-stat-card">
+          <div class="ov-stat-icon" style="background:var(--success-bg);color:var(--success);"><i class="fa-solid fa-sack-dollar"></i></div>
+          <div class="ov-stat-label">Total Business Value</div>
+          <div class="ov-stat-value" id="ovTotalBusinessValue">₹0</div>
+          <div class="ov-stat-sub">received + pending, all time</div>
+        </div>
+      </div>
+
+      <div class="ov-grid2">
+        <!-- Income comparison -->
+        <div class="ov-panel">
+          <div class="ov-panel-head"><h3>Income Split — One-Time vs Package</h3><span class="ov-hint" id="ovIncomeHint">This month</span></div>
+
+          <div class="ov-income-row">
+            <div class="ov-head"><span>One-Time Jobs Income</span><span id="ovOneTimeIncomeVal">₹0</span></div>
+            <div class="ov-track"><div class="ov-fill" id="ovOneTimeIncomeBar" style="background:var(--blue);"></div></div>
+          </div>
+          <div class="ov-income-row">
+            <div class="ov-head"><span>Package Income <span class="ov-mrr-badge">Recurring</span></span><span id="ovPackageIncomeVal">₹0</span></div>
+            <div class="ov-track"><div class="ov-fill" id="ovPackageIncomeBar" style="background:var(--violet);"></div></div>
+          </div>
+
+          <div class="ov-split-foot">
+            <div>
+              <div class="ov-stat-label">MRR (Monthly Recurring)</div>
+              <div class="ov-stat-value ov-sm" id="ovMrr">₹0</div>
+              <div class="ov-stat-sub">active packages' monthly-equivalent value</div>
+            </div>
+            <div>
+              <div class="ov-stat-label">Avg Revenue / Client</div>
+              <div class="ov-stat-value ov-sm" id="ovAvgOneTime">₹0 <span class="ov-faint">One-Time</span></div>
+              <div class="ov-stat-sub">Package clients: <b class="ov-good" id="ovAvgPackage">₹0</b> <span id="ovAvgMultiplier"></span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Completion split -->
+        <div class="ov-panel">
+          <div class="ov-panel-head"><h3>Completion Status</h3><span class="ov-hint">All time</span></div>
+          <div class="ov-split-wrap">
+            <div class="ov-donut" id="ovCompletionDonut">
+              <div class="ov-donut-inner"><b id="ovTotalJobs">0</b><span>Total Jobs</span></div>
+            </div>
+            <div class="ov-legend">
+              <div><span class="ov-dot" style="background:var(--success);"></span><div><b id="ovJobsCompleted">0 Completed</b><small>One-Time Jobs · <span id="ovJobsCompletedPct">0%</span></small></div></div>
+              <div><span class="ov-dot" style="background:var(--warning);"></span><div><b id="ovJobsActive">0 Active/Running</b><small>One-Time Jobs · <span id="ovJobsActivePct">0%</span></small></div></div>
+            </div>
+          </div>
+          <div class="ov-split-foot ov-split-foot2">
+            <div class="ov-mini-card">
+              <div class="ov-stat-label">Packages Completed</div>
+              <div class="ov-stat-value ov-sm" id="ovPackagesCompleted">0 <span class="ov-faint">/ 0</span></div>
+            </div>
+            <div class="ov-mini-card">
+              <div class="ov-stat-label">Packages Running</div>
+              <div class="ov-stat-value ov-sm ov-good" id="ovPackagesRunning">0</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ov-grid3">
+        <!-- Package duration -->
+        <div class="ov-panel">
+          <div class="ov-panel-head"><h3>Package Duration</h3><span class="ov-hint">All packages</span></div>
+          <div id="ovDurationRows"></div>
+          <div class="ov-foot-note">Duration = endDate − startDate, rounded to whole months.</div>
+        </div>
+
+        <!-- Upsell funnel -->
+        <div class="ov-panel">
+          <div class="ov-panel-head"><h3>One-Time → Package Upsell</h3><span class="ov-hint">Growth signal</span></div>
+          <div class="ov-funnel-row"><div class="ov-funnel-bar" id="ovFunnelAll" style="width:100%;background:var(--teal-700);">0 One-Time Clients</div></div>
+          <div class="ov-funnel-row"><div class="ov-funnel-bar" id="ovFunnelConverted" style="background:var(--accent);">0 Converted →</div><div class="ov-funnel-pct" id="ovFunnelPct">0%</div></div>
+          <div class="ov-split-foot">
+            <div>
+              <div class="ov-stat-label">Repeat Package Rate</div>
+              <div class="ov-stat-value ov-sm" id="ovRepeatRate">0%</div>
+              <div class="ov-stat-sub" id="ovRepeatNote">0 of 0 clients renewed 2+ packages</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Income by service -->
+        <div class="ov-panel">
+          <div class="ov-panel-head"><h3>Income by Service</h3><span class="ov-hint" id="ovServiceHint">This month</span></div>
+          <div class="ov-cat-legend" id="ovServiceRows"></div>
+        </div>
+      </div>
+
+      <!-- Health signals -->
+      <div class="ov-panel">
+        <div class="ov-panel-head"><h3>Business Health Signals</h3><span class="ov-hint">Needs attention</span></div>
+        <div class="ov-grid3 ov-health-grid">
+          <div>
+            <div class="ov-health-row"><div class="ov-l"><div class="ov-di" style="background:var(--danger-bg);color:var(--danger);"><i class="fa-solid fa-clock"></i></div>Overdue Payments</div><div class="ov-v" style="color:var(--danger);" id="ovOverdue">0</div></div>
+            <div class="ov-health-row"><div class="ov-l"><div class="ov-di" style="background:var(--warning-bg);color:var(--warning);"><i class="fa-solid fa-box"></i></div>Packages Ending This Month</div><div class="ov-v" style="color:var(--warning);" id="ovPackagesEnding">0</div></div>
+          </div>
+          <div>
+            <div class="ov-health-row"><div class="ov-l"><div class="ov-di" style="background:var(--blue-bg);color:var(--blue);"><i class="fa-solid fa-sack-dollar"></i></div>Expected Collection <span id="ovExpectedCollectionMonth"></span></div><div class="ov-v" id="ovExpectedCollection">₹0</div></div>
+            <div class="ov-health-row"><div class="ov-l"><div class="ov-di" style="background:var(--success-bg);color:var(--success);"><i class="fa-solid fa-chart-line"></i></div>Total Outstanding</div><div class="ov-v" style="color:var(--success);" id="ovOutstanding">₹0</div></div>
+          </div>
+          <div>
+            <div class="ov-health-row"><div class="ov-l"><div class="ov-di" style="background:var(--accent-light);color:var(--accent);"><i class="fa-solid fa-fire"></i></div>Follow-ups Due Today</div><div class="ov-v" id="ovFollowups">0</div></div>
+            <div class="ov-health-row"><div class="ov-l"><div class="ov-di" style="background:var(--violet-bg);color:var(--violet);"><i class="fa-solid fa-user-plus"></i></div>New Leads This Week</div><div class="ov-v" id="ovNewLeads">0</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- ======================= DASHBOARD ======================= -->
-    <section class="view active" id="view-dashboard">
+    <section class="view" id="view-dashboard">
       <div class="view-header">
         <div>
           <h1 id="greetingText">Good morning, Jay Kodavla 👋</h1>

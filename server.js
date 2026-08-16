@@ -513,6 +513,236 @@ function buildDashboard(payments, monthKey) {
   };
 }
 
+/* ---------------------------------------------------------------------- */
+/* Overview — 100% computed analytics layer.                             */
+/* Never stores its own numbers: everything below is derived live from   */
+/* One-Time Jobs (payments), Packages (+ their payment history) and      */
+/* Leads, so it automatically reflects any change to those records.      */
+/* ---------------------------------------------------------------------- */
+
+function clientKeyOfPayment(p) {
+  return (p.mobile || p.clientName || "").toString().trim();
+}
+function clientKeyOfPackage(pkg) {
+  return (pkg.clientMobile || pkg.clientName || "").toString().trim();
+}
+
+// Whole-month difference between two YYYY-MM-DD strings, rounded up to at
+// least 1 — used to bucket packages by sold duration (1 Month, 2 Months…)
+// and to spread a package's total value into a monthly-equivalent (MRR).
+function monthSpan(startDate, endDate) {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (isNaN(start) || isNaN(end)) return null;
+  let months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+  const dayAdjust = end.getDate() >= start.getDate() ? 0 : -1;
+  months += dayAdjust;
+  return Math.max(months, 1);
+}
+
+function buildOverview(data, monthKey) {
+  const payments = data.payments || [];
+  const packages = data.packages || [];
+  const leads = data.leads || [];
+
+  const now = new Date();
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const todayStr = now.toISOString().slice(0, 10);
+
+  const dataMonths = Array.from(new Set([
+    ...payments.map((p) => (p.date || "").slice(0, 7)),
+    ...packages.map((p) => (p.startDate || "").slice(0, 7)),
+    ...packages.flatMap((p) => (p.paymentHistory || []).map((h) => (h.date || "").slice(0, 7)))
+  ].filter(Boolean)));
+  const yearMonths = Array.from({ length: 12 }, (_, i) => `${now.getFullYear()}-${String(i + 1).padStart(2, "0")}`);
+  const availableMonths = Array.from(new Set([...yearMonths, ...dataMonths])).sort((a, b) => b.localeCompare(a));
+
+  let selectedMonth;
+  if (monthKey === "all") selectedMonth = "all";
+  else if (monthKey) selectedMonth = monthKey;
+  else selectedMonth = currentMonthKey;
+
+  const inScope = (dateStr) => selectedMonth === "all" || (dateStr || "").slice(0, 7) === selectedMonth;
+
+  /* ---------------- Clients (union across One-Time Jobs + Packages) --- */
+  const oneTimeClientKeys = new Set(payments.map(clientKeyOfPayment).filter(Boolean));
+  const packageClientKeys = new Set(packages.map(clientKeyOfPackage).filter(Boolean));
+  const allClientKeys = new Set([...oneTimeClientKeys, ...packageClientKeys]);
+  const oneTimeOnlyKeys = new Set([...oneTimeClientKeys].filter((k) => !packageClientKeys.has(k)));
+
+  const firstSeen = new Map();
+  payments.forEach((p) => {
+    const key = clientKeyOfPayment(p);
+    if (!key) return;
+    const d = p.date || (p.createdAt || "").slice(0, 10);
+    if (!firstSeen.has(key) || d < firstSeen.get(key)) firstSeen.set(key, d);
+  });
+  packages.forEach((p) => {
+    const key = clientKeyOfPackage(p);
+    if (!key) return;
+    const d = p.startDate || (p.createdAt || "").slice(0, 10);
+    if (!firstSeen.has(key) || d < firstSeen.get(key)) firstSeen.set(key, d);
+  });
+  const newClientsThisMonth = Array.from(firstSeen.values()).filter((d) => (d || "").slice(0, 7) === currentMonthKey).length;
+
+  /* ---------------- Income split (One-Time vs Package), scoped -------- */
+  const scopedPayments = payments.filter((p) => inScope(p.date));
+  const oneTimeIncome = scopedPayments.reduce((sum, p) => sum + (Number(p.paidAmount) || 0), 0);
+
+  const packageIncome = packages.reduce((sum, pkg) => {
+    return sum + (pkg.paymentHistory || [])
+      .filter((h) => inScope(h.date))
+      .reduce((s, h) => s + (Number(h.amount) || 0), 0);
+  }, 0);
+
+  // MRR — active packages' total value spread evenly across their sold
+  // duration, summed. Packages without a usable end date are ignored.
+  const mrr = packages
+    .filter((pkg) => pkg.status === "Active")
+    .reduce((sum, pkg) => {
+      const span = monthSpan(pkg.startDate, pkg.endDate);
+      if (!span) return sum;
+      return sum + (Number(pkg.totalAmount) || 0) / span;
+    }, 0);
+
+  const totalBusinessValue =
+    payments.reduce((s, p) => s + (Number(p.totalAmount) || 0), 0) +
+    packages.reduce((s, p) => s + (Number(p.totalAmount) || 0), 0);
+
+  const oneTimeAllTime = payments.reduce((s, p) => s + (Number(p.totalAmount) || 0), 0);
+  const packageAllTime = packages.reduce((s, p) => s + (Number(p.totalAmount) || 0), 0);
+  const avgRevPerOneTimeClient = oneTimeClientKeys.size ? oneTimeAllTime / oneTimeClientKeys.size : 0;
+  const avgRevPerPackageClient = packageClientKeys.size ? packageAllTime / packageClientKeys.size : 0;
+
+  /* ---------------- Completion status ---------------------------------- */
+  // One-Time Jobs don't carry a separate "job status" field — payment
+  // status doubles as the job lifecycle: Paid = Completed, anything else
+  // (Partial/Pending) = Active/Running.
+  const totalJobs = payments.length;
+  const jobsCompleted = payments.filter((p) => p.status === "Paid").length;
+  const jobsActive = totalJobs - jobsCompleted;
+  const packagesCompleted = packages.filter((p) => p.status === "Completed").length;
+  const packagesRunning = packages.filter((p) => p.status === "Active").length;
+
+  /* ---------------- Package duration breakdown -------------------------- */
+  const durationBuckets = new Map();
+  packages.forEach((pkg) => {
+    const span = monthSpan(pkg.startDate, pkg.endDate);
+    if (!span) return;
+    durationBuckets.set(span, (durationBuckets.get(span) || 0) + 1);
+  });
+  const packageDuration = Array.from(durationBuckets.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([months, count]) => ({
+      label: months === 1 ? "1 Month" : `${months} Months`,
+      months,
+      count
+    }));
+  const maxDurationCount = packageDuration.reduce((m, d) => Math.max(m, d.count), 0);
+
+  /* ---------------- One-Time -> Package upsell funnel -------------------- */
+  const convertedKeys = new Set([...oneTimeClientKeys].filter((k) => packageClientKeys.has(k)));
+  const upsellPct = oneTimeClientKeys.size ? Math.round((convertedKeys.size / oneTimeClientKeys.size) * 100) : 0;
+
+  const packageCountByClient = new Map();
+  packages.forEach((pkg) => {
+    const key = clientKeyOfPackage(pkg);
+    if (!key) return;
+    packageCountByClient.set(key, (packageCountByClient.get(key) || 0) + 1);
+  });
+  const repeatClients = Array.from(packageCountByClient.values()).filter((n) => n >= 2).length;
+  const repeatPackagePct = packageClientKeys.size ? Math.round((repeatClients / packageClientKeys.size) * 100) : 0;
+
+  /* ---------------- Income by service (category), scoped ---------------- */
+  const categoryTotals = {};
+  scopedPayments.forEach((p) => {
+    categoryTotals[p.category] = (categoryTotals[p.category] || 0) + (Number(p.totalAmount) || 0);
+  });
+  const categorySum = Object.values(categoryTotals).reduce((a, b) => a + b, 0);
+  const incomeByService = Object.entries(categoryTotals)
+    .sort((a, b) => b[1] - a[1])
+    .map(([category, amount]) => ({
+      category,
+      amount,
+      percent: categorySum > 0 ? Math.round((amount / categorySum) * 100) : 0
+    }));
+
+  /* ---------------- Business health signals ------------------------------ */
+  const overduePayments =
+    payments.filter((p) => (Number(p.pendingAmount) || 0) > 0 && p.dueDate && p.dueDate < todayStr).length +
+    packages.filter((p) => (Number(p.pendingAmount) || 0) > 0 && p.paymentDueDate && p.paymentDueDate < todayStr).length;
+
+  const packagesEndingThisMonth = packages.filter(
+    (p) => p.status === "Active" && p.endDate && p.endDate.slice(0, 7) === currentMonthKey
+  ).length;
+
+  const expectedCollection =
+    payments
+      .filter((p) => (Number(p.pendingAmount) || 0) > 0 && p.dueDate && p.dueDate.slice(0, 7) === currentMonthKey)
+      .reduce((s, p) => s + (Number(p.pendingAmount) || 0), 0) +
+    packages
+      .filter((p) => (Number(p.pendingAmount) || 0) > 0 && p.paymentDueDate && p.paymentDueDate.slice(0, 7) === currentMonthKey)
+      .reduce((s, p) => s + (Number(p.pendingAmount) || 0), 0);
+
+  const totalOutstanding =
+    payments.reduce((s, p) => s + (Number(p.pendingAmount) || 0), 0) +
+    packages.reduce((s, p) => s + (Number(p.pendingAmount) || 0), 0);
+
+  const followupsToday = leads.filter(
+    (l) => l.nextFollowupDate === todayStr && l.status !== "Converted" && l.status !== "Lost"
+  ).length;
+
+  const weekAgo = new Date(now);
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  const newLeadsThisWeek = leads.filter((l) => l.createdAt && new Date(l.createdAt) >= weekAgo).length;
+
+  return {
+    selectedMonth,
+    availableMonths,
+    clients: {
+      total: allClientKeys.size,
+      oneTimeOnly: oneTimeOnlyKeys.size,
+      package: packageClientKeys.size,
+      newThisMonth: newClientsThisMonth
+    },
+    business: {
+      totalValue: totalBusinessValue,
+      oneTimeIncome,
+      packageIncome,
+      mrr,
+      avgRevPerOneTimeClient,
+      avgRevPerPackageClient
+    },
+    completion: {
+      totalJobs,
+      jobsCompleted,
+      jobsActive,
+      packagesTotal: packages.length,
+      packagesCompleted,
+      packagesRunning
+    },
+    packageDuration,
+    maxDurationCount,
+    upsell: {
+      oneTimeClients: oneTimeClientKeys.size,
+      convertedClients: convertedKeys.size,
+      conversionPercent: upsellPct,
+      packageClients: packageClientKeys.size,
+      repeatClients,
+      repeatPercent: repeatPackagePct
+    },
+    incomeByService,
+    health: {
+      overduePayments,
+      packagesEndingThisMonth,
+      expectedCollection,
+      totalOutstanding,
+      followupsToday,
+      newLeadsThisWeek
+    }
+  };
+}
+
 function groupKey(payment, type) {
   const date = payment.date ? new Date(payment.date) : null;
   switch (type) {
@@ -1226,6 +1456,15 @@ app.put("/api/settings", async (req, res) => {
 app.get("/api/dashboard", async (req, res) => {
   const data = await loadData();
   res.json(buildDashboard(data.payments, req.query.month));
+});
+
+/* ---------------------------------------------------------------------- */
+/* Overview — computed analytics (derives from payments + packages+leads) */
+/* ---------------------------------------------------------------------- */
+
+app.get("/api/overview", async (req, res) => {
+  const data = await loadData();
+  res.json(buildOverview(data, req.query.month));
 });
 
 /* ---------------------------------------------------------------------- */

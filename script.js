@@ -17,6 +17,8 @@
     settings: { companyName: "My Agency", currency: "₹", themeColor: "teal", darkMode: false },
     dashboard: null,
     dashboardMonth: currentMonthKey(),
+    overview: null,
+    overviewMonth: currentMonthKey(),
     clients: [],
     leads: [],
     paymentsFilterMonth: "all",
@@ -119,6 +121,7 @@
     updateClientProfile: (key, data) => api(`/api/client-profiles/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify(data) }),
 
     getDashboard: (month) => api(`/api/dashboard?month=${encodeURIComponent(month || "all")}`),
+    getOverview: (month) => api(`/api/overview?month=${encodeURIComponent(month || "all")}`),
 
     getReport: (type, status) => api(`/api/reports?type=${encodeURIComponent(type)}&status=${encodeURIComponent(status || "")}`),
     getTopClients: () => api("/api/reports/top-clients")
@@ -274,6 +277,7 @@
     });
 
     // Lazy-load per-view data
+    if (view === "overview") loadOverview().catch((err) => showToast("Failed to load overview: " + err.message, "error"));
     if (view === "payments") renderPaymentsView();
     if (view === "clients") renderClientsView();
     if (view === "leads") renderLeadsView();
@@ -571,6 +575,131 @@
         options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
       });
     }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Overview — computed analytics (One-Time Jobs + Packages + Leads)   */
+  /* ------------------------------------------------------------------ */
+  async function loadOverview() {
+    state.overview = await Api.getOverview(state.overviewMonth);
+    renderOverview();
+  }
+
+  function renderOverviewMonthFilter(o) {
+    const sel = $("#overviewMonthFilter");
+    if (!sel) return;
+    const months = new Set(o.availableMonths || []);
+    months.add(currentMonthKey());
+    const sorted = Array.from(months).sort((a, b) => b.localeCompare(a));
+    const options = ["all", ...sorted];
+    sel.innerHTML = options.map((key) => `<option value="${key}">${monthLabel(key)}</option>`).join("");
+    sel.value = state.overviewMonth;
+  }
+
+  function renderOverview() {
+    const o = state.overview;
+    if (!o) return;
+
+    renderOverviewMonthFilter(o);
+    const monthText = o.selectedMonth === "all" ? "All Time" : monthShortLabel(o.selectedMonth);
+
+    // Top stat cards
+    $("#ovTotalClients").textContent = o.clients.total;
+    $("#ovNewClients").textContent = `↑ ${o.clients.newThisMonth}`;
+    $("#ovOneTimeClients").textContent = o.clients.oneTimeOnly;
+    $("#ovOneTimeClientsPct").textContent = `${o.clients.total ? Math.round((o.clients.oneTimeOnly / o.clients.total) * 100) : 0}% of total clients`;
+    $("#ovPackageClients").textContent = o.clients.package;
+    $("#ovPackageClientsPct").textContent = `${o.clients.total ? Math.round((o.clients.package / o.clients.total) * 100) : 0}% of total clients`;
+    $("#ovTotalBusinessValue").textContent = fmtMoney(o.business.totalValue);
+
+    // Income split
+    $("#ovIncomeHint").textContent = monthText;
+    $("#ovOneTimeIncomeVal").textContent = fmtMoney(o.business.oneTimeIncome);
+    $("#ovPackageIncomeVal").textContent = fmtMoney(o.business.packageIncome);
+    const incomeSum = o.business.oneTimeIncome + o.business.packageIncome;
+    $("#ovOneTimeIncomeBar").style.width = `${incomeSum > 0 ? Math.round((o.business.oneTimeIncome / incomeSum) * 100) : 0}%`;
+    $("#ovPackageIncomeBar").style.width = `${incomeSum > 0 ? Math.round((o.business.packageIncome / incomeSum) * 100) : 0}%`;
+    $("#ovMrr").textContent = fmtMoney(o.business.mrr);
+    $("#ovAvgOneTime").innerHTML = `${fmtMoney(o.business.avgRevPerOneTimeClient)} <span class="ov-faint">One-Time</span>`;
+    $("#ovAvgPackage").textContent = fmtMoney(o.business.avgRevPerPackageClient);
+    const multiplier = o.business.avgRevPerOneTimeClient > 0
+      ? (o.business.avgRevPerPackageClient / o.business.avgRevPerOneTimeClient)
+      : 0;
+    $("#ovAvgMultiplier").textContent = multiplier > 0 ? `(${multiplier.toFixed(1)}x higher)` : "";
+
+    // Completion donut
+    const c = o.completion;
+    const completedPct = c.totalJobs ? Math.round((c.jobsCompleted / c.totalJobs) * 100) : 0;
+    $("#ovCompletionDonut").style.background =
+      `conic-gradient(var(--success) 0% ${completedPct}%, var(--warning) ${completedPct}% 100%)`;
+    $("#ovTotalJobs").textContent = c.totalJobs;
+    $("#ovJobsCompleted").textContent = `${c.jobsCompleted} Completed`;
+    $("#ovJobsCompletedPct").textContent = `${completedPct}%`;
+    $("#ovJobsActive").textContent = `${c.jobsActive} Active/Running`;
+    $("#ovJobsActivePct").textContent = `${100 - completedPct}%`;
+    $("#ovPackagesCompleted").innerHTML = `${c.packagesCompleted} <span class="ov-faint">/ ${c.packagesTotal}</span>`;
+    $("#ovPackagesRunning").textContent = c.packagesRunning;
+
+    // Package duration
+    const durationRows = $("#ovDurationRows");
+    if (durationRows) {
+      durationRows.innerHTML = (o.packageDuration || []).map((d) => {
+        const pct = o.maxDurationCount ? Math.round((d.count / o.maxDurationCount) * 100) : 0;
+        const pop = d.count === o.maxDurationCount && d.count > 0 ? `<span class="ov-dur-pop">Popular</span>` : "";
+        return `
+          <div class="ov-dur-row">
+            <div class="ov-dur-label">${escapeHtml(d.label)}</div>
+            <div class="ov-dur-track"><div class="ov-dur-fill" style="width:${Math.max(pct, 6)}%;"><span>${d.count}</span></div></div>
+            <div class="ov-dur-count">${d.count} pkg${d.count === 1 ? "" : "s"} ${pop}</div>
+          </div>`;
+      }).join("") || `<p style="color:var(--text-muted);font-size:12.5px;">No packages yet.</p>`;
+    }
+
+    // Upsell funnel
+    const u = o.upsell;
+    $("#ovFunnelAll").textContent = `${u.oneTimeClients} One-Time Clients`;
+    $("#ovFunnelConverted").style.width = `${Math.max(u.conversionPercent, u.convertedClients > 0 ? 4 : 0)}%`;
+    $("#ovFunnelConverted").textContent = `${u.convertedClients} Converted →`;
+    $("#ovFunnelPct").textContent = `${u.conversionPercent}%`;
+    $("#ovRepeatRate").textContent = `${u.repeatPercent}%`;
+    $("#ovRepeatNote").textContent = `${u.repeatClients} of ${u.packageClients} package clients renewed 2+ packages`;
+
+    // Income by service
+    const serviceRows = $("#ovServiceRows");
+    $("#ovServiceHint").textContent = monthText;
+    const palette = ["var(--violet)", "var(--blue)", "var(--teal-400)", "var(--warning)", "var(--success)", "var(--danger)"];
+    if (serviceRows) {
+      serviceRows.innerHTML = (o.incomeByService || []).map((s, i) => `
+        <div class="ov-cat-item">
+          <div class="ov-name">${escapeHtml(s.category)}</div>
+          <div class="ov-bar"><i style="width:${s.percent}%;background:${palette[i % palette.length]};"></i></div>
+          <div class="ov-val">${fmtMoney(s.amount)}</div>
+        </div>
+      `).join("") || `<p style="color:var(--text-muted);font-size:12.5px;">No income recorded yet.</p>`;
+    }
+
+    // Health signals
+    const h = o.health;
+    $("#ovOverdue").textContent = h.overduePayments;
+    $("#ovPackagesEnding").textContent = h.packagesEndingThisMonth;
+    $("#ovExpectedCollectionMonth").textContent = `(${monthShortLabel(currentMonthKey())})`;
+    $("#ovExpectedCollection").textContent = fmtMoney(h.expectedCollection);
+    $("#ovOutstanding").textContent = fmtMoney(h.totalOutstanding);
+    $("#ovFollowups").textContent = h.followupsToday;
+    $("#ovNewLeads").textContent = h.newLeadsThisWeek;
+  }
+
+  function initOverviewFilter() {
+    const sel = $("#overviewMonthFilter");
+    if (!sel) return;
+    sel.addEventListener("change", async () => {
+      state.overviewMonth = sel.value;
+      try {
+        await loadOverview();
+      } catch (err) {
+        showToast("Failed to load overview: " + err.message, "error");
+      }
+    });
   }
 
   /* ------------------------------------------------------------------ */
@@ -2638,8 +2767,9 @@
     populateDeliverableTypeAndPlatformSelects();
 
     await loadDashboard();
+    await loadOverview();
 
-    const view = (window.location.hash || "#dashboard").slice(1);
+    const view = (window.location.hash || "#overview").slice(1);
     setActiveView(view);
   }
 
@@ -2669,6 +2799,7 @@
     initGlobalSearch();
     initProfileAndLogout();
     initDashboardFilter();
+    initOverviewFilter();
     initPackagesToolbar();
     initPackageModal();
     initPackageDrawer();
