@@ -45,6 +45,9 @@
     <a href="#clients" class="nav-item" data-view="clients">
       <i class="fa-solid fa-address-book"></i><span>Clients</span>
     </a>
+    <a href="#packages" class="nav-item" data-view="packages">
+      <i class="fa-solid fa-diagram-project"></i><span>Packages</span>
+    </a>
     <a href="#leads" class="nav-item" data-view="leads">
       <i class="fa-solid fa-user-plus"></i><span>Leads</span>
     </a>
@@ -326,26 +329,65 @@
       </div>
     </section>
 
-    <!-- ======================= CLIENTS (CRM) ======================= -->
+    <!-- ======================= CLIENTS ======================= -->
     <section class="view" id="view-clients">
       <div class="view-header">
         <div>
           <h1>Clients</h1>
-          <p class="view-subtitle">Clients → Projects → Packages → Deliverables</p>
+          <p class="view-subtitle">Every client, their business history and pending balances.</p>
         </div>
-        <button class="btn btn-primary" id="crmAddClientBtn"><i class="fa-solid fa-plus"></i> Add Client</button>
       </div>
 
-      <nav class="crm-breadcrumb" id="crmBreadcrumb"></nav>
-
-      <div class="toolbar card" id="crmSearchToolbar">
+      <div class="toolbar card">
         <div class="toolbar-search">
           <i class="fa-solid fa-magnifying-glass"></i>
           <input type="text" id="clientSearch" placeholder="Search clients…" />
         </div>
+        <div class="toolbar-filters">
+          <select id="clientFilterMonth"><option value="all">All Months</option></select>
+        </div>
       </div>
 
-      <div id="crmPanel"></div>
+      <div class="client-grid" id="clientGrid"></div>
+    </section>
+
+    <!-- ======================= PACKAGES ======================= -->
+    <section class="view" id="view-packages">
+      <div class="view-header">
+        <div>
+          <h1>Packages</h1>
+          <p class="view-subtitle">Track packages, projects, posts/reels and their status &amp; payment — start to finish.</p>
+        </div>
+        <button class="btn btn-primary" id="addPackageBtn"><i class="fa-solid fa-plus"></i> Add Package</button>
+      </div>
+
+      <div class="toolbar card">
+        <div class="toolbar-search">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input type="text" id="packageSearch" placeholder="Search packages, client…" />
+        </div>
+        <div class="toolbar-filters wrap">
+          <select id="packageFilterStatus">
+            <option value="">All Status</option>
+            <option value="Active">Active</option>
+            <option value="On Hold">On Hold</option>
+            <option value="Completed">Completed</option>
+            <option value="Cancelled">Cancelled</option>
+          </select>
+          <select id="packageFilterPayment">
+            <option value="">All Payment</option>
+            <option value="Paid">Paid</option>
+            <option value="Partial">Partial</option>
+            <option value="Pending">Pending</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="project-grid" id="packageGrid"></div>
+      <div class="empty-state" id="packagesEmpty" hidden>
+        <i class="fa-solid fa-diagram-project"></i>
+        <p>No packages yet. Add your first package to start tracking projects &amp; deliverables.</p>
+      </div>
     </section>
 
     <!-- ======================= LEADS ======================= -->
@@ -908,6 +950,216 @@
   </div>
 </div>
 
+<!-- Project Add/Edit Modal -->
+<!-- Package Add/Edit Modal (top-level under a Client, carries Payment) -->
+<div class="modal-overlay" id="packageModalOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h2 id="packageModalTitle">Add Package</h2>
+      <button class="icon-btn" id="closePackageModal"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="packageForm" class="modal-body">
+      <input type="hidden" id="packageId" />
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Client Name *</label>
+          <input type="text" id="kClientName" required list="clientNameList" />
+          <datalist id="clientNameList"></datalist>
+        </div>
+        <div class="form-group">
+          <label>Client Mobile</label>
+          <input type="tel" id="kClientMobile" placeholder="Used to link with Clients/Payments" />
+        </div>
+        <div class="form-group full">
+          <label>Package Name *</label>
+          <input type="text" id="kName" required placeholder="e.g. 3 Month Retainer / Festival Posts Design" />
+        </div>
+        <div class="form-group">
+          <label>Start Date *</label>
+          <input type="date" id="kStartDate" required />
+        </div>
+        <div class="form-group">
+          <label>End Date</label>
+          <input type="date" id="kEndDate" />
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="kStatus">
+            <option value="Active">Active</option>
+            <option value="On Hold">On Hold</option>
+            <option value="Completed">Completed</option>
+            <option value="Cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Total Amount (₹) *</label>
+          <input type="number" id="kTotalAmount" min="0" step="0.01" required />
+        </div>
+        <div class="form-group">
+          <label>Payment Due Date</label>
+          <input type="date" id="kPaymentDueDate" />
+        </div>
+        <div class="form-group full">
+          <label>Notes</label>
+          <textarea id="kNotes" rows="2" placeholder="Optional notes…"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="cancelPackageBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="savePackageBtn"><i class="fa-solid fa-check"></i> Save Package</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Package Detail Drawer (shows Projects inside the package + Payment history) -->
+<div class="modal-overlay" id="packageDrawerOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h2 id="packageDrawerTitle">Package</h2>
+      <button class="icon-btn" id="closePackageDrawer"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body" id="packageDrawerBody"></div>
+  </div>
+</div>
+
+<!-- Project Add/Edit Modal (nested inside a Package) -->
+<div class="modal-overlay" id="projectModalOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h2 id="projectModalTitle">Add Project</h2>
+      <button class="icon-btn" id="closeProjectModal"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="projectForm" class="modal-body">
+      <input type="hidden" id="projectId" />
+      <input type="hidden" id="projectPackageId" />
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>Project Name *</label>
+          <input type="text" id="pName" required placeholder="e.g. Festival Post Design / Instagram + FB Management" />
+        </div>
+        <div class="form-group">
+          <label>Project Type *</label>
+          <select id="pType" required>
+            <option value="Deliverable">Deliverable (fixed posts/reels count)</option>
+            <option value="Management">Management (ongoing, platform-wise, no per-post editing)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Start Date *</label>
+          <input type="date" id="pStartDate" required />
+        </div>
+        <div class="form-group">
+          <label>End Date</label>
+          <input type="date" id="pEndDate" />
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="pStatus">
+            <option value="Active">Active</option>
+            <option value="On Hold">On Hold</option>
+            <option value="Completed">Completed</option>
+            <option value="Cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Priority</label>
+          <select id="pPriority">
+            <option value="High">High</option>
+            <option value="Medium" selected>Medium</option>
+            <option value="Low">Low</option>
+          </select>
+        </div>
+        <div class="form-group full">
+          <label>Notes</label>
+          <textarea id="pNotes" rows="2" placeholder="Optional notes…"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="cancelProjectBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveProjectBtn"><i class="fa-solid fa-check"></i> Save Project</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Project Detail Drawer (Deliverables list OR Management platform counters) -->
+<div class="modal-overlay" id="projectDrawerOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h2 id="projectDrawerTitle">Project</h2>
+      <button class="icon-btn" id="closeProjectDrawer"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body" id="projectDrawerBody"></div>
+  </div>
+</div>
+
+<!-- Deliverable Add/Edit Modal -->
+<div class="modal-overlay" id="deliverableModalOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h2 id="deliverableModalTitle">Add Deliverable</h2>
+      <button class="icon-btn" id="closeDeliverableModal"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="deliverableForm" class="modal-body">
+      <input type="hidden" id="deliverableId" />
+      <input type="hidden" id="deliverableProjectId" />
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Type *</label>
+          <select id="dType" required></select>
+        </div>
+        <div class="form-group">
+          <label>Platform</label>
+          <select id="dPlatform"></select>
+        </div>
+        <div class="form-group">
+          <label>Start Date *</label>
+          <input type="date" id="dStartDate" required />
+        </div>
+        <div class="form-group">
+          <label>Due Date</label>
+          <input type="date" id="dDueDate" />
+        </div>
+        <div class="form-group">
+          <label>Completed Date</label>
+          <input type="date" id="dCompletedDate" />
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="dStatus">
+            <option value="Pending">Pending</option>
+            <option value="In Progress">In Progress</option>
+            <option value="Review">Review</option>
+            <option value="Completed">Completed</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Publish Date</label>
+          <input type="date" id="dPublishDate" />
+        </div>
+        <div class="form-group">
+          <label>Post URL</label>
+          <input type="text" id="dUrl" placeholder="https://instagram.com/p/…" />
+        </div>
+        <div class="form-group full">
+          <label>File Location <span style="font-weight:400; color:var(--text-muted);">(where the working file is saved on your PC/Drive)</span></label>
+          <input type="text" id="dFileLocation" placeholder="e.g. D:\Clients\Raja Rani Coaching\Designs\Festival_Post_12.psd" />
+        </div>
+        <div class="form-group full">
+          <label>Revisions <span style="font-weight:400; color:var(--text-muted);">(client feedback / change requests)</span></label>
+          <div id="dRevisionsList" class="revisions-list"></div>
+          <button type="button" class="btn btn-ghost btn-sm" id="addRevisionRowBtn"><i class="fa-solid fa-plus"></i> Add Revision</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="cancelDeliverableBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveDeliverableBtn"><i class="fa-solid fa-check"></i> Save Deliverable</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Confirmation Dialog -->
 <div class="modal-overlay" id="confirmOverlay" hidden>
   <div class="modal modal-sm">
@@ -923,334 +1175,7 @@
   </div>
 </div>
 
-<!-- CRM: Client Add/Edit Modal -->
-<div class="modal-overlay" id="crmClientModalOverlay" hidden>
-  <div class="modal">
-    <div class="modal-head">
-      <h2 id="crmClientModalTitle">Add Client</h2>
-      <button class="icon-btn" id="closeCrmClientModal"><i class="fa-solid fa-xmark"></i></button>
-    </div>
-    <form id="crmClientForm" class="modal-body">
-      <input type="hidden" id="crmClientId" />
-      <div class="form-grid">
-        <div class="form-group">
-          <label>Client Name *</label>
-          <input type="text" id="crmCName" required />
-        </div>
-        <div class="form-group">
-          <label>Mobile Number</label>
-          <input type="tel" id="crmCMobile" />
-        </div>
-        <div class="form-group">
-          <label>Business Name</label>
-          <input type="text" id="crmCBusiness" />
-        </div>
-        <div class="form-group">
-          <label>Instagram ID</label>
-          <input type="text" id="crmCInstagram" placeholder="@handle" />
-        </div>
-        <div class="form-group">
-          <label>Location (City)</label>
-          <input type="text" id="crmCLocation" />
-        </div>
-        <div class="form-group full">
-          <label>Folder Path (PC / Drive location)</label>
-          <input type="text" id="crmCFolderPath" placeholder="D:\Clients\Raja Rani Coaching\" />
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-ghost" id="cancelCrmClientBtn">Cancel</button>
-        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save Client</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- CRM: Project Add/Edit Modal -->
-<div class="modal-overlay" id="crmProjectModalOverlay" hidden>
-  <div class="modal">
-    <div class="modal-head">
-      <h2 id="crmProjectModalTitle">Add Project</h2>
-      <button class="icon-btn" id="closeCrmProjectModal"><i class="fa-solid fa-xmark"></i></button>
-    </div>
-    <form id="crmProjectForm" class="modal-body">
-      <input type="hidden" id="crmProjectId" />
-      <div class="form-grid">
-        <div class="form-group full">
-          <label>Project Name *</label>
-          <input type="text" id="crmPName" required />
-        </div>
-        <div class="form-group">
-          <label>Start Date</label>
-          <input type="date" id="crmPStart" />
-        </div>
-        <div class="form-group">
-          <label>End Date</label>
-          <input type="date" id="crmPEnd" />
-        </div>
-        <div class="form-group">
-          <label>Status</label>
-          <select id="crmPStatus">
-            <option>Active</option>
-            <option>On Hold</option>
-            <option>Completed</option>
-            <option>Cancelled</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Priority</label>
-          <select id="crmPPriority">
-            <option>Low</option>
-            <option selected>Medium</option>
-            <option>High</option>
-          </select>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-ghost" id="cancelCrmProjectBtn">Cancel</button>
-        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save Project</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- CRM: Package Add/Edit Modal -->
-<div class="modal-overlay" id="crmPackageModalOverlay" hidden>
-  <div class="modal">
-    <div class="modal-head">
-      <h2 id="crmPackageModalTitle">Add Package</h2>
-      <button class="icon-btn" id="closeCrmPackageModal"><i class="fa-solid fa-xmark"></i></button>
-    </div>
-    <form id="crmPackageForm" class="modal-body">
-      <input type="hidden" id="crmPackageId" />
-      <div class="form-grid">
-        <div class="form-group full">
-          <label>Package Name *</label>
-          <input type="text" id="crmPkgName" required />
-        </div>
-        <div class="form-group">
-          <label>Package Type *</label>
-          <select id="crmPkgType" required>
-            <option value="Deliverable">Deliverable (detailed tracking)</option>
-            <option value="Management">Management (count-based)</option>
-          </select>
-        </div>
-        <div class="form-group"></div>
-        <div class="form-group">
-          <label>Start Date</label>
-          <input type="date" id="crmPkgStart" />
-        </div>
-        <div class="form-group">
-          <label>End Date</label>
-          <input type="date" id="crmPkgEnd" />
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-ghost" id="cancelCrmPackageBtn">Cancel</button>
-        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save Package</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- CRM: Payment Terms Modal (Total / Due Date) -->
-<div class="modal-overlay" id="crmPaymentModalOverlay" hidden>
-  <div class="modal">
-    <div class="modal-head">
-      <h2>Payment Terms</h2>
-      <button class="icon-btn" id="closeCrmPaymentModal"><i class="fa-solid fa-xmark"></i></button>
-    </div>
-    <form id="crmPaymentForm" class="modal-body">
-      <input type="hidden" id="crmPaymentPackageId" />
-      <div class="form-grid">
-        <div class="form-group">
-          <label>Total Amount (₹) *</label>
-          <input type="number" id="crmPayTotal" min="0" step="0.01" required />
-        </div>
-        <div class="form-group">
-          <label>Due Date</label>
-          <input type="date" id="crmPayDueDate" />
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-ghost" id="cancelCrmPaymentBtn">Cancel</button>
-        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- CRM: Log Payment Modal -->
-<div class="modal-overlay" id="crmLogPaymentModalOverlay" hidden>
-  <div class="modal">
-    <div class="modal-head">
-      <h2>Log Payment Received</h2>
-      <button class="icon-btn" id="closeCrmLogPaymentModal"><i class="fa-solid fa-xmark"></i></button>
-    </div>
-    <form id="crmLogPaymentForm" class="modal-body">
-      <input type="hidden" id="crmLogPackageId" />
-      <div class="form-grid">
-        <div class="form-group">
-          <label>Amount Received (₹) *</label>
-          <input type="number" id="crmLogAmount" min="0.01" step="0.01" required />
-        </div>
-        <div class="form-group">
-          <label>Date *</label>
-          <input type="date" id="crmLogDate" required />
-        </div>
-        <div class="form-group full">
-          <label>Note</label>
-          <input type="text" id="crmLogNote" placeholder="e.g. UPI, cash…" />
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-ghost" id="cancelCrmLogPaymentBtn">Cancel</button>
-        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Log Payment</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- CRM: Platform Add/Edit Modal (Management packages) -->
-<div class="modal-overlay" id="crmPlatformModalOverlay" hidden>
-  <div class="modal">
-    <div class="modal-head">
-      <h2 id="crmPlatformModalTitle">Add Platform</h2>
-      <button class="icon-btn" id="closeCrmPlatformModal"><i class="fa-solid fa-xmark"></i></button>
-    </div>
-    <form id="crmPlatformForm" class="modal-body">
-      <input type="hidden" id="crmPlatformId" />
-      <input type="hidden" id="crmPlatformPackageId" />
-      <div class="form-grid">
-        <div class="form-group full">
-          <label>Platform Name *</label>
-          <input type="text" id="crmPlName" list="crmPlatformOptions" required placeholder="Instagram / Facebook / YouTube" />
-          <datalist id="crmPlatformOptions">
-            <option value="Instagram"></option>
-            <option value="Facebook"></option>
-            <option value="YouTube"></option>
-          </datalist>
-        </div>
-        <div class="form-group">
-          <label>Posts Uploaded</label>
-          <input type="number" id="crmPlPosts" min="0" value="0" />
-        </div>
-        <div class="form-group">
-          <label>Reels Uploaded</label>
-          <input type="number" id="crmPlReels" min="0" value="0" />
-        </div>
-        <div class="form-group">
-          <label>Stories Uploaded</label>
-          <input type="number" id="crmPlStories" min="0" value="0" />
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-ghost" id="cancelCrmPlatformBtn">Cancel</button>
-        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save Platform</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- CRM: Deliverable Add/Edit Modal (Deliverable packages) -->
-<div class="modal-overlay" id="crmDeliverableModalOverlay" hidden>
-  <div class="modal modal-lg">
-    <div class="modal-head">
-      <h2 id="crmDeliverableModalTitle">Add Deliverable</h2>
-      <button class="icon-btn" id="closeCrmDeliverableModal"><i class="fa-solid fa-xmark"></i></button>
-    </div>
-    <form id="crmDeliverableForm" class="modal-body">
-      <input type="hidden" id="crmDeliverableId" />
-      <input type="hidden" id="crmDeliverablePackageId" />
-      <div class="form-grid">
-        <div class="form-group">
-          <label>Type *</label>
-          <select id="crmDelType" required>
-            <option>Post</option>
-            <option>Reel</option>
-            <option>Story</option>
-            <option>Design</option>
-            <option>Video</option>
-            <option>Other</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Status</label>
-          <select id="crmDelStatus">
-            <option>Pending</option>
-            <option>In Progress</option>
-            <option>Review</option>
-            <option>Completed</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Start Date</label>
-          <input type="date" id="crmDelStart" />
-        </div>
-        <div class="form-group">
-          <label>Due Date</label>
-          <input type="date" id="crmDelDue" />
-        </div>
-        <div class="form-group">
-          <label>Completed Date</label>
-          <input type="date" id="crmDelCompleted" />
-        </div>
-        <div class="form-group">
-          <label>Platform</label>
-          <input type="text" id="crmDelPlatform" list="crmPlatformOptions" placeholder="Instagram" />
-        </div>
-        <div class="form-group">
-          <label>Publish Date</label>
-          <input type="date" id="crmDelPublishDate" />
-        </div>
-        <div class="form-group">
-          <label>URL</label>
-          <input type="text" id="crmDelUrl" placeholder="https://instagram.com/p/…" />
-        </div>
-        <div class="form-group full">
-          <label>File Location (PC path)</label>
-          <input type="text" id="crmDelFileLocation" placeholder="D:\Clients\Raja Rani Coaching\Designs\Festival_Post_12.psd" />
-          <button type="button" class="btn btn-outline btn-sm" id="crmDelSuggestPathBtn" style="margin-top:6px;">
-            <i class="fa-solid fa-wand-magic-sparkles"></i> Suggest from Client Folder
-          </button>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-ghost" id="cancelCrmDeliverableBtn">Cancel</button>
-        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save Deliverable</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- CRM: Revision Note Modal -->
-<div class="modal-overlay" id="crmRevisionModalOverlay" hidden>
-  <div class="modal">
-    <div class="modal-head">
-      <h2>Add Revision Note</h2>
-      <button class="icon-btn" id="closeCrmRevisionModal"><i class="fa-solid fa-xmark"></i></button>
-    </div>
-    <form id="crmRevisionForm" class="modal-body">
-      <input type="hidden" id="crmRevisionDeliverableId" />
-      <div class="form-grid">
-        <div class="form-group">
-          <label>Date</label>
-          <input type="date" id="crmRevDate" />
-        </div>
-        <div class="form-group full">
-          <label>Note</label>
-          <textarea id="crmRevNote" rows="2" placeholder="What changed…"></textarea>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-ghost" id="cancelCrmRevisionBtn">Cancel</button>
-        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Add Revision</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- Client Detail Drawer (also reused for CRM deliverable detail) -->
+<!-- Client Detail Drawer -->
 <div class="modal-overlay" id="clientDrawerOverlay" hidden>
   <div class="modal modal-lg">
     <div class="modal-head">

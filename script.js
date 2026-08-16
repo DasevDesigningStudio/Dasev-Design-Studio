@@ -26,11 +26,18 @@
     editingExpenseId: null,
     editingLeadId: null,
     confirmAction: null,
-    // CRM: Clients -> Projects -> Packages -> (Platforms | Deliverables)
-    crmClients: [],
-    crmNav: { clientId: null, projectId: null, packageId: null },
-    crmSearch: "",
-    charts: { pie: null, monthly: null, category: null, expenseCategory: null }
+    charts: { pie: null, monthly: null, category: null, expenseCategory: null },
+
+    // Packages / Projects / Deliverables
+    packages: [],
+    deliverableTypes: [],
+    platformOptions: [],
+    clientProfiles: {},
+    editingPackageId: null,
+    editingProjectId: null,
+    editingDeliverableId: null,
+    currentPackageId: null,   // package currently open in the drawer
+    currentProjectId: null    // project currently open in the drawer
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -66,30 +73,6 @@
 
     getClients: (month) => api(`/api/clients?month=${encodeURIComponent(month || "all")}`),
 
-    // CRM
-    getCrmClients: () => api("/api/crm/clients"),
-    createCrmClient: (data) => api("/api/crm/clients", { method: "POST", body: JSON.stringify(data) }),
-    updateCrmClient: (id, data) => api(`/api/crm/clients/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-    deleteCrmClient: (id) => api(`/api/crm/clients/${id}`, { method: "DELETE" }),
-
-    createCrmProject: (clientId, data) => api(`/api/crm/clients/${clientId}/projects`, { method: "POST", body: JSON.stringify(data) }),
-    updateCrmProject: (id, data) => api(`/api/crm/projects/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-    deleteCrmProject: (id) => api(`/api/crm/projects/${id}`, { method: "DELETE" }),
-
-    createCrmPackage: (projectId, data) => api(`/api/crm/projects/${projectId}/packages`, { method: "POST", body: JSON.stringify(data) }),
-    updateCrmPackage: (id, data) => api(`/api/crm/packages/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-    deleteCrmPackage: (id) => api(`/api/crm/packages/${id}`, { method: "DELETE" }),
-    updateCrmPackagePayment: (id, data) => api(`/api/crm/packages/${id}/payment`, { method: "PUT", body: JSON.stringify(data) }),
-
-    createCrmPlatform: (packageId, data) => api(`/api/crm/packages/${packageId}/platforms`, { method: "POST", body: JSON.stringify(data) }),
-    updateCrmPlatform: (id, data) => api(`/api/crm/platforms/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-    deleteCrmPlatform: (id) => api(`/api/crm/platforms/${id}`, { method: "DELETE" }),
-
-    createCrmDeliverable: (packageId, data) => api(`/api/crm/packages/${packageId}/deliverables`, { method: "POST", body: JSON.stringify(data) }),
-    updateCrmDeliverable: (id, data) => api(`/api/crm/deliverables/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-    deleteCrmDeliverable: (id) => api(`/api/crm/deliverables/${id}`, { method: "DELETE" }),
-    addCrmDeliverableRevision: (id, data) => api(`/api/crm/deliverables/${id}/revisions`, { method: "POST", body: JSON.stringify(data) }),
-
     getLeads: () => api("/api/leads"),
     createLead: (data) => api("/api/leads", { method: "POST", body: JSON.stringify(data) }),
     updateLead: (id, data) => api(`/api/leads/${id}`, { method: "PUT", body: JSON.stringify(data) }),
@@ -109,6 +92,31 @@
 
     getSettings: () => api("/api/settings"),
     updateSettings: (data) => api("/api/settings", { method: "PUT", body: JSON.stringify(data) }),
+
+    getPackages: () => api("/api/packages"),
+    getPackage: (id) => api(`/api/packages/${id}`),
+    createPackage: (data) => api("/api/packages", { method: "POST", body: JSON.stringify(data) }),
+    updatePackage: (id, data) => api(`/api/packages/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    deletePackage: (id) => api(`/api/packages/${id}`, { method: "DELETE" }),
+    addPackagePayment: (id, data) => api(`/api/packages/${id}/payments`, { method: "POST", body: JSON.stringify(data) }),
+    deletePackagePayment: (id, entryId) => api(`/api/packages/${id}/payments/${entryId}`, { method: "DELETE" }),
+
+    getProjects: (packageId) => api(`/api/projects${packageId ? `?packageId=${encodeURIComponent(packageId)}` : ""}`),
+    getProject: (id) => api(`/api/projects/${id}`),
+    createProject: (data) => api("/api/projects", { method: "POST", body: JSON.stringify(data) }),
+    updateProject: (id, data) => api(`/api/projects/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    deleteProject: (id) => api(`/api/projects/${id}`, { method: "DELETE" }),
+
+    getDeliverables: (projectId) => api(`/api/deliverables${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`),
+    createDeliverable: (data) => api("/api/deliverables", { method: "POST", body: JSON.stringify(data) }),
+    updateDeliverable: (id, data) => api(`/api/deliverables/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    deleteDeliverable: (id) => api(`/api/deliverables/${id}`, { method: "DELETE" }),
+
+    getDeliverableTypes: () => api("/api/deliverable-types"),
+    getPlatformOptions: () => api("/api/platform-options"),
+
+    getClientProfiles: () => api("/api/client-profiles"),
+    updateClientProfile: (key, data) => api(`/api/client-profiles/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify(data) }),
 
     getDashboard: (month) => api(`/api/dashboard?month=${encodeURIComponent(month || "all")}`),
 
@@ -267,13 +275,14 @@
 
     // Lazy-load per-view data
     if (view === "payments") renderPaymentsView();
-    if (view === "clients") renderCrmView();
+    if (view === "clients") renderClientsView();
     if (view === "leads") renderLeadsView();
     if (view === "reports") runReport();
     if (view === "categories") renderCategoriesView();
     if (view === "expenses") renderExpensesView();
     if (view === "export") populateInvoiceSelect();
     if (view === "settings") renderSettingsForm();
+    if (view === "packages") renderPackagesView();
 
     closeSidebarMobile();
   }
@@ -881,756 +890,144 @@
   }
 
   /* ------------------------------------------------------------------ */
-  /* CRM: Clients -> Projects -> Packages -> Platforms/Deliverables     */
+  /* Clients view                                                       */
   /* ------------------------------------------------------------------ */
-  function crmFindClient(id) {
-    return state.crmClients.find((c) => c.id === id);
-  }
-  function crmFindProject(projectId) {
-    for (const client of state.crmClients) {
-      const project = (client.projects || []).find((p) => p.id === projectId);
-      if (project) return { client, project };
-    }
-    return {};
-  }
-  function crmFindPackage(packageId) {
-    for (const client of state.crmClients) {
-      for (const project of client.projects || []) {
-        const pkg = (project.packages || []).find((pk) => pk.id === packageId);
-        if (pkg) return { client, project, pkg };
-      }
-    }
-    return {};
-  }
-  function crmFindDeliverable(deliverableId) {
-    for (const client of state.crmClients) {
-      for (const project of client.projects || []) {
-        for (const pkg of project.packages || []) {
-          const deliverable = (pkg.deliverables || []).find((d) => d.id === deliverableId);
-          if (deliverable) return { pkg, deliverable };
-        }
-      }
-    }
-    return {};
+  function populateClientsMonthFilter() {
+    const sel = $("#clientFilterMonth");
+    if (!sel) return;
+    const months = availableMonthsFrom(state.payments);
+    populateMonthSelect(sel, months, state.clientsFilterMonth);
   }
 
-  async function renderCrmView() {
+  async function renderClientsView() {
+    populateClientsMonthFilter();
     try {
-      state.crmClients = await Api.getCrmClients();
+      state.clients = await Api.getClients(state.clientsFilterMonth);
     } catch (err) {
       showToast(err.message, "error");
-      state.crmClients = [];
+      state.clients = buildClientsFromPayments(
+        state.clientsFilterMonth === "all"
+          ? state.payments
+          : state.payments.filter((p) => monthKeyOf(p.date) === state.clientsFilterMonth)
+      );
     }
-    renderCrmBreadcrumb();
-    renderCrmPanel();
+    renderClientGrid(state.clients);
   }
 
-  function crmGoTo(clientId, projectId, packageId) {
-    state.crmNav = { clientId: clientId || null, projectId: projectId || null, packageId: packageId || null };
-    renderCrmBreadcrumb();
-    renderCrmPanel();
-  }
-
-  function renderCrmBreadcrumb() {
-    const nav = $("#crmBreadcrumb");
-    const { clientId, projectId, packageId } = state.crmNav;
-    const crumbs = [`<span class="crumb" data-nav="root">All Clients</span>`];
-
-    const client = clientId ? crmFindClient(clientId) : null;
-    if (client) crumbs.push(`<span class="crumb" data-nav="client">${escapeHtml(client.name)}</span>`);
-
-    const project = projectId ? crmFindProject(projectId).project : null;
-    if (project) crumbs.push(`<span class="crumb" data-nav="project">${escapeHtml(project.name)}</span>`);
-
-    const pkg = packageId ? crmFindPackage(packageId).pkg : null;
-    if (pkg) crumbs.push(`<span class="crumb active" data-nav="package">${escapeHtml(pkg.name)}</span>`);
-
-    nav.innerHTML = crumbs.join(`<i class="fa-solid fa-chevron-right"></i>`);
-    $("#crmSearchToolbar").hidden = !!clientId;
-
-    nav.querySelectorAll(".crumb").forEach((el) => {
-      el.addEventListener("click", () => {
-        const level = el.dataset.nav;
-        if (level === "root") crmGoTo(null, null, null);
-        else if (level === "client") crmGoTo(clientId, null, null);
-        else if (level === "project") crmGoTo(clientId, projectId, null);
-      });
-    });
-  }
-
-  function renderCrmPanel() {
-    const { clientId, projectId, packageId } = state.crmNav;
-    if (packageId) return renderCrmPackageDetail(packageId);
-    if (projectId) return renderCrmPackageList(projectId);
-    if (clientId) return renderCrmProjectList(clientId);
-    return renderCrmClientList(state.crmSearch);
-  }
-
-  // -- Level 0: Client list --
-  function renderCrmClientList(search) {
-    const panel = $("#crmPanel");
-    const term = (search || "").toLowerCase();
-    const clients = state.crmClients.filter((c) =>
-      !term || [c.name, c.mobile, c.business, c.instagram, c.location].some((f) => (f || "").toLowerCase().includes(term))
-    );
+  function renderClientGrid(clients) {
+    const grid = $("#clientGrid");
     if (!clients.length) {
-      panel.innerHTML = `<p style="color:var(--text-muted);">No clients yet. Click "Add Client" to create one.</p>`;
+      grid.innerHTML = `<p style="color:var(--text-muted);">No clients yet.</p>`;
       return;
     }
-    panel.innerHTML = `<div class="client-grid">` + clients.map((c) => {
-      const projectCount = (c.projects || []).length;
-      const packageCount = (c.projects || []).reduce((sum, p) => sum + (p.packages || []).length, 0);
-      return `
-        <div class="client-card crm-card" data-id="${c.id}">
-          <div class="client-card-head">
-            <div class="client-avatar">${initials(c.name)}</div>
-            <div>
-              <h4>${escapeHtml(c.name)}</h4>
-              <span>${escapeHtml(c.business || c.mobile || "")}</span>
-            </div>
-            <div class="crm-card-actions">
-              <button class="icon-btn crm-edit-client" data-id="${c.id}" title="Edit"><i class="fa-solid fa-pen"></i></button>
-              <button class="icon-btn crm-delete-client" data-id="${c.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>
-            </div>
+    grid.innerHTML = clients.map((c, idx) => `
+      <div class="client-card" data-index="${idx}">
+        <div class="client-card-head">
+          <div class="client-avatar">${initials(c.clientName)}</div>
+          <div>
+            <h4>${escapeHtml(c.clientName)}</h4>
+            <span>${escapeHtml(c.businessName || c.mobile || "")}</span>
           </div>
-          <div class="client-stats">
-            <div><span class="cs-label">Projects</span><span class="cs-value">${projectCount}</span></div>
-            <div><span class="cs-label">Packages</span><span class="cs-value">${packageCount}</span></div>
-            <div><span class="cs-label">Location</span><span class="cs-value">${escapeHtml(c.location || "—")}</span></div>
+        </div>
+        <div class="client-stats">
+          <div>
+            <span class="cs-label">Business</span>
+            <span class="cs-value">${fmtMoney(c.totalBusiness)}</span>
           </div>
-          ${c.folderPath ? `<div class="crm-folder-path"><i class="fa-solid fa-folder"></i> ${escapeHtml(c.folderPath)}</div>` : ""}
-        </div>
-      `;
-    }).join("") + `</div>`;
-
-    panel.querySelectorAll(".crm-card").forEach((card) => {
-      card.addEventListener("click", (e) => {
-        if (e.target.closest(".crm-card-actions")) return;
-        crmGoTo(card.dataset.id, null, null);
-      });
-    });
-    panel.querySelectorAll(".crm-edit-client").forEach((btn) => {
-      btn.addEventListener("click", (e) => { e.stopPropagation(); openCrmClientModal(crmFindClient(btn.dataset.id)); });
-    });
-    panel.querySelectorAll(".crm-delete-client").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const client = crmFindClient(btn.dataset.id);
-        openConfirm("Delete Client?", `This will permanently delete "${client.name}" and all their projects, packages and deliverables.`, async () => {
-          try {
-            await Api.deleteCrmClient(client.id);
-            showToast("Client deleted", "success");
-            await renderCrmView();
-          } catch (err) { showToast(err.message, "error"); }
-        });
-      });
-    });
-  }
-
-  // -- Level 1: Project list (for a client) --
-  function renderCrmProjectList(clientId) {
-    const client = crmFindClient(clientId);
-    const panel = $("#crmPanel");
-    if (!client) { panel.innerHTML = ""; return; }
-
-    const projects = client.projects || [];
-    panel.innerHTML = `
-      <div class="crm-info-card card">
-        <div>
-          <h3>${escapeHtml(client.name)}</h3>
-          <p class="view-subtitle">${escapeHtml(client.mobile || "—")} · ${escapeHtml(client.business || "—")} · ${escapeHtml(client.instagram || "—")}</p>
-          ${client.folderPath ? `<div class="crm-folder-path"><i class="fa-solid fa-folder"></i> ${escapeHtml(client.folderPath)}</div>` : ""}
-        </div>
-        <button class="btn btn-outline btn-sm crm-edit-client" data-id="${client.id}"><i class="fa-solid fa-pen"></i> Edit Client</button>
-      </div>
-      <div class="crm-section-head">
-        <h4>Projects</h4>
-        <button class="btn btn-primary btn-sm" id="crmAddProjectBtn"><i class="fa-solid fa-plus"></i> Add Project</button>
-      </div>
-      ${!projects.length ? `<p style="color:var(--text-muted);">No projects yet.</p>` : `
-      <div class="client-grid">
-        ${projects.map((p) => `
-          <div class="client-card crm-card" data-id="${p.id}">
-            <div class="client-card-head">
-              <div>
-                <h4>${escapeHtml(p.name)}</h4>
-                <span>${fmtDate(p.startDate)} — ${fmtDate(p.endDate)}</span>
-              </div>
-              <div class="crm-card-actions">
-                <button class="icon-btn crm-edit-project" data-id="${p.id}" title="Edit"><i class="fa-solid fa-pen"></i></button>
-                <button class="icon-btn crm-delete-project" data-id="${p.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>
-              </div>
-            </div>
-            <div class="client-stats">
-              <div><span class="cs-label">Status</span><span class="cs-value">${escapeHtml(p.status)}</span></div>
-              <div><span class="cs-label">Priority</span><span class="cs-value">${escapeHtml(p.priority)}</span></div>
-              <div><span class="cs-label">Packages</span><span class="cs-value">${(p.packages || []).length}</span></div>
-            </div>
+          <div>
+            <span class="cs-label">Received</span>
+            <span class="cs-value">${fmtMoney(c.totalReceived)}</span>
           </div>
-        `).join("")}
-      </div>`}
-    `;
-
-    panel.querySelectorAll(".crm-card").forEach((card) => {
-      card.addEventListener("click", (e) => {
-        if (e.target.closest(".crm-card-actions")) return;
-        crmGoTo(client.id, card.dataset.id, null);
-      });
-    });
-    panel.querySelectorAll(".crm-edit-client").forEach((btn) => btn.addEventListener("click", () => openCrmClientModal(client)));
-    $("#crmAddProjectBtn")?.addEventListener("click", () => openCrmProjectModal(null, client.id));
-    panel.querySelectorAll(".crm-edit-project").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        openCrmProjectModal(crmFindProject(btn.dataset.id).project, client.id);
-      });
-    });
-    panel.querySelectorAll(".crm-delete-project").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const { project } = crmFindProject(btn.dataset.id);
-        openConfirm("Delete Project?", `This will permanently delete "${project.name}" and all its packages.`, async () => {
-          try {
-            await Api.deleteCrmProject(project.id);
-            showToast("Project deleted", "success");
-            await renderCrmView();
-          } catch (err) { showToast(err.message, "error"); }
-        });
-      });
-    });
-  }
-
-  // -- Level 2: Package list (for a project) --
-  function renderCrmPackageList(projectId) {
-    const { client, project } = crmFindProject(projectId);
-    const panel = $("#crmPanel");
-    if (!project) { panel.innerHTML = ""; return; }
-
-    const packages = project.packages || [];
-    panel.innerHTML = `
-      <div class="crm-info-card card">
-        <div>
-          <h3>${escapeHtml(project.name)}</h3>
-          <p class="view-subtitle">${fmtDate(project.startDate)} — ${fmtDate(project.endDate)} · ${escapeHtml(project.status)} · ${escapeHtml(project.priority)} priority</p>
-        </div>
-        <button class="btn btn-outline btn-sm" id="crmEditProjectBtn"><i class="fa-solid fa-pen"></i> Edit Project</button>
-      </div>
-      <div class="crm-section-head">
-        <h4>Packages</h4>
-        <button class="btn btn-primary btn-sm" id="crmAddPackageBtn"><i class="fa-solid fa-plus"></i> Add Package</button>
-      </div>
-      ${!packages.length ? `<p style="color:var(--text-muted);">No packages yet.</p>` : `
-      <div class="client-grid">
-        ${packages.map((pk) => `
-          <div class="client-card crm-card" data-id="${pk.id}">
-            <div class="client-card-head">
-              <div>
-                <h4>${escapeHtml(pk.name)} <span class="badge pkg-type ${pk.type}">${pk.type}</span></h4>
-                <span>${fmtDate(pk.startDate)} — ${fmtDate(pk.endDate)}</span>
-              </div>
-              <div class="crm-card-actions">
-                <button class="icon-btn crm-edit-package" data-id="${pk.id}" title="Edit"><i class="fa-solid fa-pen"></i></button>
-                <button class="icon-btn crm-delete-package" data-id="${pk.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>
-              </div>
-            </div>
-            <div class="client-stats">
-              <div><span class="cs-label">Total</span><span class="cs-value">${fmtMoney(pk.payment.total)}</span></div>
-              <div><span class="cs-label">Paid</span><span class="cs-value">${fmtMoney(pk.payment.paid)}</span></div>
-              <div><span class="cs-label">Status</span><span class="cs-value"><span class="badge ${statusClass(pk.payment.status)}">${pk.payment.status}</span></span></div>
-            </div>
+          <div>
+            <span class="cs-label">Pending</span>
+            <span class="cs-value">${fmtMoney(c.totalPending)}</span>
           </div>
-        `).join("")}
-      </div>`}
-    `;
+        </div>
+      </div>
+    `).join("");
 
-    panel.querySelectorAll(".crm-card").forEach((card) => {
-      card.addEventListener("click", (e) => {
-        if (e.target.closest(".crm-card-actions")) return;
-        crmGoTo(client.id, project.id, card.dataset.id);
-      });
-    });
-    $("#crmEditProjectBtn")?.addEventListener("click", () => openCrmProjectModal(project, client.id));
-    $("#crmAddPackageBtn")?.addEventListener("click", () => openCrmPackageModal(null, project.id));
-    panel.querySelectorAll(".crm-edit-package").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        openCrmPackageModal(crmFindPackage(btn.dataset.id).pkg, project.id);
-      });
-    });
-    panel.querySelectorAll(".crm-delete-package").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const { pkg } = crmFindPackage(btn.dataset.id);
-        openConfirm("Delete Package?", `This will permanently delete "${pkg.name}" and everything inside it.`, async () => {
-          try {
-            await Api.deleteCrmPackage(pkg.id);
-            showToast("Package deleted", "success");
-            await renderCrmView();
-          } catch (err) { showToast(err.message, "error"); }
-        });
-      });
+    $$(".client-card").forEach((card) => {
+      card.addEventListener("click", () => openClientDrawer(clients[Number(card.dataset.index)]));
     });
   }
 
-  // -- Level 3: Package detail (Management platforms OR Deliverable items) --
-  function renderCrmPackageDetail(packageId) {
-    const { client, project, pkg } = crmFindPackage(packageId);
-    const panel = $("#crmPanel");
-    if (!pkg) { panel.innerHTML = ""; return; }
-
-    const pay = pkg.payment;
-    panel.innerHTML = `
-      <div class="crm-info-card card">
-        <div>
-          <h3>${escapeHtml(pkg.name)} <span class="badge pkg-type ${pkg.type}">${pkg.type}</span></h3>
-          <p class="view-subtitle">${fmtDate(pkg.startDate)} — ${fmtDate(pkg.endDate)}</p>
-        </div>
-        <button class="btn btn-outline btn-sm" id="crmEditPackageBtn"><i class="fa-solid fa-pen"></i> Edit Package</button>
-      </div>
-
-      <div class="crm-payment-card card">
-        <div class="client-stats" style="border-top:none; padding-top:0;">
-          <div><span class="cs-label">Total</span><span class="cs-value">${fmtMoney(pay.total)}</span></div>
-          <div><span class="cs-label">Paid</span><span class="cs-value">${fmtMoney(pay.paid)}</span></div>
-          <div><span class="cs-label">Pending</span><span class="cs-value">${fmtMoney(pay.pending)}</span></div>
-          <div><span class="cs-label">Due Date</span><span class="cs-value">${fmtDate(pay.dueDate)}</span></div>
-          <div><span class="cs-label">Status</span><span class="cs-value"><span class="badge ${statusClass(pay.status)}">${pay.status}</span></span></div>
-        </div>
-        <div class="crm-payment-actions">
-          <button class="btn btn-outline btn-sm" id="crmEditPaymentTermsBtn"><i class="fa-solid fa-pen"></i> Payment Terms</button>
-          <button class="btn btn-primary btn-sm" id="crmLogPaymentBtn"><i class="fa-solid fa-plus"></i> Log Payment</button>
-        </div>
-        ${(pay.history && pay.history.length) ? `
-          <div class="table-scroll" style="margin-top:12px;">
-            <table class="data-table">
-              <thead><tr><th>Date</th><th>Amount</th><th>Note</th></tr></thead>
-              <tbody>
-                ${pay.history.slice().reverse().map((h) => `<tr><td>${fmtDate(h.date)}</td><td>${fmtMoney(h.amount)}</td><td>${escapeHtml(h.note || "—")}</td></tr>`).join("")}
-              </tbody>
-            </table>
-          </div>
-        ` : ""}
-      </div>
-
-      ${pkg.type === "Management" ? renderCrmPlatformsSection(pkg) : renderCrmDeliverablesSection(pkg)}
-    `;
-
-    $("#crmEditPackageBtn")?.addEventListener("click", () => openCrmPackageModal(pkg, project.id));
-    $("#crmEditPaymentTermsBtn")?.addEventListener("click", () => openCrmPaymentModal(pkg));
-    $("#crmLogPaymentBtn")?.addEventListener("click", () => openCrmLogPaymentModal(pkg));
-
-    if (pkg.type === "Management") {
-      $("#crmAddPlatformBtn")?.addEventListener("click", () => openCrmPlatformModal(null, pkg.id));
-      panel.querySelectorAll(".crm-edit-platform").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const platform = (pkg.platforms || []).find((pl) => pl.id === btn.dataset.id);
-          openCrmPlatformModal(platform, pkg.id);
-        });
-      });
-      panel.querySelectorAll(".crm-delete-platform").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          openConfirm("Delete Platform?", "This will remove this platform's counts from the package.", async () => {
-            try {
-              await Api.deleteCrmPlatform(btn.dataset.id);
-              showToast("Platform deleted", "success");
-              await renderCrmView();
-            } catch (err) { showToast(err.message, "error"); }
-          });
-        });
-      });
-    } else {
-      $("#crmAddDeliverableBtn")?.addEventListener("click", () => openCrmDeliverableModal(null, pkg.id));
-      panel.querySelectorAll(".crm-deliverable-row").forEach((row) => {
-        row.addEventListener("click", (e) => {
-          if (e.target.closest(".crm-row-actions")) return;
-          openCrmDeliverableDetail(row.dataset.id);
-        });
-      });
-      panel.querySelectorAll(".crm-edit-deliverable").forEach((btn) => {
-        btn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          const deliverable = (pkg.deliverables || []).find((d) => d.id === btn.dataset.id);
-          openCrmDeliverableModal(deliverable, pkg.id);
-        });
-      });
-      panel.querySelectorAll(".crm-delete-deliverable").forEach((btn) => {
-        btn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          openConfirm("Delete Deliverable?", "This will permanently delete this deliverable.", async () => {
-            try {
-              await Api.deleteCrmDeliverable(btn.dataset.id);
-              showToast("Deliverable deleted", "success");
-              await renderCrmView();
-            } catch (err) { showToast(err.message, "error"); }
-          });
-        });
-      });
-    }
-  }
-
-  function renderCrmPlatformsSection(pkg) {
-    const platforms = pkg.platforms || [];
-    return `
-      <div class="crm-section-head">
-        <h4>Platforms <span style="font-weight:400; color:var(--text-muted); font-size:12px;">(count-based — no per-post detail)</span></h4>
-        <button class="btn btn-primary btn-sm" id="crmAddPlatformBtn"><i class="fa-solid fa-plus"></i> Add Platform</button>
-      </div>
-      ${!platforms.length ? `<p style="color:var(--text-muted);">No platforms added yet.</p>` : `
-      <div class="table-scroll">
-        <table class="data-table">
-          <thead><tr><th>Platform</th><th>Posts</th><th>Reels</th><th>Stories</th><th></th></tr></thead>
-          <tbody>
-            ${platforms.map((pl) => `
-              <tr>
-                <td>${escapeHtml(pl.name)}</td>
-                <td>${pl.posts}</td>
-                <td>${pl.reels}</td>
-                <td>${pl.stories}</td>
-                <td class="crm-row-actions">
-                  <button class="icon-btn crm-edit-platform" data-id="${pl.id}" title="Edit"><i class="fa-solid fa-pen"></i></button>
-                  <button class="icon-btn crm-delete-platform" data-id="${pl.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>
-                </td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-      </div>`}
-    `;
-  }
-
-  function renderCrmDeliverablesSection(pkg) {
-    const deliverables = pkg.deliverables || [];
-    return `
-      <div class="crm-section-head">
-        <h4>Deliverables</h4>
-        <button class="btn btn-primary btn-sm" id="crmAddDeliverableBtn"><i class="fa-solid fa-plus"></i> Add Deliverable</button>
-      </div>
-      ${!deliverables.length ? `<p style="color:var(--text-muted);">No deliverables yet.</p>` : `
-      <div class="table-scroll">
-        <table class="data-table">
-          <thead><tr><th>Type</th><th>Platform</th><th>Due</th><th>Status</th><th>File Location</th><th></th></tr></thead>
-          <tbody>
-            ${deliverables.map((d) => `
-              <tr class="crm-deliverable-row" data-id="${d.id}">
-                <td>${escapeHtml(d.type)}</td>
-                <td>${escapeHtml(d.platform || "—")}</td>
-                <td>${fmtDate(d.dueDate)}</td>
-                <td><span class="badge ${d.status === "Completed" ? "Paid" : (d.status === "In Progress" || d.status === "Review") ? "Partial" : "Pending"}">${escapeHtml(d.status)}</span></td>
-                <td class="crm-file-location" title="${escapeHtml(d.fileLocation || "")}">${d.fileLocation ? `<i class="fa-solid fa-folder-open"></i> ${escapeHtml(d.fileLocation)}` : "—"}</td>
-                <td class="crm-row-actions">
-                  <button class="icon-btn crm-edit-deliverable" data-id="${d.id}" title="Edit"><i class="fa-solid fa-pen"></i></button>
-                  <button class="icon-btn crm-delete-deliverable" data-id="${d.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>
-                </td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-      </div>`}
-    `;
-  }
-
-  function openCrmDeliverableDetail(deliverableId) {
-    const { pkg, deliverable: d } = crmFindDeliverable(deliverableId);
-    if (!d) return;
-    $("#clientDrawerTitle").textContent = `${d.type} — ${pkg.name}`;
-    $("#clientDrawerBody").innerHTML = `
-      <div style="display:flex; flex-direction:column; gap:16px;">
-        <div class="client-stats" style="border-top:none; padding-top:0;">
-          <div><span class="cs-label">Status</span><span class="cs-value">${escapeHtml(d.status)}</span></div>
-          <div><span class="cs-label">Platform</span><span class="cs-value">${escapeHtml(d.platform || "—")}</span></div>
-          <div><span class="cs-label">Due</span><span class="cs-value">${fmtDate(d.dueDate)}</span></div>
-        </div>
-        <p style="font-size:13px; color:var(--text-muted);">
-          <b>Start:</b> ${fmtDate(d.startDate)} &nbsp; <b>Completed:</b> ${fmtDate(d.completedDate)} &nbsp; <b>Publish:</b> ${fmtDate(d.publishDate)}<br/>
-          <b>URL:</b> ${d.url ? `<a href="${escapeHtml(d.url)}" target="_blank" rel="noopener">${escapeHtml(d.url)}</a>` : "—"}<br/>
-          <b>File Location:</b> ${escapeHtml(d.fileLocation || "—")}
-        </p>
-        <div>
-          <div class="crm-section-head" style="margin-bottom:8px;">
-            <h4 style="font-size:14px;">Revisions</h4>
-            <button class="btn btn-outline btn-sm" id="crmAddRevisionBtn"><i class="fa-solid fa-plus"></i> Add Revision</button>
-          </div>
-          ${(d.revisions && d.revisions.length) ? `
-            <ul style="margin:0; padding-left:18px; font-size:13px; color:var(--text-muted);">
-              ${d.revisions.map((r) => `<li><b>${fmtDate(r.date)}:</b> ${escapeHtml(r.note || "—")}</li>`).join("")}
-            </ul>
-          ` : `<p style="color:var(--text-muted); font-size:13px;">No revisions logged.</p>`}
-        </div>
-      </div>
-    `;
-    $("#crmAddRevisionBtn")?.addEventListener("click", () => openCrmRevisionModal(d.id));
-    $("#clientDrawerOverlay").hidden = false;
-  }
-
-  /* ---- CRM modal open/close + form submit wiring ---- */
-
-  function openCrmClientModal(client) {
-    $("#crmClientModalTitle").textContent = client ? "Edit Client" : "Add Client";
-    $("#crmClientId").value = client?.id || "";
-    $("#crmCName").value = client?.name || "";
-    $("#crmCMobile").value = client?.mobile || "";
-    $("#crmCBusiness").value = client?.business || "";
-    $("#crmCInstagram").value = client?.instagram || "";
-    $("#crmCLocation").value = client?.location || "";
-    $("#crmCFolderPath").value = client?.folderPath || "";
-    $("#crmClientModalOverlay").hidden = false;
-  }
-
-  function openCrmProjectModal(project, clientId) {
-    $("#crmProjectModalTitle").textContent = project ? "Edit Project" : "Add Project";
-    $("#crmProjectId").value = project?.id || "";
-    $("#crmProjectForm").dataset.clientId = clientId;
-    $("#crmPName").value = project?.name || "";
-    $("#crmPStart").value = project?.startDate || "";
-    $("#crmPEnd").value = project?.endDate || "";
-    $("#crmPStatus").value = project?.status || "Active";
-    $("#crmPPriority").value = project?.priority || "Medium";
-    $("#crmProjectModalOverlay").hidden = false;
-  }
-
-  function openCrmPackageModal(pkg, projectId) {
-    $("#crmPackageModalTitle").textContent = pkg ? "Edit Package" : "Add Package";
-    $("#crmPackageId").value = pkg?.id || "";
-    $("#crmPackageForm").dataset.projectId = projectId;
-    $("#crmPkgName").value = pkg?.name || "";
-    $("#crmPkgType").value = pkg?.type || "Deliverable";
-    $("#crmPkgStart").value = pkg?.startDate || "";
-    $("#crmPkgEnd").value = pkg?.endDate || "";
-    $("#crmPackageModalOverlay").hidden = false;
-  }
-
-  function openCrmPaymentModal(pkg) {
-    $("#crmPaymentPackageId").value = pkg.id;
-    $("#crmPayTotal").value = pkg.payment.total || 0;
-    $("#crmPayDueDate").value = pkg.payment.dueDate || "";
-    $("#crmPaymentModalOverlay").hidden = false;
-  }
-
-  function openCrmLogPaymentModal(pkg) {
-    $("#crmLogPackageId").value = pkg.id;
-    $("#crmLogAmount").value = "";
-    $("#crmLogDate").value = new Date().toISOString().slice(0, 10);
-    $("#crmLogNote").value = "";
-    $("#crmLogPaymentModalOverlay").hidden = false;
-  }
-
-  function openCrmPlatformModal(platform, packageId) {
-    $("#crmPlatformModalTitle").textContent = platform ? "Edit Platform" : "Add Platform";
-    $("#crmPlatformId").value = platform?.id || "";
-    $("#crmPlatformPackageId").value = packageId;
-    $("#crmPlName").value = platform?.name || "";
-    $("#crmPlPosts").value = platform?.posts ?? 0;
-    $("#crmPlReels").value = platform?.reels ?? 0;
-    $("#crmPlStories").value = platform?.stories ?? 0;
-    $("#crmPlatformModalOverlay").hidden = false;
-  }
-
-  function openCrmDeliverableModal(deliverable, packageId) {
-    $("#crmDeliverableModalTitle").textContent = deliverable ? "Edit Deliverable" : "Add Deliverable";
-    $("#crmDeliverableId").value = deliverable?.id || "";
-    $("#crmDeliverablePackageId").value = packageId;
-    $("#crmDelType").value = deliverable?.type || "Post";
-    $("#crmDelStatus").value = deliverable?.status || "Pending";
-    $("#crmDelStart").value = deliverable?.startDate || "";
-    $("#crmDelDue").value = deliverable?.dueDate || "";
-    $("#crmDelCompleted").value = deliverable?.completedDate || "";
-    $("#crmDelPlatform").value = deliverable?.platform || "";
-    $("#crmDelPublishDate").value = deliverable?.publishDate || "";
-    $("#crmDelUrl").value = deliverable?.url || "";
-    $("#crmDelFileLocation").value = deliverable?.fileLocation || "";
-    $("#crmDeliverableModalOverlay").hidden = false;
-  }
-
-  function openCrmRevisionModal(deliverableId) {
-    $("#crmRevisionDeliverableId").value = deliverableId;
-    $("#crmRevDate").value = new Date().toISOString().slice(0, 10);
-    $("#crmRevNote").value = "";
-    $("#crmRevisionModalOverlay").hidden = false;
-  }
-
-  function initCrmModule() {
-    $("#crmAddClientBtn").addEventListener("click", () => openCrmClientModal(null));
-
+  function initClientSearch() {
     $("#clientSearch").addEventListener("input", debounce(() => {
-      state.crmSearch = $("#clientSearch").value;
-      if (!state.crmNav.clientId) renderCrmClientList(state.crmSearch);
+      const search = $("#clientSearch").value.toLowerCase();
+      const filtered = state.clients.filter((c) =>
+        [c.clientName, c.mobile, c.businessName, c.instagram].some((f) => (f || "").toLowerCase().includes(search))
+      );
+      renderClientGrid(filtered);
     }, 200));
 
-    $("#closeCrmClientModal").addEventListener("click", () => { $("#crmClientModalOverlay").hidden = true; });
-    $("#cancelCrmClientBtn").addEventListener("click", () => { $("#crmClientModalOverlay").hidden = true; });
-    $("#crmClientForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const id = $("#crmClientId").value;
-      const payload = {
-        name: $("#crmCName").value.trim(),
-        mobile: $("#crmCMobile").value.trim(),
-        business: $("#crmCBusiness").value.trim(),
-        instagram: $("#crmCInstagram").value.trim(),
-        location: $("#crmCLocation").value.trim(),
-        folderPath: $("#crmCFolderPath").value.trim()
-      };
+    $("#clientFilterMonth").addEventListener("change", async () => {
+      state.clientsFilterMonth = $("#clientFilterMonth").value;
+      await renderClientsView();
+    });
+  }
+
+  function openClientDrawer(client) {
+    $("#clientDrawerTitle").textContent = client.clientName;
+    const body = $("#clientDrawerBody");
+    const profileKey = client.mobile || client.clientName;
+    const profile = state.clientProfiles[profileKey] || { location: "", folderPath: "" };
+    body.innerHTML = `
+      <div style="display:flex; flex-direction:column; gap:16px;">
+        <div class="client-stats" style="border-top:none; padding-top:0;">
+          <div><span class="cs-label">Business</span><span class="cs-value">${fmtMoney(client.totalBusiness)}</span></div>
+          <div><span class="cs-label">Received</span><span class="cs-value">${fmtMoney(client.totalReceived)}</span></div>
+          <div><span class="cs-label">Pending</span><span class="cs-value">${fmtMoney(client.totalPending)}</span></div>
+        </div>
+        <p style="font-size:13px; color:var(--text-muted);">
+          <b>Mobile:</b> ${escapeHtml(client.mobile || "—")}<br/>
+          <b>Instagram:</b> ${escapeHtml(client.instagram || "—")}
+        </p>
+
+        <div class="drawer-section" style="margin-bottom:0;">
+          <div class="drawer-section-head">
+            <h3>Location &amp; File Folder</h3>
+          </div>
+          <div class="inline-form" style="flex-direction:column; align-items:stretch;">
+            <input type="text" id="cpLocation" placeholder="Client location (city/area)" value="${escapeHtml(profile.location)}" />
+            <input type="text" id="cpFolderPath" placeholder="e.g. D:\\Clients\\${escapeHtml(client.clientName)}\\" value="${escapeHtml(profile.folderPath)}" />
+            <button type="button" class="btn btn-primary btn-sm" id="saveClientProfileBtn" style="align-self:flex-start;">
+              <i class="fa-solid fa-check"></i> Save
+            </button>
+          </div>
+        </div>
+
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>Date</th><th>Category</th><th>Total</th><th>Status</th></tr></thead>
+            <tbody>
+              ${client.payments.map((p) => `
+                <tr>
+                  <td>${fmtDate(p.date)}</td>
+                  <td>${escapeHtml(p.category)}</td>
+                  <td>${fmtMoney(p.totalAmount)}</td>
+                  <td><span class="badge ${statusClass(p.status)}">${escapeHtml(p.status)}</span></td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+    $("#saveClientProfileBtn")?.addEventListener("click", async () => {
       try {
-        if (id) await Api.updateCrmClient(id, payload);
-        else await Api.createCrmClient(payload);
-        $("#crmClientModalOverlay").hidden = true;
-        showToast(id ? "Client updated" : "Client added", "success");
-        await renderCrmView();
-      } catch (err) { showToast(err.message, "error"); }
+        const updated = await Api.updateClientProfile(profileKey, {
+          location: $("#cpLocation").value.trim(),
+          folderPath: $("#cpFolderPath").value.trim()
+        });
+        state.clientProfiles[profileKey] = updated;
+        showToast("Client profile saved", "success");
+      } catch (err) {
+        showToast("Failed to save: " + err.message, "error");
+      }
     });
 
-    $("#closeCrmProjectModal").addEventListener("click", () => { $("#crmProjectModalOverlay").hidden = true; });
-    $("#cancelCrmProjectBtn").addEventListener("click", () => { $("#crmProjectModalOverlay").hidden = true; });
-    $("#crmProjectForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const id = $("#crmProjectId").value;
-      const clientId = $("#crmProjectForm").dataset.clientId;
-      const payload = {
-        name: $("#crmPName").value.trim(),
-        startDate: $("#crmPStart").value,
-        endDate: $("#crmPEnd").value,
-        status: $("#crmPStatus").value,
-        priority: $("#crmPPriority").value
-      };
-      try {
-        if (id) await Api.updateCrmProject(id, payload);
-        else await Api.createCrmProject(clientId, payload);
-        $("#crmProjectModalOverlay").hidden = true;
-        showToast(id ? "Project updated" : "Project added", "success");
-        await renderCrmView();
-      } catch (err) { showToast(err.message, "error"); }
-    });
-
-    $("#closeCrmPackageModal").addEventListener("click", () => { $("#crmPackageModalOverlay").hidden = true; });
-    $("#cancelCrmPackageBtn").addEventListener("click", () => { $("#crmPackageModalOverlay").hidden = true; });
-    $("#crmPackageForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const id = $("#crmPackageId").value;
-      const projectId = $("#crmPackageForm").dataset.projectId;
-      const payload = {
-        name: $("#crmPkgName").value.trim(),
-        type: $("#crmPkgType").value,
-        startDate: $("#crmPkgStart").value,
-        endDate: $("#crmPkgEnd").value
-      };
-      try {
-        if (id) await Api.updateCrmPackage(id, payload);
-        else await Api.createCrmPackage(projectId, payload);
-        $("#crmPackageModalOverlay").hidden = true;
-        showToast(id ? "Package updated" : "Package added", "success");
-        await renderCrmView();
-      } catch (err) { showToast(err.message, "error"); }
-    });
-
-    $("#closeCrmPaymentModal").addEventListener("click", () => { $("#crmPaymentModalOverlay").hidden = true; });
-    $("#cancelCrmPaymentBtn").addEventListener("click", () => { $("#crmPaymentModalOverlay").hidden = true; });
-    $("#crmPaymentForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const packageId = $("#crmPaymentPackageId").value;
-      const payload = { total: Number($("#crmPayTotal").value) || 0, dueDate: $("#crmPayDueDate").value };
-      try {
-        await Api.updateCrmPackagePayment(packageId, payload);
-        $("#crmPaymentModalOverlay").hidden = true;
-        showToast("Payment terms updated", "success");
-        await renderCrmView();
-      } catch (err) { showToast(err.message, "error"); }
-    });
-
-    $("#closeCrmLogPaymentModal").addEventListener("click", () => { $("#crmLogPaymentModalOverlay").hidden = true; });
-    $("#cancelCrmLogPaymentBtn").addEventListener("click", () => { $("#crmLogPaymentModalOverlay").hidden = true; });
-    $("#crmLogPaymentForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const packageId = $("#crmLogPackageId").value;
-      const payload = {
-        logEntry: true,
-        amount: Number($("#crmLogAmount").value) || 0,
-        date: $("#crmLogDate").value,
-        note: $("#crmLogNote").value.trim()
-      };
-      try {
-        await Api.updateCrmPackagePayment(packageId, payload);
-        $("#crmLogPaymentModalOverlay").hidden = true;
-        showToast("Payment logged", "success");
-        await renderCrmView();
-      } catch (err) { showToast(err.message, "error"); }
-    });
-
-    $("#closeCrmPlatformModal").addEventListener("click", () => { $("#crmPlatformModalOverlay").hidden = true; });
-    $("#cancelCrmPlatformBtn").addEventListener("click", () => { $("#crmPlatformModalOverlay").hidden = true; });
-    $("#crmPlatformForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const id = $("#crmPlatformId").value;
-      const packageId = $("#crmPlatformPackageId").value;
-      const payload = {
-        name: $("#crmPlName").value.trim(),
-        posts: Number($("#crmPlPosts").value) || 0,
-        reels: Number($("#crmPlReels").value) || 0,
-        stories: Number($("#crmPlStories").value) || 0
-      };
-      try {
-        if (id) await Api.updateCrmPlatform(id, payload);
-        else await Api.createCrmPlatform(packageId, payload);
-        $("#crmPlatformModalOverlay").hidden = true;
-        showToast(id ? "Platform updated" : "Platform added", "success");
-        await renderCrmView();
-      } catch (err) { showToast(err.message, "error"); }
-    });
-
-    $("#closeCrmDeliverableModal").addEventListener("click", () => { $("#crmDeliverableModalOverlay").hidden = true; });
-    $("#cancelCrmDeliverableBtn").addEventListener("click", () => { $("#crmDeliverableModalOverlay").hidden = true; });
-    $("#crmDelSuggestPathBtn").addEventListener("click", () => {
-      const packageId = $("#crmDeliverablePackageId").value;
-      const { client } = crmFindPackage(packageId);
-      if (!client || !client.folderPath) { showToast("This client has no Folder Path set yet", "error"); return; }
-      const sep = client.folderPath.endsWith("\\") || client.folderPath.endsWith("/") ? "" : "\\";
-      const type = $("#crmDelType").value || "Files";
-      $("#crmDelFileLocation").value = `${client.folderPath}${sep}${type}\\`;
-    });
-    $("#crmDeliverableForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const id = $("#crmDeliverableId").value;
-      const packageId = $("#crmDeliverablePackageId").value;
-      const payload = {
-        type: $("#crmDelType").value,
-        status: $("#crmDelStatus").value,
-        startDate: $("#crmDelStart").value,
-        dueDate: $("#crmDelDue").value,
-        completedDate: $("#crmDelCompleted").value,
-        platform: $("#crmDelPlatform").value.trim(),
-        publishDate: $("#crmDelPublishDate").value,
-        url: $("#crmDelUrl").value.trim(),
-        fileLocation: $("#crmDelFileLocation").value.trim()
-      };
-      try {
-        if (id) await Api.updateCrmDeliverable(id, payload);
-        else await Api.createCrmDeliverable(packageId, payload);
-        $("#crmDeliverableModalOverlay").hidden = true;
-        showToast(id ? "Deliverable updated" : "Deliverable added", "success");
-        await renderCrmView();
-      } catch (err) { showToast(err.message, "error"); }
-    });
-
-    $("#closeCrmRevisionModal").addEventListener("click", () => { $("#crmRevisionModalOverlay").hidden = true; });
-    $("#cancelCrmRevisionBtn").addEventListener("click", () => { $("#crmRevisionModalOverlay").hidden = true; });
-    $("#crmRevisionForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const deliverableId = $("#crmRevisionDeliverableId").value;
-      const payload = { date: $("#crmRevDate").value, note: $("#crmRevNote").value.trim() };
-      try {
-        await Api.addCrmDeliverableRevision(deliverableId, payload);
-        $("#crmRevisionModalOverlay").hidden = true;
-        showToast("Revision added", "success");
-        await renderCrmView();
-        openCrmDeliverableDetail(deliverableId);
-      } catch (err) { showToast(err.message, "error"); }
-    });
-
-    [
-      "crmClientModalOverlay", "crmProjectModalOverlay", "crmPackageModalOverlay",
-      "crmPaymentModalOverlay", "crmLogPaymentModalOverlay", "crmPlatformModalOverlay",
-      "crmDeliverableModalOverlay", "crmRevisionModalOverlay"
-    ].forEach((id) => {
-      $(`#${id}`).addEventListener("click", (e) => { if (e.target.id === id) $(`#${id}`).hidden = true; });
-    });
+    $("#clientDrawerOverlay").hidden = false;
   }
 
   function initClientDrawer() {
@@ -2564,14 +1961,665 @@
   /* ------------------------------------------------------------------ */
   /* Initial data load                                                   */
   /* ------------------------------------------------------------------ */
+  /* ------------------------------------------------------------------ */
+  /* Packages / Projects / Deliverables                                  */
+  /* Hierarchy: Client -> Package (billing unit) -> Project (work unit,   */
+  /* Deliverable-type or Management-type) -> Deliverable (Post/Reel/Story)*/
+  /* ------------------------------------------------------------------ */
+
+  function pkgStatusClass(status) {
+    return status || "Pending";
+  }
+
+  function populateDeliverableTypeAndPlatformSelects() {
+    const dType = $("#dType");
+    if (dType) {
+      dType.innerHTML = state.deliverableTypes.map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("");
+    }
+    const dPlatform = $("#dPlatform");
+    if (dPlatform) {
+      dPlatform.innerHTML = `<option value="">— Select Platform —</option>` +
+        state.platformOptions.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join("");
+    }
+    updateClientNameDatalist();
+  }
+
+  function updateClientNameDatalist() {
+    const list = $("#clientNameList");
+    if (!list) return;
+    const names = new Set();
+    state.payments.forEach((p) => p.clientName && names.add(p.clientName));
+    state.packages.forEach((p) => p.clientName && names.add(p.clientName));
+    list.innerHTML = Array.from(names).map((n) => `<option value="${escapeHtml(n)}"></option>`).join("");
+  }
+
+  // --- Packages view (grid of top-level packages) ---
+
+  function filteredPackages() {
+    const q = ($("#packageSearch")?.value || "").toLowerCase().trim();
+    const status = $("#packageFilterStatus")?.value || "";
+    const payment = $("#packageFilterPayment")?.value || "";
+    return state.packages.filter((pk) => {
+      const matchesQ = !q || pk.name.toLowerCase().includes(q) || (pk.clientName || "").toLowerCase().includes(q);
+      const matchesStatus = !status || pk.status === status;
+      const matchesPayment = !payment || pk.paymentStatus === payment;
+      return matchesQ && matchesStatus && matchesPayment;
+    });
+  }
+
+  function renderPackagesView() {
+    const grid = $("#packageGrid");
+    const empty = $("#packagesEmpty");
+    if (!grid) return;
+    const list = filteredPackages();
+    empty.hidden = list.length > 0;
+    grid.innerHTML = list.map((pk) => {
+      const projectCount = (pk.projects || []).length;
+      const completedProjects = (pk.projects || []).filter((p) => p.status === "Completed").length;
+      return `
+      <div class="project-card card" data-id="${pk.id}">
+        <div class="project-card-head">
+          <div>
+            <h3>${escapeHtml(pk.name)}</h3>
+            <p class="muted">${escapeHtml(pk.clientName || "—")}</p>
+          </div>
+          <span class="badge ${pkgStatusClass(pk.status)}">${escapeHtml(pk.status)}</span>
+        </div>
+        <div class="project-card-dates">
+          <span><i class="fa-regular fa-calendar"></i> Start: ${fmtDate(pk.startDate)}</span>
+          <span><i class="fa-regular fa-calendar-check"></i> End: ${pk.endDate ? fmtDate(pk.endDate) : "—"}</span>
+        </div>
+        <div class="project-card-stats">
+          <div><b>${projectCount}</b><span>Projects</span></div>
+          <div><b>${completedProjects}</b><span>Completed</span></div>
+        </div>
+        <div class="project-card-payment">
+          <span>${fmtMoney(pk.paidAmount)} / ${fmtMoney(pk.totalAmount)}</span>
+          <span class="badge ${pkgStatusClass(pk.paymentStatus)}">${escapeHtml(pk.paymentStatus)}</span>
+        </div>
+      </div>`;
+    }).join("");
+
+    $$("#packageGrid .project-card").forEach((card) => {
+      card.addEventListener("click", () => openPackageDrawer(card.dataset.id));
+    });
+  }
+
+  function initPackagesToolbar() {
+    $("#packageSearch")?.addEventListener("input", debounce(renderPackagesView, 200));
+    $("#packageFilterStatus")?.addEventListener("change", renderPackagesView);
+    $("#packageFilterPayment")?.addEventListener("change", renderPackagesView);
+  }
+
+  // --- Package Add/Edit Modal ---
+
+  function openPackageModal(pkg = null) {
+    state.editingPackageId = pkg ? pkg.id : null;
+    $("#packageModalTitle").textContent = pkg ? "Edit Package" : "Add Package";
+    $("#packageId").value = pkg ? pkg.id : "";
+    $("#kClientName").value = pkg ? pkg.clientName : "";
+    $("#kClientMobile").value = pkg ? pkg.clientMobile : "";
+    $("#kName").value = pkg ? pkg.name : "";
+    $("#kStartDate").value = pkg ? pkg.startDate : new Date().toISOString().slice(0, 10);
+    $("#kEndDate").value = pkg ? pkg.endDate : "";
+    $("#kStatus").value = pkg ? pkg.status : "Active";
+    $("#kTotalAmount").value = pkg ? pkg.totalAmount : "";
+    $("#kPaymentDueDate").value = pkg ? pkg.paymentDueDate : "";
+    $("#kNotes").value = pkg ? pkg.notes : "";
+    updateClientNameDatalist();
+    $("#packageModalOverlay").hidden = false;
+  }
+
+  function closePackageModal() {
+    $("#packageModalOverlay").hidden = true;
+    $("#packageForm").reset();
+    state.editingPackageId = null;
+  }
+
+  function initPackageModal() {
+    $("#addPackageBtn")?.addEventListener("click", () => openPackageModal());
+    $("#closePackageModal")?.addEventListener("click", closePackageModal);
+    $("#cancelPackageBtn")?.addEventListener("click", closePackageModal);
+    $("#packageModalOverlay")?.addEventListener("click", (e) => {
+      if (e.target.id === "packageModalOverlay") closePackageModal();
+    });
+
+    $("#packageForm")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = {
+        clientName: $("#kClientName").value.trim(),
+        clientMobile: $("#kClientMobile").value.trim(),
+        name: $("#kName").value.trim(),
+        startDate: $("#kStartDate").value,
+        endDate: $("#kEndDate").value,
+        status: $("#kStatus").value,
+        totalAmount: Number($("#kTotalAmount").value) || 0,
+        paymentDueDate: $("#kPaymentDueDate").value,
+        notes: $("#kNotes").value.trim()
+      };
+      try {
+        if (state.editingPackageId) {
+          await Api.updatePackage(state.editingPackageId, payload);
+          showToast("Package updated", "success");
+        } else {
+          await Api.createPackage(payload);
+          showToast("Package added", "success");
+        }
+        state.packages = await Api.getPackages();
+        closePackageModal();
+        renderPackagesView();
+      } catch (err) {
+        showToast("Failed to save package: " + err.message, "error");
+      }
+    });
+  }
+
+  // --- Package Detail Drawer (shows Projects + Payment history) ---
+
+  async function refreshCurrentPackageDrawer() {
+    if (!state.currentPackageId) return;
+    const pkg = await Api.getPackage(state.currentPackageId);
+    renderPackageDrawerBody(pkg);
+  }
+
+  async function openPackageDrawer(id) {
+    state.currentPackageId = id;
+    const pkg = await Api.getPackage(id);
+    $("#packageDrawerTitle").textContent = pkg.name;
+    renderPackageDrawerBody(pkg);
+    $("#packageDrawerOverlay").hidden = false;
+  }
+
+  function renderPackageDrawerBody(pkg) {
+    const projects = pkg.projects || [];
+    const history = pkg.paymentHistory || [];
+
+    $("#packageDrawerBody").innerHTML = `
+      <div class="drawer-summary-row">
+        <div><span class="cs-label">Client</span><span class="cs-value">${escapeHtml(pkg.clientName || "—")}</span></div>
+        <div><span class="cs-label">Status</span><span class="cs-value"><span class="badge ${pkgStatusClass(pkg.status)}">${escapeHtml(pkg.status)}</span></span></div>
+        <div><span class="cs-label">Start Date</span><span class="cs-value">${fmtDate(pkg.startDate)}</span></div>
+        <div><span class="cs-label">End Date</span><span class="cs-value">${pkg.endDate ? fmtDate(pkg.endDate) : "—"}</span></div>
+      </div>
+
+      <div class="drawer-section">
+        <div class="drawer-section-head">
+          <h3>Payment</h3>
+          <button class="btn btn-ghost btn-sm" id="addPaymentEntryBtn"><i class="fa-solid fa-plus"></i> Add Payment</button>
+        </div>
+        <div class="drawer-summary-row">
+          <div><span class="cs-label">Total</span><span class="cs-value">${fmtMoney(pkg.totalAmount)}</span></div>
+          <div><span class="cs-label">Paid</span><span class="cs-value" style="color:var(--success);">${fmtMoney(pkg.paidAmount)}</span></div>
+          <div><span class="cs-label">Pending</span><span class="cs-value" style="color:var(--danger);">${fmtMoney(pkg.pendingAmount)}</span></div>
+          <div><span class="cs-label">Status</span><span class="cs-value"><span class="badge ${pkgStatusClass(pkg.paymentStatus)}">${escapeHtml(pkg.paymentStatus)}</span></span></div>
+        </div>
+        <div id="paymentAddForm" class="inline-form" hidden>
+          <input type="date" id="phDate" value="${new Date().toISOString().slice(0, 10)}" />
+          <input type="number" id="phAmount" placeholder="Amount" min="0" step="0.01" />
+          <select id="phType">
+            <option value="Advance">Advance</option>
+            <option value="Partial">Partial</option>
+            <option value="Final">Final</option>
+          </select>
+          <input type="text" id="phNote" placeholder="Note (optional)" />
+          <button type="button" class="btn btn-primary btn-sm" id="savePaymentEntryBtn">Save</button>
+        </div>
+        <table class="mini-table">
+          <thead><tr><th>Date</th><th>Amount</th><th>Type</th><th>Note</th><th></th></tr></thead>
+          <tbody>
+            ${history.length ? history.map((h) => `
+              <tr>
+                <td>${fmtDate(h.date)}</td>
+                <td>${fmtMoney(h.amount)}</td>
+                <td>${escapeHtml(h.type)}</td>
+                <td>${escapeHtml(h.note || "—")}</td>
+                <td><button class="icon-btn-sm delete-payment-entry-btn" data-id="${h.id}"><i class="fa-solid fa-trash"></i></button></td>
+              </tr>`).join("") : `<tr><td colspan="5" class="muted">No payments recorded yet.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="drawer-section">
+        <div class="drawer-section-head">
+          <h3>Projects (${projects.length})</h3>
+          <button class="btn btn-primary btn-sm" id="addProjectFromDrawerBtn"><i class="fa-solid fa-plus"></i> Add Project</button>
+        </div>
+        ${projects.length ? `<div class="mini-project-list">${projects.map((pr) => renderMiniProjectRow(pr)).join("")}</div>`
+          : `<p class="muted">No projects in this package yet.</p>`}
+      </div>
+    `;
+
+    $("#addPaymentEntryBtn")?.addEventListener("click", () => {
+      $("#paymentAddForm").hidden = !$("#paymentAddForm").hidden;
+    });
+    $("#savePaymentEntryBtn")?.addEventListener("click", async () => {
+      const amount = Number($("#phAmount").value);
+      if (!amount) { showToast("Enter a valid amount", "error"); return; }
+      try {
+        await Api.addPackagePayment(pkg.id, {
+          date: $("#phDate").value,
+          amount,
+          type: $("#phType").value,
+          note: $("#phNote").value.trim()
+        });
+        showToast("Payment added", "success");
+        state.packages = await Api.getPackages();
+        await refreshCurrentPackageDrawer();
+        renderPackagesView();
+      } catch (err) {
+        showToast("Failed to add payment: " + err.message, "error");
+      }
+    });
+    $$(".delete-payment-entry-btn").forEach((btn) => btn.addEventListener("click", () => {
+      openConfirm("Delete Payment Entry", "Remove this payment record?", async () => {
+        try {
+          await Api.deletePackagePayment(pkg.id, btn.dataset.id);
+          state.packages = await Api.getPackages();
+          await refreshCurrentPackageDrawer();
+          renderPackagesView();
+          showToast("Payment entry deleted", "success");
+        } catch (err) {
+          showToast("Failed to delete: " + err.message, "error");
+        }
+      });
+    }));
+
+    $("#addProjectFromDrawerBtn")?.addEventListener("click", () => openProjectModal(null, pkg.id));
+    $$(".mini-project-row").forEach((row) => {
+      row.addEventListener("click", (e) => {
+        if (e.target.closest(".edit-project-btn") || e.target.closest(".delete-project-btn")) return;
+        openProjectDrawer(row.dataset.id);
+      });
+    });
+    $$(".edit-project-btn").forEach((btn) => btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const project = projects.find((p) => p.id === btn.dataset.id);
+      openProjectModal(project, pkg.id);
+    }));
+    $$(".delete-project-btn").forEach((btn) => btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openConfirm("Delete Project", "This will also delete all its deliverables. Continue?", async () => {
+        try {
+          await Api.deleteProject(btn.dataset.id);
+          state.packages = await Api.getPackages();
+          await refreshCurrentPackageDrawer();
+          renderPackagesView();
+          showToast("Project deleted", "success");
+        } catch (err) {
+          showToast("Failed to delete: " + err.message, "error");
+        }
+      });
+    }));
+  }
+
+  function renderMiniProjectRow(pr) {
+    const progress = pr.progress || {};
+    let progressText = "";
+    if (progress.type === "Management") {
+      progressText = `${progress.posts || 0} Posts · ${progress.reels || 0} Reels · ${progress.stories || 0} Stories`;
+    } else {
+      progressText = `${progress.completed || 0}/${progress.total || 0} done`;
+    }
+    return `
+      <div class="mini-project-row" data-id="${pr.id}">
+        <div class="mini-project-main">
+          <b>${escapeHtml(pr.name)}</b>
+          <span class="muted">${escapeHtml(pr.type)} · ${progressText}</span>
+        </div>
+        <div class="mini-project-meta">
+          <span class="muted"><i class="fa-regular fa-calendar"></i> ${fmtDate(pr.startDate)} → ${pr.endDate ? fmtDate(pr.endDate) : "—"}</span>
+          <span class="badge ${pkgStatusClass(pr.status)}">${escapeHtml(pr.status)}</span>
+          <button class="icon-btn-sm edit-project-btn"><i class="fa-solid fa-pen"></i></button>
+          <button class="icon-btn-sm delete-project-btn"><i class="fa-solid fa-trash"></i></button>
+        </div>
+      </div>`;
+  }
+
+  function initPackageDrawer() {
+    $("#closePackageDrawer")?.addEventListener("click", () => {
+      $("#packageDrawerOverlay").hidden = true;
+      state.currentPackageId = null;
+    });
+    $("#packageDrawerOverlay")?.addEventListener("click", (e) => {
+      if (e.target.id === "packageDrawerOverlay") {
+        $("#packageDrawerOverlay").hidden = true;
+        state.currentPackageId = null;
+      }
+    });
+  }
+
+  // --- Project Add/Edit Modal (nested inside a Package) ---
+
+  function openProjectModal(project = null, packageId = null) {
+    state.editingProjectId = project ? project.id : null;
+    $("#projectModalTitle").textContent = project ? "Edit Project" : "Add Project";
+    $("#projectId").value = project ? project.id : "";
+    $("#projectPackageId").value = project ? project.packageId : packageId;
+    $("#pName").value = project ? project.name : "";
+    $("#pType").value = project ? project.type : "Deliverable";
+    $("#pStartDate").value = project ? project.startDate : new Date().toISOString().slice(0, 10);
+    $("#pEndDate").value = project ? project.endDate : "";
+    $("#pStatus").value = project ? project.status : "Active";
+    $("#pPriority").value = project ? project.priority : "Medium";
+    $("#pNotes").value = project ? project.notes : "";
+    $("#projectModalOverlay").hidden = false;
+  }
+
+  function closeProjectModal() {
+    $("#projectModalOverlay").hidden = true;
+    $("#projectForm").reset();
+    state.editingProjectId = null;
+  }
+
+  function initProjectModal() {
+    $("#closeProjectModal")?.addEventListener("click", closeProjectModal);
+    $("#cancelProjectBtn")?.addEventListener("click", closeProjectModal);
+    $("#projectModalOverlay")?.addEventListener("click", (e) => {
+      if (e.target.id === "projectModalOverlay") closeProjectModal();
+    });
+
+    $("#projectForm")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = {
+        packageId: $("#projectPackageId").value,
+        name: $("#pName").value.trim(),
+        type: $("#pType").value,
+        startDate: $("#pStartDate").value,
+        endDate: $("#pEndDate").value,
+        status: $("#pStatus").value,
+        priority: $("#pPriority").value,
+        notes: $("#pNotes").value.trim()
+      };
+      try {
+        if (state.editingProjectId) {
+          await Api.updateProject(state.editingProjectId, payload);
+          showToast("Project updated", "success");
+        } else {
+          await Api.createProject(payload);
+          showToast("Project added", "success");
+        }
+        closeProjectModal();
+        await refreshCurrentPackageDrawer();
+      } catch (err) {
+        showToast("Failed to save project: " + err.message, "error");
+      }
+    });
+  }
+
+  // --- Project Detail Drawer (Deliverables list OR Management platform counters) ---
+
+  async function refreshCurrentProjectDrawer() {
+    if (!state.currentProjectId) return;
+    const project = await Api.getProject(state.currentProjectId);
+    const deliverables = project.type === "Deliverable" ? await Api.getDeliverables(project.id) : [];
+    renderProjectDrawerBody(project, deliverables);
+  }
+
+  async function openProjectDrawer(id) {
+    state.currentProjectId = id;
+    const project = await Api.getProject(id);
+    $("#projectDrawerTitle").textContent = project.name;
+    const deliverables = project.type === "Deliverable" ? await Api.getDeliverables(project.id) : [];
+    renderProjectDrawerBody(project, deliverables);
+    $("#projectDrawerOverlay").hidden = false;
+  }
+
+  function renderProjectDrawerBody(project, deliverables) {
+    const isManagement = project.type === "Management";
+
+    $("#projectDrawerBody").innerHTML = `
+      <div class="drawer-summary-row">
+        <div><span class="cs-label">Type</span><span class="cs-value">${escapeHtml(project.type)}</span></div>
+        <div><span class="cs-label">Status</span><span class="cs-value"><span class="badge ${pkgStatusClass(project.status)}">${escapeHtml(project.status)}</span></span></div>
+        <div><span class="cs-label">Start Date</span><span class="cs-value">${fmtDate(project.startDate)}</span></div>
+        <div><span class="cs-label">End Date</span><span class="cs-value">${project.endDate ? fmtDate(project.endDate) : "—"}</span></div>
+      </div>
+
+      ${isManagement ? `
+        <div class="drawer-section">
+          <div class="drawer-section-head">
+            <h3>Platforms — Upload Counts</h3>
+            <button class="btn btn-ghost btn-sm" id="addPlatformRowBtn"><i class="fa-solid fa-plus"></i> Add Platform</button>
+          </div>
+          <table class="mini-table" id="platformsTable">
+            <thead><tr><th>Platform</th><th>Posts</th><th>Reels</th><th>Stories</th><th></th></tr></thead>
+            <tbody>
+              ${(project.platforms || []).map((p, idx) => `
+                <tr data-idx="${idx}">
+                  <td>${escapeHtml(p.name)}</td>
+                  <td><input type="number" min="0" class="mini-input platform-posts" value="${p.postsUploaded}" /></td>
+                  <td><input type="number" min="0" class="mini-input platform-reels" value="${p.reelsUploaded}" /></td>
+                  <td><input type="number" min="0" class="mini-input platform-stories" value="${p.storiesUploaded}" /></td>
+                  <td><button class="icon-btn-sm remove-platform-btn"><i class="fa-solid fa-trash"></i></button></td>
+                </tr>`).join("") || `<tr><td colspan="5" class="muted">No platforms added yet.</td></tr>`}
+            </tbody>
+          </table>
+          <button class="btn btn-primary btn-sm" id="savePlatformsBtn" style="margin-top:10px;"><i class="fa-solid fa-check"></i> Save Platform Counts</button>
+        </div>
+      ` : `
+        <div class="drawer-section">
+          <div class="drawer-section-head">
+            <h3>Deliverables (${deliverables.length})</h3>
+            <button class="btn btn-primary btn-sm" id="addDeliverableBtn"><i class="fa-solid fa-plus"></i> Add Deliverable</button>
+          </div>
+          ${deliverables.length ? `
+          <table class="mini-table">
+            <thead><tr><th>Type</th><th>Platform</th><th>Start</th><th>Due</th><th>Completed</th><th>Status</th><th>File Location</th><th></th></tr></thead>
+            <tbody>
+              ${deliverables.map((d) => `
+                <tr data-id="${d.id}">
+                  <td>${escapeHtml(d.type)}</td>
+                  <td>${escapeHtml(d.platform || "—")}</td>
+                  <td>${fmtDate(d.startDate)}</td>
+                  <td>${d.dueDate ? fmtDate(d.dueDate) : "—"}</td>
+                  <td>${d.completedDate ? fmtDate(d.completedDate) : "—"}</td>
+                  <td><span class="badge ${pkgStatusClass(d.status)}">${escapeHtml(d.status)}</span></td>
+                  <td class="file-location-cell" title="${escapeHtml(d.fileLocation || "")}">${escapeHtml(d.fileLocation || "—")}</td>
+                  <td>
+                    <button class="icon-btn-sm edit-deliverable-btn" data-id="${d.id}"><i class="fa-solid fa-pen"></i></button>
+                    <button class="icon-btn-sm delete-deliverable-btn" data-id="${d.id}"><i class="fa-solid fa-trash"></i></button>
+                  </td>
+                </tr>`).join("")}
+            </tbody>
+          </table>` : `<p class="muted">No deliverables yet. Add posts, reels or stories for this project.</p>`}
+        </div>
+      `}
+    `;
+
+    if (isManagement) {
+      $("#addPlatformRowBtn")?.addEventListener("click", () => {
+        const options = state.platformOptions.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join("");
+        const tbody = $("#platformsTable tbody");
+        if (tbody.querySelector(".muted")) tbody.innerHTML = "";
+        const idx = tbody.querySelectorAll("tr").length;
+        const row = document.createElement("tr");
+        row.dataset.idx = idx;
+        row.innerHTML = `
+          <td><select class="mini-input platform-name">${options}</select></td>
+          <td><input type="number" min="0" class="mini-input platform-posts" value="0" /></td>
+          <td><input type="number" min="0" class="mini-input platform-reels" value="0" /></td>
+          <td><input type="number" min="0" class="mini-input platform-stories" value="0" /></td>
+          <td><button class="icon-btn-sm remove-platform-btn"><i class="fa-solid fa-trash"></i></button></td>`;
+        tbody.appendChild(row);
+        row.querySelector(".remove-platform-btn").addEventListener("click", () => row.remove());
+      });
+      $$(".remove-platform-btn").forEach((btn) => btn.addEventListener("click", () => btn.closest("tr").remove()));
+      $("#savePlatformsBtn")?.addEventListener("click", async () => {
+        const rows = $$("#platformsTable tbody tr");
+        const platforms = rows.map((row) => {
+          const nameEl = row.querySelector(".platform-name");
+          return {
+            name: nameEl ? nameEl.value : row.children[0].textContent.trim(),
+            postsUploaded: Number(row.querySelector(".platform-posts").value) || 0,
+            reelsUploaded: Number(row.querySelector(".platform-reels").value) || 0,
+            storiesUploaded: Number(row.querySelector(".platform-stories").value) || 0
+          };
+        });
+        try {
+          await Api.updateProject(project.id, { ...project, platforms });
+          showToast("Platform counts saved", "success");
+          await refreshCurrentProjectDrawer();
+          await refreshCurrentPackageDrawer();
+        } catch (err) {
+          showToast("Failed to save: " + err.message, "error");
+        }
+      });
+    } else {
+      $("#addDeliverableBtn")?.addEventListener("click", () => openDeliverableModal(null, project.id));
+      $$(".edit-deliverable-btn").forEach((btn) => btn.addEventListener("click", () => {
+        const d = deliverables.find((x) => x.id === btn.dataset.id);
+        openDeliverableModal(d, project.id);
+      }));
+      $$(".delete-deliverable-btn").forEach((btn) => btn.addEventListener("click", () => {
+        openConfirm("Delete Deliverable", "Are you sure you want to delete this deliverable?", async () => {
+          try {
+            await Api.deleteDeliverable(btn.dataset.id);
+            showToast("Deliverable deleted", "success");
+            await refreshCurrentProjectDrawer();
+            await refreshCurrentPackageDrawer();
+          } catch (err) {
+            showToast("Failed to delete: " + err.message, "error");
+          }
+        });
+      }));
+    }
+  }
+
+  function initProjectDrawer() {
+    $("#closeProjectDrawer")?.addEventListener("click", () => {
+      $("#projectDrawerOverlay").hidden = true;
+      state.currentProjectId = null;
+    });
+    $("#projectDrawerOverlay")?.addEventListener("click", (e) => {
+      if (e.target.id === "projectDrawerOverlay") {
+        $("#projectDrawerOverlay").hidden = true;
+        state.currentProjectId = null;
+      }
+    });
+  }
+
+  // --- Deliverable Add/Edit Modal (with inline Revisions editor) ---
+
+  let tempRevisions = [];
+
+  function renderRevisionsList() {
+    const container = $("#dRevisionsList");
+    if (!container) return;
+    if (!tempRevisions.length) {
+      container.innerHTML = `<p class="muted" style="margin:4px 0;">No revisions logged.</p>`;
+      return;
+    }
+    container.innerHTML = tempRevisions.map((r, idx) => `
+      <div class="revision-row" data-idx="${idx}">
+        <input type="text" class="mini-input rev-note" placeholder="e.g. Right side bag PNG only" value="${escapeHtml(r.note)}" />
+        <select class="mini-input rev-priority">
+          <option value="High" ${r.priority === "High" ? "selected" : ""}>High</option>
+          <option value="Medium" ${r.priority === "Medium" ? "selected" : ""}>Medium</option>
+          <option value="Low" ${r.priority === "Low" ? "selected" : ""}>Low</option>
+        </select>
+        <select class="mini-input rev-status">
+          <option value="Pending" ${r.status === "Pending" ? "selected" : ""}>Pending</option>
+          <option value="Resolved" ${r.status === "Resolved" ? "selected" : ""}>Resolved</option>
+        </select>
+        <button type="button" class="icon-btn-sm remove-revision-btn"><i class="fa-solid fa-trash"></i></button>
+      </div>`).join("");
+
+    $$(".remove-revision-btn").forEach((btn) => btn.addEventListener("click", () => {
+      const idx = Number(btn.closest(".revision-row").dataset.idx);
+      tempRevisions.splice(idx, 1);
+      renderRevisionsList();
+    }));
+  }
+
+  function collectRevisionsFromForm() {
+    return $$("#dRevisionsList .revision-row").map((row) => ({
+      note: row.querySelector(".rev-note").value.trim(),
+      priority: row.querySelector(".rev-priority").value,
+      status: row.querySelector(".rev-status").value
+    })).filter((r) => r.note);
+  }
+
+  function openDeliverableModal(deliverable = null, projectId = null) {
+    state.editingDeliverableId = deliverable ? deliverable.id : null;
+    $("#deliverableModalTitle").textContent = deliverable ? "Edit Deliverable" : "Add Deliverable";
+    $("#deliverableId").value = deliverable ? deliverable.id : "";
+    $("#deliverableProjectId").value = deliverable ? deliverable.projectId : projectId;
+    $("#dType").value = deliverable ? deliverable.type : (state.deliverableTypes[0] || "Post");
+    $("#dPlatform").value = deliverable ? (deliverable.platform || "") : "";
+    $("#dStartDate").value = deliverable ? deliverable.startDate : new Date().toISOString().slice(0, 10);
+    $("#dDueDate").value = deliverable ? deliverable.dueDate : "";
+    $("#dCompletedDate").value = deliverable ? deliverable.completedDate : "";
+    $("#dStatus").value = deliverable ? deliverable.status : "Pending";
+    $("#dPublishDate").value = deliverable ? deliverable.publishDate : "";
+    $("#dUrl").value = deliverable ? deliverable.url : "";
+    $("#dFileLocation").value = deliverable ? deliverable.fileLocation : "";
+    tempRevisions = deliverable && Array.isArray(deliverable.revisions) ? deliverable.revisions.map((r) => ({ ...r })) : [];
+    renderRevisionsList();
+    $("#deliverableModalOverlay").hidden = false;
+  }
+
+  function closeDeliverableModal() {
+    $("#deliverableModalOverlay").hidden = true;
+    $("#deliverableForm").reset();
+    state.editingDeliverableId = null;
+    tempRevisions = [];
+  }
+
+  function initDeliverableModal() {
+    $("#closeDeliverableModal")?.addEventListener("click", closeDeliverableModal);
+    $("#cancelDeliverableBtn")?.addEventListener("click", closeDeliverableModal);
+    $("#deliverableModalOverlay")?.addEventListener("click", (e) => {
+      if (e.target.id === "deliverableModalOverlay") closeDeliverableModal();
+    });
+    $("#addRevisionRowBtn")?.addEventListener("click", () => {
+      tempRevisions.push({ note: "", priority: "Medium", status: "Pending" });
+      renderRevisionsList();
+    });
+
+    $("#deliverableForm")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = {
+        projectId: $("#deliverableProjectId").value,
+        type: $("#dType").value,
+        platform: $("#dPlatform").value,
+        startDate: $("#dStartDate").value,
+        dueDate: $("#dDueDate").value,
+        completedDate: $("#dCompletedDate").value,
+        status: $("#dStatus").value,
+        publishDate: $("#dPublishDate").value,
+        url: $("#dUrl").value.trim(),
+        fileLocation: $("#dFileLocation").value.trim(),
+        revisions: collectRevisionsFromForm()
+      };
+      try {
+        if (state.editingDeliverableId) {
+          await Api.updateDeliverable(state.editingDeliverableId, payload);
+          showToast("Deliverable updated", "success");
+        } else {
+          await Api.createDeliverable(payload);
+          showToast("Deliverable added", "success");
+        }
+        closeDeliverableModal();
+        await refreshCurrentProjectDrawer();
+        await refreshCurrentPackageDrawer();
+      } catch (err) {
+        showToast("Failed to save deliverable: " + err.message, "error");
+      }
+    });
+  }
+
   async function loadInitialData() {
-    const [payments, categories, settings, expenses, expenseCategories, leads] = await Promise.all([
+    const [payments, categories, settings, expenses, expenseCategories, leads, packages, deliverableTypes, platformOptions, clientProfiles] = await Promise.all([
       Api.getPayments(),
       Api.getCategories(),
       Api.getSettings(),
       Api.getExpenses(),
       Api.getExpenseCategories(),
-      Api.getLeads()
+      Api.getLeads(),
+      Api.getPackages(),
+      Api.getDeliverableTypes(),
+      Api.getPlatformOptions(),
+      Api.getClientProfiles()
     ]);
     state.payments = payments;
     state.categories = categories;
@@ -2579,10 +2627,15 @@
     state.expenses = expenses;
     state.expenseCategories = expenseCategories;
     state.leads = leads;
+    state.packages = packages;
+    state.deliverableTypes = deliverableTypes;
+    state.platformOptions = platformOptions;
+    state.clientProfiles = clientProfiles;
 
     applySettingsToUI();
     renderGreeting();
     populateCategorySelects();
+    populateDeliverableTypeAndPlatformSelects();
 
     await loadDashboard();
 
@@ -2601,7 +2654,7 @@
     initPaymentsToolbar();
     initPaymentModal();
     initConfirmDialog();
-    initCrmModule();
+    initClientSearch();
     initClientDrawer();
     initLeadModal();
     initLeadDrawer();
@@ -2616,6 +2669,12 @@
     initGlobalSearch();
     initProfileAndLogout();
     initDashboardFilter();
+    initPackagesToolbar();
+    initPackageModal();
+    initPackageDrawer();
+    initProjectModal();
+    initProjectDrawer();
+    initDeliverableModal();
 
     try {
       await loadInitialData();

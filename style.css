@@ -737,52 +737,80 @@ select:focus { border-color: var(--accent); }
   .dash-header-actions .dash-month-select { flex: 1; }
 }
 
-/* ======================= CRM: Clients/Projects/Packages ======================= */
-.crm-breadcrumb {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  margin-bottom: 16px; font-size: 13px; color: var(--text-muted);
+/* ============================================================================
+   Packages / Projects / Deliverables
+   ============================================================================ */
+
+.muted { color: var(--text-muted); font-size: 12.5px; }
+
+.badge.Active { color: var(--blue); }
+.badge.On.Hold, .badge["On Hold"] { color: var(--warning); }
+.badge.Completed { color: var(--success); }
+.badge.Cancelled { color: var(--danger); }
+.badge.In.Progress, .badge["In Progress"] { color: var(--blue); }
+.badge.Review { color: var(--violet); }
+.badge.Advance { color: var(--blue); }
+.badge.Final { color: var(--success); }
+
+.project-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+
+.project-card { cursor: pointer; transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease; }
+.project-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); border-color: var(--accent); }
+
+.project-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.project-card-head h3 { font-size: 15px; font-weight: 700; margin-bottom: 3px; }
+.project-card-head p { font-size: 12.5px; color: var(--text-muted); }
+
+.project-card-dates { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-muted); margin-bottom: 12px; }
+.project-card-dates i { width: 14px; margin-right: 4px; }
+
+.project-card-stats { display: flex; gap: 18px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.project-card-stats div { display: flex; flex-direction: column; }
+.project-card-stats b { font-family: var(--font-mono); font-size: 15px; font-weight: 700; }
+.project-card-stats span { font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; font-weight: 700; }
+
+.project-card-payment { display: flex; align-items: center; justify-content: space-between; font-family: var(--font-mono); font-size: 13px; font-weight: 600; }
+
+/* Drawer sections (reused for Package/Project detail drawers) */
+.drawer-summary-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.drawer-summary-row .cs-label { display: block; font-size: 10.5px; color: var(--text-faint); font-weight: 700; text-transform: uppercase; margin-bottom: 4px; }
+.drawer-summary-row .cs-value { font-family: var(--font-mono); font-weight: 700; font-size: 13.5px; }
+
+.drawer-section { margin-bottom: 22px; }
+.drawer-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.drawer-section-head h3 { font-size: 14px; font-weight: 700; }
+
+.btn-sm { padding: 6px 12px; font-size: 12.5px; }
+
+.icon-btn-sm { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); background: var(--card); color: var(--text-muted); border-radius: 6px; cursor: pointer; font-size: 11px; margin-left: 4px; }
+.icon-btn-sm:hover { background: var(--accent-light); color: var(--accent-dark); border-color: transparent; }
+
+.mini-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.mini-table th { text-align: left; padding: 8px 10px; color: var(--text-faint); font-size: 10.5px; text-transform: uppercase; font-weight: 700; border-bottom: 1px solid var(--border); }
+.mini-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.mini-table tr:last-child td { border-bottom: none; }
+.file-location-cell { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+
+.mini-input { width: 100%; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); font-size: 12.5px; }
+
+.inline-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 12px; background: var(--accent-light); border-radius: 10px; margin-bottom: 14px; }
+.inline-form input, .inline-form select { padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 12.5px; background: var(--card); color: var(--text); }
+.inline-form input[type="text"] { flex: 1; min-width: 140px; }
+
+.mini-project-list { display: flex; flex-direction: column; gap: 10px; }
+.mini-project-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; transition: border-color 0.15s ease, background 0.15s ease; flex-wrap: wrap; }
+.mini-project-row:hover { border-color: var(--accent); background: var(--accent-light); }
+.mini-project-main { display: flex; flex-direction: column; gap: 3px; }
+.mini-project-main b { font-size: 13.5px; }
+.mini-project-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.revisions-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.revision-row { display: grid; grid-template-columns: 1fr 110px 110px 32px; gap: 8px; align-items: center; }
+
+@media (max-width: 1024px) {
+  .project-grid { grid-template-columns: repeat(2, 1fr); }
 }
-.crm-breadcrumb .crumb { cursor: pointer; padding: 4px 2px; }
-.crm-breadcrumb .crumb:hover { color: var(--accent-dark); text-decoration: underline; }
-.crm-breadcrumb .crumb.active { color: var(--text); font-weight: 700; cursor: default; }
-.crm-breadcrumb .crumb.active:hover { text-decoration: none; }
-.crm-breadcrumb i { font-size: 10px; color: var(--text-faint); }
-
-.btn-sm { padding: 7px 12px; font-size: 12.5px; }
-
-.crm-card-actions { display: flex; gap: 6px; margin-left: auto; }
-.crm-card-actions .icon-btn, .crm-row-actions .icon-btn { width: 32px; height: 32px; border-radius: 9px; }
-.client-card-head { position: relative; }
-.crm-card .client-card-head { align-items: flex-start; }
-
-.crm-info-card.card {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 16px; margin-bottom: 20px; flex-wrap: wrap;
+@media (max-width: 768px) {
+  .project-grid { grid-template-columns: 1fr; }
+  .revision-row { grid-template-columns: 1fr; }
 }
-.crm-info-card h3 { font-size: 17px; font-weight: 700; }
-
-.crm-section-head {
-  display: flex; align-items: center; justify-content: space-between;
-  margin: 22px 0 12px;
-}
-.crm-section-head h4 { font-size: 14.5px; font-weight: 700; }
-
-.crm-payment-card.card { margin-bottom: 20px; }
-.crm-payment-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
-
-.crm-folder-path, .crm-file-location {
-  font-size: 12px; color: var(--text-muted); margin-top: 10px;
-  display: flex; align-items: center; gap: 6px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-td.crm-file-location { max-width: 220px; }
-.crm-row-actions { display: flex; gap: 6px; justify-content: flex-end; }
-
-.badge.pkg-type {
-  display: inline-flex; align-items: center; gap: 0; padding: 3px 10px;
-  border-radius: 8px; font-size: 10.5px; font-weight: 700; text-transform: uppercase;
-  margin-left: 6px; vertical-align: middle;
-}
-.badge.pkg-type::before { display: none; }
-.badge.pkg-type.Deliverable { background: var(--accent-light); color: var(--accent-dark); }
-.badge.pkg-type.Management { background: var(--violet-bg, #efecfe); color: var(--violet, #7c6cf0); }
