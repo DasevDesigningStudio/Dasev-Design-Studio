@@ -53,6 +53,7 @@ const DEFAULT_DATA = {
   expenseCategories: ["Ad Spend", "Software/Tools", "Salary", "Freelancer", "Rent", "Internet/Phone", "Travel", "Nasto", "Other"],
   leads: [],
   leadSources: ["Instagram DM", "Referral", "Cold Call", "Website", "Other"],
+  crmClients: [],
   settings: {
     companyName: "My Agency",
     currency: "₹",
@@ -73,6 +74,7 @@ async function loadData() {
     expenseCategories: Array.isArray(raw.expenseCategories) ? raw.expenseCategories : [...DEFAULT_DATA.expenseCategories],
     leads: Array.isArray(raw.leads) ? raw.leads : [],
     leadSources: Array.isArray(raw.leadSources) ? raw.leadSources : [...DEFAULT_DATA.leadSources],
+    crmClients: Array.isArray(raw.crmClients) ? raw.crmClients : [],
     settings: {
       ...DEFAULT_DATA.settings,
       ...(raw.settings && typeof raw.settings === "object" ? raw.settings : {})
@@ -194,6 +196,148 @@ function normalizeLead(input, existing = {}) {
     convertedPaymentId: existing.convertedPaymentId ?? null,
     createdAt: existing.createdAt || new Date().toISOString()
   };
+}
+
+/* ---------------------------------------------------------------------- */
+/* CRM: Clients -> Projects -> Packages -> (Platforms | Deliverables)     */
+/* ---------------------------------------------------------------------- */
+
+function genId(prefix) {
+  return `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
+}
+
+function normalizeCrmClient(input, existing = {}) {
+  return {
+    id: existing.id,
+    name: (input.name ?? existing.name ?? "").toString().trim(),
+    mobile: (input.mobile ?? existing.mobile ?? "").toString().trim(),
+    business: (input.business ?? existing.business ?? "").toString().trim(),
+    instagram: (input.instagram ?? existing.instagram ?? "").toString().trim(),
+    location: (input.location ?? existing.location ?? "").toString().trim(),
+    folderPath: (input.folderPath ?? existing.folderPath ?? "").toString().trim(),
+    projects: existing.projects || [],
+    createdAt: existing.createdAt || new Date().toISOString()
+  };
+}
+
+function normalizeProject(input, existing = {}) {
+  return {
+    id: existing.id,
+    name: (input.name ?? existing.name ?? "").toString().trim(),
+    startDate: input.startDate ?? existing.startDate ?? "",
+    endDate: input.endDate ?? existing.endDate ?? "",
+    status: input.status ?? existing.status ?? "Active",
+    priority: input.priority ?? existing.priority ?? "Medium",
+    packages: existing.packages || [],
+    createdAt: existing.createdAt || new Date().toISOString()
+  };
+}
+
+function normalizePackagePayment(input, existing = {}) {
+  const total = Number(input.total ?? existing.total ?? 0) || 0;
+  const paid = Number(input.paid ?? existing.paid ?? 0) || 0;
+  const pending = Math.max(total - paid, 0);
+  return {
+    total,
+    paid,
+    pending,
+    status: computeStatus(total, paid),
+    dueDate: input.dueDate ?? existing.dueDate ?? "",
+    history: existing.history || []
+  };
+}
+
+function normalizePackage(input, existing = {}) {
+  const type = ["Deliverable", "Management"].includes(input.type) ? input.type : (existing.type || "Deliverable");
+  return {
+    id: existing.id,
+    name: (input.name ?? existing.name ?? "").toString().trim(),
+    type,
+    startDate: input.startDate ?? existing.startDate ?? "",
+    endDate: input.endDate ?? existing.endDate ?? "",
+    payment: existing.payment || normalizePackagePayment({}, {}),
+    platforms: existing.platforms || [],
+    deliverables: existing.deliverables || [],
+    createdAt: existing.createdAt || new Date().toISOString()
+  };
+}
+
+function normalizePlatform(input, existing = {}) {
+  return {
+    id: existing.id,
+    name: (input.name ?? existing.name ?? "").toString().trim(),
+    posts: Number(input.posts ?? existing.posts ?? 0) || 0,
+    reels: Number(input.reels ?? existing.reels ?? 0) || 0,
+    stories: Number(input.stories ?? existing.stories ?? 0) || 0
+  };
+}
+
+const DELIVERABLE_STATUSES = ["Pending", "In Progress", "Review", "Completed"];
+
+function normalizeDeliverable(input, existing = {}) {
+  const status = DELIVERABLE_STATUSES.includes(input.status) ? input.status : (existing.status || "Pending");
+  return {
+    id: existing.id,
+    type: (input.type ?? existing.type ?? "Post").toString().trim(),
+    startDate: input.startDate ?? existing.startDate ?? "",
+    dueDate: input.dueDate ?? existing.dueDate ?? "",
+    completedDate: input.completedDate ?? existing.completedDate ?? "",
+    status,
+    platform: (input.platform ?? existing.platform ?? "").toString().trim(),
+    publishDate: input.publishDate ?? existing.publishDate ?? "",
+    url: (input.url ?? existing.url ?? "").toString().trim(),
+    fileLocation: (input.fileLocation ?? existing.fileLocation ?? "").toString().trim(),
+    revisions: existing.revisions || [],
+    createdAt: existing.createdAt || new Date().toISOString()
+  };
+}
+
+// Traversal helpers: find a node by id anywhere in the client tree, and
+// return its parent array + index too so callers can update/delete/insert.
+function findClient(data, clientId) {
+  return data.crmClients.find((c) => c.id === clientId);
+}
+
+function findProject(data, projectId) {
+  for (const client of data.crmClients) {
+    const project = (client.projects || []).find((p) => p.id === projectId);
+    if (project) return { client, project };
+  }
+  return {};
+}
+
+function findPackage(data, packageId) {
+  for (const client of data.crmClients) {
+    for (const project of client.projects || []) {
+      const pkg = (project.packages || []).find((pk) => pk.id === packageId);
+      if (pkg) return { client, project, pkg };
+    }
+  }
+  return {};
+}
+
+function findPlatform(data, platformId) {
+  for (const client of data.crmClients) {
+    for (const project of client.projects || []) {
+      for (const pkg of project.packages || []) {
+        const platform = (pkg.platforms || []).find((pl) => pl.id === platformId);
+        if (platform) return { client, project, pkg, platform };
+      }
+    }
+  }
+  return {};
+}
+
+function findDeliverable(data, deliverableId) {
+  for (const client of data.crmClients) {
+    for (const project of client.projects || []) {
+      for (const pkg of project.packages || []) {
+        const deliverable = (pkg.deliverables || []).find((d) => d.id === deliverableId);
+        if (deliverable) return { client, project, pkg, deliverable };
+      }
+    }
+  }
+  return {};
 }
 
 /* ---------------------------------------------------------------------- */
@@ -634,6 +778,286 @@ app.post("/api/lead-sources", async (req, res) => {
 });
 
 /* ---------------------------------------------------------------------- */
+/* CRM: Clients / Projects / Packages / Platforms / Deliverables          */
+/* ---------------------------------------------------------------------- */
+
+app.get("/api/crm/clients", async (req, res) => {
+  const data = await loadData();
+  res.json(data.crmClients);
+});
+
+app.post("/api/crm/clients", async (req, res) => {
+  try {
+    const data = await loadData();
+    const client = normalizeCrmClient(req.body, {});
+    client.id = genId("CLI");
+    client.projects = [];
+    data.crmClients.push(client);
+    await saveData(data);
+    res.json(client);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/crm/clients/:id", async (req, res) => {
+  try {
+    const data = await loadData();
+    const client = findClient(data, req.params.id);
+    if (!client) return res.status(404).json({ error: "Client not found" });
+    const updated = normalizeCrmClient(req.body, client);
+    Object.assign(client, updated);
+    await saveData(data);
+    res.json(client);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/crm/clients/:id", async (req, res) => {
+  try {
+    const data = await loadData();
+    const idx = data.crmClients.findIndex((c) => c.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Client not found" });
+    data.crmClients.splice(idx, 1);
+    await saveData(data);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Projects
+app.post("/api/crm/clients/:clientId/projects", async (req, res) => {
+  try {
+    const data = await loadData();
+    const client = findClient(data, req.params.clientId);
+    if (!client) return res.status(404).json({ error: "Client not found" });
+    const project = normalizeProject(req.body, {});
+    project.id = genId("PRJ");
+    project.packages = [];
+    client.projects = client.projects || [];
+    client.projects.push(project);
+    await saveData(data);
+    res.json(project);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/crm/projects/:id", async (req, res) => {
+  try {
+    const data = await loadData();
+    const { project } = findProject(data, req.params.id);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    Object.assign(project, normalizeProject(req.body, project));
+    await saveData(data);
+    res.json(project);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/crm/projects/:id", async (req, res) => {
+  try {
+    const data = await loadData();
+    const { client } = findProject(data, req.params.id);
+    if (!client) return res.status(404).json({ error: "Project not found" });
+    client.projects = client.projects.filter((p) => p.id !== req.params.id);
+    await saveData(data);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Packages
+app.post("/api/crm/projects/:projectId/packages", async (req, res) => {
+  try {
+    const data = await loadData();
+    const { project } = findProject(data, req.params.projectId);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    const pkg = normalizePackage(req.body, {});
+    pkg.id = genId("PKG");
+    pkg.payment = normalizePackagePayment(req.body.payment || {}, {});
+    pkg.platforms = [];
+    pkg.deliverables = [];
+    project.packages = project.packages || [];
+    project.packages.push(pkg);
+    await saveData(data);
+    res.json(pkg);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/crm/packages/:id", async (req, res) => {
+  try {
+    const data = await loadData();
+    const { pkg } = findPackage(data, req.params.id);
+    if (!pkg) return res.status(404).json({ error: "Package not found" });
+    const updated = normalizePackage(req.body, pkg);
+    updated.payment = pkg.payment;
+    updated.platforms = pkg.platforms;
+    updated.deliverables = pkg.deliverables;
+    Object.assign(pkg, updated);
+    await saveData(data);
+    res.json(pkg);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/crm/packages/:id", async (req, res) => {
+  try {
+    const data = await loadData();
+    const { project } = findPackage(data, req.params.id);
+    if (!project) return res.status(404).json({ error: "Package not found" });
+    project.packages = project.packages.filter((p) => p.id !== req.params.id);
+    await saveData(data);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Package payment (total/paid/dueDate) — optionally logs a history entry
+// when `logEntry: true` is sent along with an `amount` (a new payment received).
+app.put("/api/crm/packages/:id/payment", async (req, res) => {
+  try {
+    const data = await loadData();
+    const { pkg } = findPackage(data, req.params.id);
+    if (!pkg) return res.status(404).json({ error: "Package not found" });
+
+    if (req.body.logEntry && Number(req.body.amount) > 0) {
+      pkg.payment.history = pkg.payment.history || [];
+      pkg.payment.history.push({
+        id: genId("PAY"),
+        date: req.body.date || new Date().toISOString().slice(0, 10),
+        amount: Number(req.body.amount) || 0,
+        note: (req.body.note || "").toString().trim()
+      });
+      const newPaid = (Number(pkg.payment.paid) || 0) + (Number(req.body.amount) || 0);
+      pkg.payment = normalizePackagePayment({ total: pkg.payment.total, paid: newPaid, dueDate: pkg.payment.dueDate }, pkg.payment);
+    } else {
+      pkg.payment = normalizePackagePayment(req.body, pkg.payment);
+    }
+    await saveData(data);
+    res.json(pkg.payment);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Platforms (Management packages — count-based, no per-post detail)
+app.post("/api/crm/packages/:packageId/platforms", async (req, res) => {
+  try {
+    const data = await loadData();
+    const { pkg } = findPackage(data, req.params.packageId);
+    if (!pkg) return res.status(404).json({ error: "Package not found" });
+    const platform = normalizePlatform(req.body, {});
+    platform.id = genId("PLT");
+    pkg.platforms = pkg.platforms || [];
+    pkg.platforms.push(platform);
+    await saveData(data);
+    res.json(platform);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/crm/platforms/:id", async (req, res) => {
+  try {
+    const data = await loadData();
+    const { platform } = findPlatform(data, req.params.id);
+    if (!platform) return res.status(404).json({ error: "Platform not found" });
+    Object.assign(platform, normalizePlatform(req.body, platform));
+    await saveData(data);
+    res.json(platform);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/crm/platforms/:id", async (req, res) => {
+  try {
+    const data = await loadData();
+    const { pkg } = findPlatform(data, req.params.id);
+    if (!pkg) return res.status(404).json({ error: "Platform not found" });
+    pkg.platforms = pkg.platforms.filter((p) => p.id !== req.params.id);
+    await saveData(data);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Deliverables (Deliverable packages — full per-item tracking incl. File Location)
+app.post("/api/crm/packages/:packageId/deliverables", async (req, res) => {
+  try {
+    const data = await loadData();
+    const { pkg } = findPackage(data, req.params.packageId);
+    if (!pkg) return res.status(404).json({ error: "Package not found" });
+    const deliverable = normalizeDeliverable(req.body, {});
+    deliverable.id = genId("DEL");
+    deliverable.revisions = [];
+    pkg.deliverables = pkg.deliverables || [];
+    pkg.deliverables.push(deliverable);
+    await saveData(data);
+    res.json(deliverable);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/crm/deliverables/:id", async (req, res) => {
+  try {
+    const data = await loadData();
+    const { deliverable } = findDeliverable(data, req.params.id);
+    if (!deliverable) return res.status(404).json({ error: "Deliverable not found" });
+    const updated = normalizeDeliverable(req.body, deliverable);
+    updated.revisions = deliverable.revisions;
+    Object.assign(deliverable, updated);
+    await saveData(data);
+    res.json(deliverable);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/crm/deliverables/:id", async (req, res) => {
+  try {
+    const data = await loadData();
+    const { pkg } = findDeliverable(data, req.params.id);
+    if (!pkg) return res.status(404).json({ error: "Deliverable not found" });
+    pkg.deliverables = pkg.deliverables.filter((d) => d.id !== req.params.id);
+    await saveData(data);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/crm/deliverables/:id/revisions", async (req, res) => {
+  try {
+    const data = await loadData();
+    const { deliverable } = findDeliverable(data, req.params.id);
+    if (!deliverable) return res.status(404).json({ error: "Deliverable not found" });
+    const revision = {
+      id: genId("REV"),
+      date: req.body.date || new Date().toISOString().slice(0, 10),
+      note: (req.body.note || "").toString().trim()
+    };
+    deliverable.revisions = deliverable.revisions || [];
+    deliverable.revisions.push(revision);
+    await saveData(data);
+    res.json(deliverable.revisions);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ---------------------------------------------------------------------- */
 /* Categories                                                             */
 /* ---------------------------------------------------------------------- */
 
@@ -860,6 +1284,7 @@ app.post("/api/restore", upload.single("backupFile"), async (req, res) => {
       expenseCategories: Array.isArray(parsed.expenseCategories) ? parsed.expenseCategories : [...DEFAULT_DATA.expenseCategories],
       leads: Array.isArray(parsed.leads) ? parsed.leads : [],
       leadSources: Array.isArray(parsed.leadSources) ? parsed.leadSources : [...DEFAULT_DATA.leadSources],
+      crmClients: Array.isArray(parsed.crmClients) ? parsed.crmClients : [],
       settings: {
         ...DEFAULT_DATA.settings,
         ...(parsed.settings && typeof parsed.settings === "object" ? parsed.settings : {})

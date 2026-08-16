@@ -736,3 +736,53 @@ select:focus { border-color: var(--accent); }
   .dash-header-actions { width: 100%; }
   .dash-header-actions .dash-month-select { flex: 1; }
 }
+
+/* ======================= CRM: Clients/Projects/Packages ======================= */
+.crm-breadcrumb {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 16px; font-size: 13px; color: var(--text-muted);
+}
+.crm-breadcrumb .crumb { cursor: pointer; padding: 4px 2px; }
+.crm-breadcrumb .crumb:hover { color: var(--accent-dark); text-decoration: underline; }
+.crm-breadcrumb .crumb.active { color: var(--text); font-weight: 700; cursor: default; }
+.crm-breadcrumb .crumb.active:hover { text-decoration: none; }
+.crm-breadcrumb i { font-size: 10px; color: var(--text-faint); }
+
+.btn-sm { padding: 7px 12px; font-size: 12.5px; }
+
+.crm-card-actions { display: flex; gap: 6px; margin-left: auto; }
+.crm-card-actions .icon-btn, .crm-row-actions .icon-btn { width: 32px; height: 32px; border-radius: 9px; }
+.client-card-head { position: relative; }
+.crm-card .client-card-head { align-items: flex-start; }
+
+.crm-info-card.card {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; margin-bottom: 20px; flex-wrap: wrap;
+}
+.crm-info-card h3 { font-size: 17px; font-weight: 700; }
+
+.crm-section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 22px 0 12px;
+}
+.crm-section-head h4 { font-size: 14.5px; font-weight: 700; }
+
+.crm-payment-card.card { margin-bottom: 20px; }
+.crm-payment-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+
+.crm-folder-path, .crm-file-location {
+  font-size: 12px; color: var(--text-muted); margin-top: 10px;
+  display: flex; align-items: center; gap: 6px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+td.crm-file-location { max-width: 220px; }
+.crm-row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+.badge.pkg-type {
+  display: inline-flex; align-items: center; gap: 0; padding: 3px 10px;
+  border-radius: 8px; font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  margin-left: 6px; vertical-align: middle;
+}
+.badge.pkg-type::before { display: none; }
+.badge.pkg-type.Deliverable { background: var(--accent-light); color: var(--accent-dark); }
+.badge.pkg-type.Management { background: var(--violet-bg, #efecfe); color: var(--violet, #7c6cf0); }
