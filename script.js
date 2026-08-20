@@ -17,6 +17,8 @@
     settings: { companyName: "My Agency", currency: "₹", themeColor: "teal", darkMode: false },
     dashboard: null,
     dashboardMonth: currentMonthKey(),
+    overview: null,
+    overviewMonth: currentMonthKey(),
     clients: [],
     leads: [],
     paymentsFilterMonth: "all",
@@ -26,7 +28,26 @@
     editingExpenseId: null,
     editingLeadId: null,
     confirmAction: null,
-    charts: { pie: null, monthly: null, category: null, expenseCategory: null }
+    charts: { pie: null, monthly: null, category: null, expenseCategory: null },
+
+    // Packages (Post & Reel / Management) — live inside a Client's detail page
+    packages: [],
+    platformOptions: [],
+    clientProfiles: {},
+    editingPackageId: null,
+    newPackageType: "postReel",  // chosen in the type-picker before the package form opens
+
+    // Client detail page (Overview / One-Time / Package tabs)
+    currentClient: null,         // the client object the detail page is showing
+    currentClientKey: null,      // mobile || clientName
+    clientDetailTab: "overview",
+    clientOverview: null,
+    clientJobs: [],
+    clientPackages: [],
+    oneTimeFilter: "Active",
+    packageFilter: "Active",
+    editingJobId: null,
+    currentPackageId: null       // package currently open in its drawer
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -61,6 +82,8 @@
     duplicatePayment: (id) => api(`/api/payments/${id}/duplicate`, { method: "POST" }),
 
     getClients: (month) => api(`/api/clients?month=${encodeURIComponent(month || "all")}`),
+    getClientOverview: (key) => api(`/api/clients/${encodeURIComponent(key)}/overview`),
+    getClientLedger: (key) => api(`/api/clients/${encodeURIComponent(key)}/ledger`),
 
     getLeads: () => api("/api/leads"),
     createLead: (data) => api("/api/leads", { method: "POST", body: JSON.stringify(data) }),
@@ -82,7 +105,21 @@
     getSettings: () => api("/api/settings"),
     updateSettings: (data) => api("/api/settings", { method: "PUT", body: JSON.stringify(data) }),
 
+    getPackages: (params) => api(`/api/packages${params ? `?${params}` : ""}`),
+    getPackage: (id) => api(`/api/packages/${id}`),
+    createPackage: (data) => api("/api/packages", { method: "POST", body: JSON.stringify(data) }),
+    updatePackage: (id, data) => api(`/api/packages/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    deletePackage: (id) => api(`/api/packages/${id}`, { method: "DELETE" }),
+    addPackagePayment: (id, data) => api(`/api/packages/${id}/payments`, { method: "POST", body: JSON.stringify(data) }),
+    deletePackagePayment: (id, entryId) => api(`/api/packages/${id}/payments/${entryId}`, { method: "DELETE" }),
+
+    getPlatformOptions: () => api("/api/platform-options"),
+
+    getClientProfiles: () => api("/api/client-profiles"),
+    updateClientProfile: (key, data) => api(`/api/client-profiles/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify(data) }),
+
     getDashboard: (month) => api(`/api/dashboard?month=${encodeURIComponent(month || "all")}`),
+    getOverview: (month) => api(`/api/overview?month=${encodeURIComponent(month || "all")}`),
 
     getReport: (type, status) => api(`/api/reports?type=${encodeURIComponent(type)}&status=${encodeURIComponent(status || "")}`),
     getTopClients: () => api("/api/reports/top-clients")
@@ -190,7 +227,7 @@
 
   function statusClass(status) {
     if (status === "Paid") return "Paid";
-    if (status === "Partial") return "Partial";
+    if (status === "Advance") return "Advance";
     return "Pending";
   }
 
@@ -238,6 +275,7 @@
     });
 
     // Lazy-load per-view data
+    if (view === "overview") loadOverview().catch((err) => showToast("Failed to load overview: " + err.message, "error"));
     if (view === "payments") renderPaymentsView();
     if (view === "clients") renderClientsView();
     if (view === "leads") renderLeadsView();
@@ -478,14 +516,14 @@
     // Status pie chart
     const pieCtx = $("#statusPieChart");
     if (pieCtx) {
-      const counts = d.statusCounts || { Paid: 0, Partial: 0, Pending: 0 };
+      const counts = d.statusCounts || { Paid: 0, Advance: 0, Pending: 0 };
       if (state.charts.pie) state.charts.pie.destroy();
       state.charts.pie = new Chart(pieCtx, {
         type: "doughnut",
         data: {
-          labels: ["Paid", "Partial", "Pending"],
+          labels: ["Paid", "Advance", "Pending"],
           datasets: [{
-            data: [counts.Paid, counts.Partial, counts.Pending],
+            data: [counts.Paid, counts.Advance, counts.Pending],
             backgroundColor: ["#1f9d75", "#e0a300", "#e2544c"],
             borderWidth: 0
           }]
@@ -534,6 +572,131 @@
         options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
       });
     }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Overview — computed analytics (One-Time Jobs + Packages + Leads)   */
+  /* ------------------------------------------------------------------ */
+  async function loadOverview() {
+    state.overview = await Api.getOverview(state.overviewMonth);
+    renderOverview();
+  }
+
+  function renderOverviewMonthFilter(o) {
+    const sel = $("#overviewMonthFilter");
+    if (!sel) return;
+    const months = new Set(o.availableMonths || []);
+    months.add(currentMonthKey());
+    const sorted = Array.from(months).sort((a, b) => b.localeCompare(a));
+    const options = ["all", ...sorted];
+    sel.innerHTML = options.map((key) => `<option value="${key}">${monthLabel(key)}</option>`).join("");
+    sel.value = state.overviewMonth;
+  }
+
+  function renderOverview() {
+    const o = state.overview;
+    if (!o) return;
+
+    renderOverviewMonthFilter(o);
+    const monthText = o.selectedMonth === "all" ? "All Time" : monthShortLabel(o.selectedMonth);
+
+    // Top stat cards
+    $("#ovTotalClients").textContent = o.clients.total;
+    $("#ovNewClients").textContent = `↑ ${o.clients.newThisMonth}`;
+    $("#ovOneTimeClients").textContent = o.clients.oneTimeOnly;
+    $("#ovOneTimeClientsPct").textContent = `${o.clients.total ? Math.round((o.clients.oneTimeOnly / o.clients.total) * 100) : 0}% of total clients`;
+    $("#ovPackageClients").textContent = o.clients.package;
+    $("#ovPackageClientsPct").textContent = `${o.clients.total ? Math.round((o.clients.package / o.clients.total) * 100) : 0}% of total clients`;
+    $("#ovTotalBusinessValue").textContent = fmtMoney(o.business.totalValue);
+
+    // Income split
+    $("#ovIncomeHint").textContent = monthText;
+    $("#ovOneTimeIncomeVal").textContent = fmtMoney(o.business.oneTimeIncome);
+    $("#ovPackageIncomeVal").textContent = fmtMoney(o.business.packageIncome);
+    const incomeSum = o.business.oneTimeIncome + o.business.packageIncome;
+    $("#ovOneTimeIncomeBar").style.width = `${incomeSum > 0 ? Math.round((o.business.oneTimeIncome / incomeSum) * 100) : 0}%`;
+    $("#ovPackageIncomeBar").style.width = `${incomeSum > 0 ? Math.round((o.business.packageIncome / incomeSum) * 100) : 0}%`;
+    $("#ovMrr").textContent = fmtMoney(o.business.mrr);
+    $("#ovAvgOneTime").innerHTML = `${fmtMoney(o.business.avgRevPerOneTimeClient)} <span class="ov-faint">One-Time</span>`;
+    $("#ovAvgPackage").textContent = fmtMoney(o.business.avgRevPerPackageClient);
+    const multiplier = o.business.avgRevPerOneTimeClient > 0
+      ? (o.business.avgRevPerPackageClient / o.business.avgRevPerOneTimeClient)
+      : 0;
+    $("#ovAvgMultiplier").textContent = multiplier > 0 ? `(${multiplier.toFixed(1)}x higher)` : "";
+
+    // Completion donut
+    const c = o.completion;
+    const completedPct = c.totalJobs ? Math.round((c.jobsCompleted / c.totalJobs) * 100) : 0;
+    $("#ovCompletionDonut").style.background =
+      `conic-gradient(var(--success) 0% ${completedPct}%, var(--warning) ${completedPct}% 100%)`;
+    $("#ovTotalJobs").textContent = c.totalJobs;
+    $("#ovJobsCompleted").textContent = `${c.jobsCompleted} Completed`;
+    $("#ovJobsCompletedPct").textContent = `${completedPct}%`;
+    $("#ovJobsActive").textContent = `${c.jobsActive} Active/Running`;
+    $("#ovJobsActivePct").textContent = `${100 - completedPct}%`;
+    $("#ovPackagesCompleted").innerHTML = `${c.packagesCompleted} <span class="ov-faint">/ ${c.packagesTotal}</span>`;
+    $("#ovPackagesRunning").textContent = c.packagesRunning;
+
+    // Package duration
+    const durationRows = $("#ovDurationRows");
+    if (durationRows) {
+      durationRows.innerHTML = (o.packageDuration || []).map((d) => {
+        const pct = o.maxDurationCount ? Math.round((d.count / o.maxDurationCount) * 100) : 0;
+        const pop = d.count === o.maxDurationCount && d.count > 0 ? `<span class="ov-dur-pop">Popular</span>` : "";
+        return `
+          <div class="ov-dur-row">
+            <div class="ov-dur-label">${escapeHtml(d.label)}</div>
+            <div class="ov-dur-track"><div class="ov-dur-fill" style="width:${Math.max(pct, 6)}%;"><span>${d.count}</span></div></div>
+            <div class="ov-dur-count">${d.count} pkg${d.count === 1 ? "" : "s"} ${pop}</div>
+          </div>`;
+      }).join("") || `<p style="color:var(--text-muted);font-size:12.5px;">No packages yet.</p>`;
+    }
+
+    // Upsell funnel
+    const u = o.upsell;
+    $("#ovFunnelAll").textContent = `${u.oneTimeClients} One-Time Clients`;
+    $("#ovFunnelConverted").style.width = `${Math.max(u.conversionPercent, u.convertedClients > 0 ? 4 : 0)}%`;
+    $("#ovFunnelConverted").textContent = `${u.convertedClients} Converted →`;
+    $("#ovFunnelPct").textContent = `${u.conversionPercent}%`;
+    $("#ovRepeatRate").textContent = `${u.repeatPercent}%`;
+    $("#ovRepeatNote").textContent = `${u.repeatClients} of ${u.packageClients} package clients renewed 2+ packages`;
+
+    // Income by service
+    const serviceRows = $("#ovServiceRows");
+    $("#ovServiceHint").textContent = monthText;
+    const palette = ["var(--violet)", "var(--blue)", "var(--teal-400)", "var(--warning)", "var(--success)", "var(--danger)"];
+    if (serviceRows) {
+      serviceRows.innerHTML = (o.incomeByService || []).map((s, i) => `
+        <div class="ov-cat-item">
+          <div class="ov-name">${escapeHtml(s.category)}</div>
+          <div class="ov-bar"><i style="width:${s.percent}%;background:${palette[i % palette.length]};"></i></div>
+          <div class="ov-val">${fmtMoney(s.amount)}</div>
+        </div>
+      `).join("") || `<p style="color:var(--text-muted);font-size:12.5px;">No income recorded yet.</p>`;
+    }
+
+    // Health signals
+    const h = o.health;
+    $("#ovOverdue").textContent = h.overduePayments;
+    $("#ovPackagesEnding").textContent = h.packagesEndingThisMonth;
+    $("#ovExpectedCollectionMonth").textContent = `(${monthShortLabel(currentMonthKey())})`;
+    $("#ovExpectedCollection").textContent = fmtMoney(h.expectedCollection);
+    $("#ovOutstanding").textContent = fmtMoney(h.totalOutstanding);
+    $("#ovFollowups").textContent = h.followupsToday;
+    $("#ovNewLeads").textContent = h.newLeadsThisWeek;
+  }
+
+  function initOverviewFilter() {
+    const sel = $("#overviewMonthFilter");
+    if (!sel) return;
+    sel.addEventListener("change", async () => {
+      state.overviewMonth = sel.value;
+      try {
+        await loadOverview();
+      } catch (err) {
+        showToast("Failed to load overview: " + err.message, "error");
+      }
+    });
   }
 
   /* ------------------------------------------------------------------ */
@@ -725,7 +888,7 @@
     // Auto-suggest status based on amounts (user can still override)
     if (paid <= 0) $("#fStatus").value = "Pending";
     else if (paid >= total && total > 0) $("#fStatus").value = "Paid";
-    else $("#fStatus").value = "Partial";
+    else $("#fStatus").value = "Advance";
   }
 
   function openPaymentModal(id = null) {
@@ -910,7 +1073,7 @@
     `).join("");
 
     $$(".client-card").forEach((card) => {
-      card.addEventListener("click", () => openClientDrawer(clients[Number(card.dataset.index)]));
+      card.addEventListener("click", () => openClientDetail(clients[Number(card.dataset.index)]));
     });
   }
 
@@ -926,47 +1089,6 @@
     $("#clientFilterMonth").addEventListener("change", async () => {
       state.clientsFilterMonth = $("#clientFilterMonth").value;
       await renderClientsView();
-    });
-  }
-
-  function openClientDrawer(client) {
-    $("#clientDrawerTitle").textContent = client.clientName;
-    const body = $("#clientDrawerBody");
-    body.innerHTML = `
-      <div style="display:flex; flex-direction:column; gap:16px;">
-        <div class="client-stats" style="border-top:none; padding-top:0;">
-          <div><span class="cs-label">Business</span><span class="cs-value">${fmtMoney(client.totalBusiness)}</span></div>
-          <div><span class="cs-label">Received</span><span class="cs-value">${fmtMoney(client.totalReceived)}</span></div>
-          <div><span class="cs-label">Pending</span><span class="cs-value">${fmtMoney(client.totalPending)}</span></div>
-        </div>
-        <p style="font-size:13px; color:var(--text-muted);">
-          <b>Mobile:</b> ${escapeHtml(client.mobile || "—")}<br/>
-          <b>Instagram:</b> ${escapeHtml(client.instagram || "—")}
-        </p>
-        <div class="table-scroll">
-          <table class="data-table">
-            <thead><tr><th>Date</th><th>Category</th><th>Total</th><th>Status</th></tr></thead>
-            <tbody>
-              ${client.payments.map((p) => `
-                <tr>
-                  <td>${fmtDate(p.date)}</td>
-                  <td>${escapeHtml(p.category)}</td>
-                  <td>${fmtMoney(p.totalAmount)}</td>
-                  <td><span class="badge ${statusClass(p.status)}">${escapeHtml(p.status)}</span></td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    `;
-    $("#clientDrawerOverlay").hidden = false;
-  }
-
-  function initClientDrawer() {
-    $("#closeClientDrawer").addEventListener("click", () => { $("#clientDrawerOverlay").hidden = true; });
-    $("#clientDrawerOverlay").addEventListener("click", (e) => {
-      if (e.target.id === "clientDrawerOverlay") $("#clientDrawerOverlay").hidden = true;
     });
   }
 
@@ -1894,14 +2016,651 @@
   /* ------------------------------------------------------------------ */
   /* Initial data load                                                   */
   /* ------------------------------------------------------------------ */
+  /* ------------------------------------------------------------------ */
+  /* Client Detail Page                                                  */
+  /* Opened by clicking a client card. Three tabs:                       */
+  /*   Overview  -> One-Time + Package counts, Lifetime Revenue,         */
+  /*                Outstanding — 100% computed, nothing stored here.    */
+  /*   One-Time  -> this client's Jobs (Active/On Hold/Completed lists)  */
+  /*   Package   -> this client's Packages, either "Post & Reel" or      */
+  /*                "Management" type                                   */
+  /* ------------------------------------------------------------------ */
+
+  function clientKeyOf(client) {
+    return (client.mobile || client.clientName || "").toString().trim();
+  }
+
+  function pkgStatusClass(status) {
+    return status || "Pending";
+  }
+
+  function jobStatusClass(status) {
+    // Reuse the same visual language as package status badges
+    return status === "Completed" ? "Completed" : (status === "On Hold" ? "On Hold" : "Active");
+  }
+
+  async function openClientDetail(client) {
+    state.currentClient = client;
+    state.currentClientKey = clientKeyOf(client);
+    state.clientDetailTab = "overview";
+    state.oneTimeFilter = "Active";
+    state.packageFilter = "Active";
+
+    window.location.hash = "clientDetail";
+    setActiveView("clientDetail");
+
+    renderClientDetailHeader();
+    switchClientTab("overview");
+    await refreshClientDetail();
+  }
+
+  function renderClientDetailHeader() {
+    const client = state.currentClient;
+    if (!client) return;
+    const profileKey = state.currentClientKey;
+    const profile = state.clientProfiles[profileKey] || { location: "", folderPath: "" };
+
+    $("#cdAvatar").textContent = initials(client.clientName);
+    $("#cdName").textContent = client.clientName;
+    $("#cdMeta").innerHTML = [
+      client.mobile ? `<span><i class="fa-solid fa-phone"></i> ${escapeHtml(client.mobile)}</span>` : "",
+      client.businessName ? `<span><i class="fa-solid fa-briefcase"></i> ${escapeHtml(client.businessName)}</span>` : "",
+      client.instagram ? `<span><i class="fa-brands fa-instagram"></i> ${escapeHtml(client.instagram)}</span>` : ""
+    ].filter(Boolean).join("");
+
+    $("#cdLocation").value = profile.location || "";
+    $("#cdFolderPath").value = profile.folderPath || "";
+  }
+
+  async function refreshClientDetail() {
+    if (!state.currentClientKey) return;
+    const key = state.currentClientKey;
+
+    const [overview, packages] = await Promise.all([
+      Api.getClientOverview(key),
+      Api.getPackages(`client=${encodeURIComponent(key)}`)
+    ]);
+
+    state.clientOverview = overview;
+    state.clientJobs = state.payments.filter((p) => (p.mobile || p.clientName || "").toString().trim() === key);
+    state.clientPackages = packages;
+
+    $("#cdLifetimeRevenue").textContent = fmtMoney(overview.lifetimeRevenue);
+    $("#cdOutstanding").textContent = fmtMoney(overview.outstanding);
+
+    renderClientOverviewTab();
+    renderOneTimeTab();
+    renderClientPackageTab();
+  }
+
+  function switchClientTab(tab) {
+    state.clientDetailTab = tab;
+    $$("#clientDetailTabs .tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+    $$(".client-tab-panel").forEach((p) => p.classList.toggle("active", p.id === `clientTab-${tab}`));
+  }
+
+  // --- Tab 1: Overview ---
+
+  function statBlock(counts) {
+    return `
+      <div class="stat-mini-grid">
+        <div class="stat-mini"><span class="sm-value">${counts.total}</span><span class="sm-label">Total</span></div>
+        <div class="stat-mini"><span class="sm-value">${counts.active}</span><span class="sm-label">Active</span></div>
+        <div class="stat-mini"><span class="sm-value">${counts.onHold}</span><span class="sm-label">On Hold</span></div>
+        <div class="stat-mini"><span class="sm-value">${counts.completed}</span><span class="sm-label">Completed</span></div>
+        <div class="stat-mini"><span class="sm-value">${counts.paymentPending}</span><span class="sm-label">Payment Pending</span></div>
+      </div>`;
+  }
+
+  function renderClientOverviewTab() {
+    const o = state.clientOverview;
+    if (!o) return;
+    $("#cdOverviewOneTime").innerHTML = statBlock(o.oneTime);
+    $("#cdOverviewPackage").innerHTML = statBlock(o.packages);
+  }
+
+  // --- Tab 2: One-Time Jobs ---
+
+  function renderOneTimeTab() {
+    const list = (state.clientJobs || []).filter((j) => (j.jobStatus || "Active") === state.oneTimeFilter);
+    const container = $("#oneTimeJobsList");
+    if (!container) return;
+
+    $$("#oneTimeFilterTabs button").forEach((b) => b.classList.toggle("active", b.dataset.filter === state.oneTimeFilter));
+
+    if (!list.length) {
+      container.innerHTML = `<p class="muted">No ${escapeHtml(state.oneTimeFilter)} jobs.</p>`;
+      return;
+    }
+
+    container.innerHTML = list.map((j) => {
+      const progress = j.progress && j.progress.total > 0
+        ? `<span class="job-progress">${j.progress.done}/${j.progress.total} done</span>`
+        : "";
+      return `
+      <div class="job-row card" data-id="${j.id}">
+        <div class="job-row-main">
+          <h4>${escapeHtml(j.jobName || j.workDetails || "Untitled Job")}</h4>
+          <p class="muted">${escapeHtml(j.category || "")} • Start ${fmtDate(j.date)}${j.dueDate ? ` • Due ${fmtDate(j.dueDate)}` : ""}</p>
+          ${progress}
+        </div>
+        <div class="job-row-side">
+          <span class="badge ${jobStatusClass(j.jobStatus)}">${escapeHtml(j.jobStatus || "Active")}</span>
+          <span class="job-amount">${fmtMoney(j.paidAmount)} / ${fmtMoney(j.totalAmount)}</span>
+          <span class="badge ${statusClass(j.status)}">${escapeHtml(j.status)}</span>
+        </div>
+      </div>`;
+    }).join("");
+
+    $$("#oneTimeJobsList .job-row").forEach((row) => {
+      row.addEventListener("click", () => openJobModal(row.dataset.id));
+    });
+  }
+
+  // --- Job Add/Edit Modal ---
+
+  function recalcJobPending() {
+    const total = Number($("#jbTotalAmount").value) || 0;
+    const paid = Number($("#jbPaidAmount").value) || 0;
+    const pending = Math.max(total - paid, 0);
+    $("#jbPendingAmount").value = pending.toFixed(2);
+    const status = paid <= 0 ? "Pending" : (paid >= total && total > 0 ? "Paid" : "Advance");
+    $("#jbPaymentStatusBadge").textContent = status;
+    $("#jbPaymentStatusBadge").className = `badge ${statusClass(status)}`;
+  }
+
+  function toggleJobProgressFields() {
+    const on = $("#jbHasProgress").checked;
+    $("#jbProgressFields").hidden = !on;
+  }
+
+  function openJobModal(id = null) {
+    state.editingJobId = id;
+    const form = $("#jobForm");
+    form.reset();
+    $("#deleteJobBtn").hidden = !id;
+
+    if (id) {
+      const job = state.clientJobs.find((j) => j.id === id);
+      if (!job) return;
+      $("#jobModalTitle").textContent = "Edit One-Time Job";
+      $("#jbName").value = job.jobName || job.workDetails || "";
+      $("#jbCategory").value = job.category || "";
+      $("#jbStartDate").value = job.date || "";
+      $("#jbDueDate").value = job.dueDate || "";
+      $("#jbStatus").value = job.jobStatus || "Active";
+      $("#jbTotalAmount").value = job.totalAmount || 0;
+      $("#jbPaidAmount").value = job.paidAmount || 0;
+      $("#jbNotes").value = job.notes || "";
+      const hasProgress = job.progress && job.progress.total > 0;
+      $("#jbHasProgress").checked = !!hasProgress;
+      $("#jbProgressTotal").value = hasProgress ? job.progress.total : "";
+      $("#jbProgressDone").value = hasProgress ? job.progress.done : "";
+    } else {
+      $("#jobModalTitle").textContent = "Add One-Time Job";
+      $("#jbStartDate").value = new Date().toISOString().slice(0, 10);
+      $("#jbStatus").value = "Active";
+      $("#jbTotalAmount").value = 0;
+      $("#jbPaidAmount").value = 0;
+      $("#jbHasProgress").checked = false;
+    }
+    toggleJobProgressFields();
+    recalcJobPending();
+    populateCategorySelects();
+    $("#jbCategory").value = id ? (state.clientJobs.find((j) => j.id === id)?.category || "") : $("#jbCategory").value;
+    $("#jobModalOverlay").hidden = false;
+  }
+
+  function closeJobModal() {
+    $("#jobModalOverlay").hidden = true;
+    state.editingJobId = null;
+  }
+
+  async function refreshJobsAfterSave() {
+    state.payments = await Api.getPayments();
+    await refreshClientDetail();
+  }
+
+  function initJobModal() {
+    $("#addJobBtn")?.addEventListener("click", () => openJobModal());
+    $("#closeJobModal")?.addEventListener("click", closeJobModal);
+    $("#cancelJobBtn")?.addEventListener("click", closeJobModal);
+    $("#jobModalOverlay")?.addEventListener("click", (e) => {
+      if (e.target.id === "jobModalOverlay") closeJobModal();
+    });
+    $("#jbTotalAmount")?.addEventListener("input", recalcJobPending);
+    $("#jbPaidAmount")?.addEventListener("input", recalcJobPending);
+    $("#jbHasProgress")?.addEventListener("change", toggleJobProgressFields);
+
+    $("#deleteJobBtn")?.addEventListener("click", () => {
+      if (!state.editingJobId) return;
+      openConfirm("Delete Job", "Delete this one-time job? This cannot be undone.", async () => {
+        try {
+          await Api.deletePayment(state.editingJobId);
+          showToast("Job deleted", "success");
+          closeJobModal();
+          await refreshJobsAfterSave();
+        } catch (err) {
+          showToast("Failed to delete: " + err.message, "error");
+        }
+      });
+    });
+
+    $("#jobForm")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const client = state.currentClient;
+      const hasProgress = $("#jbHasProgress").checked;
+      const payload = {
+        clientName: client.clientName,
+        mobile: client.mobile,
+        businessName: client.businessName,
+        instagram: client.instagram,
+        jobName: $("#jbName").value.trim(),
+        category: $("#jbCategory").value,
+        date: $("#jbStartDate").value,
+        dueDate: $("#jbDueDate").value,
+        jobStatus: $("#jbStatus").value,
+        totalAmount: Number($("#jbTotalAmount").value) || 0,
+        paidAmount: Number($("#jbPaidAmount").value) || 0,
+        notes: $("#jbNotes").value.trim(),
+        progress: hasProgress
+          ? { total: Number($("#jbProgressTotal").value) || 0, done: Number($("#jbProgressDone").value) || 0 }
+          : { total: 0, done: 0 }
+      };
+      try {
+        if (state.editingJobId) {
+          await Api.updatePayment(state.editingJobId, payload);
+          showToast("Job updated", "success");
+        } else {
+          await Api.createPayment(payload);
+          showToast("Job added", "success");
+        }
+        closeJobModal();
+        await refreshJobsAfterSave();
+      } catch (err) {
+        showToast("Failed to save job: " + err.message, "error");
+      }
+    });
+  }
+
+  // --- Tab 3: Packages (Post & Reel / Management) ---
+
+  function packageProgressLabel(pkg) {
+    const p = pkg.progress || { done: 0, total: 0, percent: 0 };
+    return `${p.done}/${p.total} (${p.percent}%)`;
+  }
+
+  function renderClientPackageTab() {
+    const list = (state.clientPackages || []).filter((p) => p.status === state.packageFilter);
+    const container = $("#clientPackageList");
+    if (!container) return;
+
+    $$("#packageFilterTabs button").forEach((b) => b.classList.toggle("active", b.dataset.filter === state.packageFilter));
+
+    if (!list.length) {
+      container.innerHTML = `<p class="muted">No ${escapeHtml(state.packageFilter)} packages.</p>`;
+      return;
+    }
+
+    container.innerHTML = list.map((pk) => `
+      <div class="package-row card" data-id="${pk.id}">
+        <div class="package-row-main">
+          <h4>${escapeHtml(pk.name)} <span class="type-tag">${pk.packageType === "management" ? "Management" : "Post & Reel"}</span></h4>
+          <p class="muted">Start ${fmtDate(pk.startDate)}${pk.endDate ? ` • End ${fmtDate(pk.endDate)}` : ""}</p>
+          <p class="muted">Progress: ${packageProgressLabel(pk)}</p>
+        </div>
+        <div class="package-row-side">
+          <span class="badge ${pkgStatusClass(pk.status)}">${escapeHtml(pk.status)}</span>
+          <span class="job-amount">${fmtMoney(pk.paidAmount)} / ${fmtMoney(pk.totalAmount)}</span>
+          <span class="badge ${statusClass(pk.paymentStatus)}">${escapeHtml(pk.paymentStatus)}</span>
+        </div>
+      </div>
+    `).join("");
+
+    $$("#clientPackageList .package-row").forEach((row) => {
+      row.addEventListener("click", () => openPackageModal(row.dataset.id));
+    });
+  }
+
+  // --- Package type picker (asked first, per spec) ---
+
+  function openPackageTypeModal() {
+    $("#packageTypeModalOverlay").hidden = false;
+  }
+  function closePackageTypeModal() {
+    $("#packageTypeModalOverlay").hidden = true;
+  }
+
+  // --- Package Add/Edit Modal ---
+
+  let tempPlatformRows = [];
+
+  function blankPlatformRow(name) {
+    return { name, status: "Active", posts: { total: 0, done: 0 }, reels: { total: 0, done: 0 }, stories: { total: 0, done: 0 } };
+  }
+
+  function renderPlatformRows() {
+    const container = $("#pkPlatformRows");
+    if (!container) return;
+    if (!tempPlatformRows.length) {
+      container.innerHTML = `<p class="muted">No platforms added yet.</p>`;
+      return;
+    }
+    container.innerHTML = tempPlatformRows.map((row, idx) => `
+      <div class="platform-row" data-idx="${idx}">
+        <div class="platform-row-head">
+          <strong>${escapeHtml(row.name)}</strong>
+          <select data-field="status" data-idx="${idx}">
+            <option value="Active" ${row.status === "Active" ? "selected" : ""}>Active</option>
+            <option value="Inactive" ${row.status === "Inactive" ? "selected" : ""}>Inactive</option>
+          </select>
+          <button type="button" class="btn-icon remove-platform-btn" data-idx="${idx}" title="Remove"><i class="fa-solid fa-trash"></i></button>
+        </div>
+        <div class="platform-row-counters">
+          <label>Posts <input type="number" min="0" data-field="posts.total" data-idx="${idx}" value="${row.posts.total}" placeholder="Total" />
+            <input type="number" min="0" data-field="posts.done" data-idx="${idx}" value="${row.posts.done}" placeholder="Done" /></label>
+          <label>Reels <input type="number" min="0" data-field="reels.total" data-idx="${idx}" value="${row.reels.total}" placeholder="Total" />
+            <input type="number" min="0" data-field="reels.done" data-idx="${idx}" value="${row.reels.done}" placeholder="Done" /></label>
+          <label>Stories <input type="number" min="0" data-field="stories.total" data-idx="${idx}" value="${row.stories.total}" placeholder="Total" />
+            <input type="number" min="0" data-field="stories.done" data-idx="${idx}" value="${row.stories.done}" placeholder="Done" /></label>
+        </div>
+      </div>
+    `).join("");
+
+    $$("#pkPlatformRows [data-field]").forEach((el) => {
+      el.addEventListener("input", (e) => {
+        const idx = Number(e.target.dataset.idx);
+        const field = e.target.dataset.field;
+        const value = e.target.tagName === "SELECT" ? e.target.value : (Number(e.target.value) || 0);
+        if (field.includes(".")) {
+          const [group, key] = field.split(".");
+          tempPlatformRows[idx][group][key] = value;
+        } else {
+          tempPlatformRows[idx][field] = value;
+        }
+      });
+    });
+    $$(".remove-platform-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        tempPlatformRows.splice(Number(btn.dataset.idx), 1);
+        renderPlatformRows();
+      });
+    });
+  }
+
+  function populatePlatformAddSelect() {
+    const sel = $("#pkAddPlatformSelect");
+    if (!sel) return;
+    sel.innerHTML = `<option value="">— Select Platform —</option>` +
+      state.platformOptions.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join("");
+  }
+
+  function renderPackagePaymentHistory(pkg) {
+    const container = $("#pkPaymentHistoryList");
+    if (!container) return;
+    const history = pkg && pkg.paymentHistory ? pkg.paymentHistory : [];
+    if (!history.length) {
+      container.innerHTML = `<p class="muted">No payments recorded yet.</p>`;
+      return;
+    }
+    container.innerHTML = history.map((h) => `
+      <div class="ph-row" data-entry-id="${h.id}">
+        <span>${fmtDate(h.date)}</span>
+        <span>${fmtMoney(h.amount)}</span>
+        <span class="badge">${escapeHtml(h.type)}</span>
+        <span class="muted">${escapeHtml(h.note || "")}</span>
+        <button type="button" class="btn-icon remove-ph-btn" data-entry-id="${h.id}"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+    `).join("");
+
+    $$(".remove-ph-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        try {
+          await Api.deletePackagePayment(state.editingPackageId, btn.dataset.entryId);
+          const fresh = await Api.getPackage(state.editingPackageId);
+          renderPackagePaymentHistory(fresh);
+          syncPackagePaymentSummary(fresh);
+          await refreshClientDetail();
+        } catch (err) {
+          showToast("Failed to remove payment: " + err.message, "error");
+        }
+      });
+    });
+  }
+
+  function syncPackagePaymentSummary(pkg) {
+    $("#pkPaidSoFar").textContent = fmtMoney(pkg.paidAmount);
+    $("#pkPendingSoFar").textContent = fmtMoney(pkg.pendingAmount);
+    $("#pkPaymentStatusBadge").textContent = pkg.paymentStatus;
+    $("#pkPaymentStatusBadge").className = `badge ${statusClass(pkg.paymentStatus)}`;
+  }
+
+  function openPackageModal(id = null) {
+    state.editingPackageId = id;
+    const form = $("#packageForm");
+    form.reset();
+    tempPlatformRows = [];
+    populatePlatformAddSelect();
+    $("#deletePackageBtn").hidden = !id;
+    $("#pkPaymentHistorySection").hidden = !id;
+
+    if (id) {
+      const pkg = (state.clientPackages || []).find((p) => p.id === id);
+      if (!pkg) return;
+      state.newPackageType = pkg.packageType;
+      $("#packageModalTitle").textContent = "Edit Package";
+      $("#pkName").value = pkg.name || "";
+      $("#pkStartDate").value = pkg.startDate || "";
+      $("#pkEndDate").value = pkg.endDate || "";
+      $("#pkStatus").value = pkg.status || "Active";
+      $("#pkTotalAmount").value = pkg.totalAmount || 0;
+      $("#pkPaymentDueDate").value = pkg.paymentDueDate || "";
+      $("#pkNotes").value = pkg.notes || "";
+
+      if (pkg.packageType === "management") {
+        tempPlatformRows = (pkg.platforms || []).map((r) => ({ ...r }));
+      } else {
+        $("#pkPostsTotal").value = pkg.posts?.total || 0;
+        $("#pkPostsDone").value = pkg.posts?.done || 0;
+        $("#pkReelsTotal").value = pkg.reels?.total || 0;
+        $("#pkReelsDone").value = pkg.reels?.done || 0;
+        $("#pkStoriesTotal").value = pkg.stories?.total || 0;
+        $("#pkStoriesDone").value = pkg.stories?.done || 0;
+      }
+      renderPackagePaymentHistory(pkg);
+      syncPackagePaymentSummary(pkg);
+    } else {
+      $("#packageModalTitle").textContent = state.newPackageType === "management" ? "Add Management Package" : "Add Post & Reel Package";
+      $("#pkStartDate").value = new Date().toISOString().slice(0, 10);
+      $("#pkStatus").value = "Active";
+      $("#pkTotalAmount").value = 0;
+    }
+
+    $("#pkPostReelFields").hidden = state.newPackageType !== "postReel";
+    $("#pkManagementFields").hidden = state.newPackageType !== "management";
+    renderPlatformRows();
+    $("#packageModalOverlay").hidden = false;
+  }
+
+  function closePackageModal() {
+    $("#packageModalOverlay").hidden = true;
+    $("#packageForm").reset();
+    state.editingPackageId = null;
+    tempPlatformRows = [];
+  }
+
+  async function refreshPackagesAfterSave() {
+    await refreshClientDetail();
+  }
+
+  function initPackageTypeModal() {
+    $("#addPackageBtn")?.addEventListener("click", openPackageTypeModal);
+    $("#closePackageTypeModal")?.addEventListener("click", closePackageTypeModal);
+    $("#packageTypeModalOverlay")?.addEventListener("click", (e) => {
+      if (e.target.id === "packageTypeModalOverlay") closePackageTypeModal();
+    });
+    $("#choosePostReelBtn")?.addEventListener("click", () => {
+      state.newPackageType = "postReel";
+      closePackageTypeModal();
+      openPackageModal();
+    });
+    $("#chooseManagementBtn")?.addEventListener("click", () => {
+      state.newPackageType = "management";
+      closePackageTypeModal();
+      openPackageModal();
+    });
+  }
+
+  function initPackageModal() {
+    $("#closePackageModal")?.addEventListener("click", closePackageModal);
+    $("#cancelPackageBtn")?.addEventListener("click", closePackageModal);
+    $("#packageModalOverlay")?.addEventListener("click", (e) => {
+      if (e.target.id === "packageModalOverlay") closePackageModal();
+    });
+
+    $("#pkAddPlatformBtn")?.addEventListener("click", () => {
+      const sel = $("#pkAddPlatformSelect");
+      const name = sel.value;
+      if (!name) return;
+      if (tempPlatformRows.some((r) => r.name === name)) {
+        showToast("Platform already added", "info");
+        return;
+      }
+      tempPlatformRows.push(blankPlatformRow(name));
+      renderPlatformRows();
+      sel.value = "";
+    });
+
+    $("#savePaymentEntryBtn")?.addEventListener("click", async () => {
+      if (!state.editingPackageId) {
+        showToast("Save the package first, then add payments", "info");
+        return;
+      }
+      const amount = Number($("#phAmount").value) || 0;
+      if (amount <= 0) {
+        showToast("Enter a valid amount", "error");
+        return;
+      }
+      try {
+        const updated = await Api.addPackagePayment(state.editingPackageId, {
+          date: $("#phDate").value,
+          amount,
+          type: $("#phType").value,
+          note: $("#phNote").value.trim()
+        });
+        $("#phAmount").value = "";
+        $("#phNote").value = "";
+        renderPackagePaymentHistory(updated);
+        syncPackagePaymentSummary(updated);
+        await refreshClientDetail();
+        showToast("Payment added", "success");
+      } catch (err) {
+        showToast("Failed to add payment: " + err.message, "error");
+      }
+    });
+
+    $("#deletePackageBtn")?.addEventListener("click", () => {
+      if (!state.editingPackageId) return;
+      openConfirm("Delete Package", "Delete this package? This cannot be undone.", async () => {
+        try {
+          await Api.deletePackage(state.editingPackageId);
+          showToast("Package deleted", "success");
+          closePackageModal();
+          await refreshPackagesAfterSave();
+        } catch (err) {
+          showToast("Failed to delete: " + err.message, "error");
+        }
+      });
+    });
+
+    $("#packageForm")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const client = state.currentClient;
+      const payload = {
+        clientName: client.clientName,
+        clientMobile: client.mobile,
+        name: $("#pkName").value.trim(),
+        packageType: state.newPackageType,
+        startDate: $("#pkStartDate").value,
+        endDate: $("#pkEndDate").value,
+        status: $("#pkStatus").value,
+        totalAmount: Number($("#pkTotalAmount").value) || 0,
+        paymentDueDate: $("#pkPaymentDueDate").value,
+        notes: $("#pkNotes").value.trim()
+      };
+      if (state.newPackageType === "management") {
+        payload.platforms = tempPlatformRows;
+      } else {
+        payload.posts = { total: Number($("#pkPostsTotal").value) || 0, done: Number($("#pkPostsDone").value) || 0 };
+        payload.reels = { total: Number($("#pkReelsTotal").value) || 0, done: Number($("#pkReelsDone").value) || 0 };
+        payload.stories = { total: Number($("#pkStoriesTotal").value) || 0, done: Number($("#pkStoriesDone").value) || 0 };
+      }
+      try {
+        if (state.editingPackageId) {
+          await Api.updatePackage(state.editingPackageId, payload);
+          showToast("Package updated", "success");
+        } else {
+          await Api.createPackage(payload);
+          showToast("Package added", "success");
+        }
+        closePackageModal();
+        await refreshPackagesAfterSave();
+      } catch (err) {
+        showToast("Failed to save package: " + err.message, "error");
+      }
+    });
+  }
+
+  // --- Wiring for the Client Detail page shell (back button + tabs) ---
+
+  function initClientDetail() {
+    $("#backToClientsBtn")?.addEventListener("click", () => {
+      window.location.hash = "clients";
+      setActiveView("clients");
+    });
+
+    $$("#clientDetailTabs .tab-btn").forEach((btn) => {
+      btn.addEventListener("click", () => switchClientTab(btn.dataset.tab));
+    });
+
+    $$("#oneTimeFilterTabs button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.oneTimeFilter = btn.dataset.filter;
+        renderOneTimeTab();
+      });
+    });
+
+    $$("#packageFilterTabs button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.packageFilter = btn.dataset.filter;
+        renderClientPackageTab();
+      });
+    });
+
+    $("#cdSaveProfileBtn")?.addEventListener("click", async () => {
+      try {
+        const updated = await Api.updateClientProfile(state.currentClientKey, {
+          location: $("#cdLocation").value.trim(),
+          folderPath: $("#cdFolderPath").value.trim()
+        });
+        state.clientProfiles[state.currentClientKey] = updated;
+        showToast("Client profile saved", "success");
+      } catch (err) {
+        showToast("Failed to save: " + err.message, "error");
+      }
+    });
+  }
+
   async function loadInitialData() {
-    const [payments, categories, settings, expenses, expenseCategories, leads] = await Promise.all([
+    const [payments, categories, settings, expenses, expenseCategories, leads, platformOptions, clientProfiles] = await Promise.all([
       Api.getPayments(),
       Api.getCategories(),
       Api.getSettings(),
       Api.getExpenses(),
       Api.getExpenseCategories(),
-      Api.getLeads()
+      Api.getLeads(),
+      Api.getPlatformOptions(),
+      Api.getClientProfiles()
     ]);
     state.payments = payments;
     state.categories = categories;
@@ -1909,14 +2668,17 @@
     state.expenses = expenses;
     state.expenseCategories = expenseCategories;
     state.leads = leads;
+    state.platformOptions = platformOptions;
+    state.clientProfiles = clientProfiles;
 
     applySettingsToUI();
     renderGreeting();
     populateCategorySelects();
 
     await loadDashboard();
+    await loadOverview();
 
-    const view = (window.location.hash || "#dashboard").slice(1);
+    const view = (window.location.hash || "#overview").slice(1);
     setActiveView(view);
   }
 
@@ -1932,7 +2694,10 @@
     initPaymentModal();
     initConfirmDialog();
     initClientSearch();
-    initClientDrawer();
+    initClientDetail();
+    initJobModal();
+    initPackageTypeModal();
+    initPackageModal();
     initLeadModal();
     initLeadDrawer();
     initLeadsToolbar();
@@ -1946,6 +2711,7 @@
     initGlobalSearch();
     initProfileAndLogout();
     initDashboardFilter();
+    initOverviewFilter();
 
     try {
       await loadInitialData();
