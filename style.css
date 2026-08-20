@@ -521,6 +521,19 @@ select:focus { border-color: var(--accent); }
    Client grid
    ========================================================================= */
 .client-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.client-picker-list { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.client-picker-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px; border: 1px solid var(--border); border-radius: 10px;
+  cursor: pointer; background: var(--surface);
+}
+.client-picker-row:hover { border-color: var(--accent); background: var(--accent-light); }
+.client-picker-row .client-avatar { width: 32px; height: 32px; font-size: 12.5px; }
+.client-picker-row-info { display: flex; flex-direction: column; min-width: 0; }
+.client-picker-row-info b { font-size: 13px; }
+.client-picker-row-info span { font-size: 11.5px; color: var(--text-muted); }
+.client-picker-empty { font-size: 12.5px; color: var(--text-muted); padding: 6px 2px; }
+
 .client-card {
   background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg);
   padding: 20px; cursor: pointer; transition: all .2s var(--ease); box-shadow: var(--shadow-sm);

@@ -490,6 +490,7 @@
           <h1>Clients</h1>
           <p class="view-subtitle">Every client, their business history and pending balances.</p>
         </div>
+        <button class="btn btn-primary" id="clientsAddBtn"><i class="fa-solid fa-plus"></i> Add</button>
       </div>
 
       <div class="toolbar card">
@@ -1123,6 +1124,63 @@
           <button class="btn btn-primary btn-sm" id="addPackageBtn"><i class="fa-solid fa-plus"></i> Add Package</button>
         </div>
         <div id="clientPackageList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Type Picker (from Clients main tab) -->
+<div class="modal-overlay" id="addTypePickerOverlay" hidden>
+  <div class="modal modal-sm">
+    <div class="modal-head">
+      <h2>Add</h2>
+      <button class="icon-btn" id="closeAddTypePicker"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <p class="muted" style="margin-bottom:14px;">Su add karvu che?</p>
+      <div class="package-type-picker">
+        <button type="button" class="package-type-card" id="pickAddOneTimeType">
+          <i class="fa-solid fa-pen"></i>
+          <h4>One-Time Job</h4>
+          <p>Single job — status + payment history</p>
+        </button>
+        <button type="button" class="package-type-card" id="pickAddPackageType">
+          <i class="fa-solid fa-box-archive"></i>
+          <h4>Package</h4>
+          <p>Post &amp; Reel or Management package</p>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Client Picker (select existing client or add a new one, from global Add flow) -->
+<div class="modal-overlay" id="clientPickerOverlay" hidden>
+  <div class="modal modal-sm">
+    <div class="modal-head">
+      <h2 id="clientPickerTitle">Select Client</h2>
+      <button class="icon-btn" id="closeClientPicker"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="toolbar-search" style="margin-bottom:12px;">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input type="text" id="clientPickerSearch" placeholder="Search existing clients…" />
+      </div>
+      <div id="clientPickerList" class="client-picker-list"></div>
+
+      <div class="drawer-section" style="margin-top:16px;">
+        <div class="drawer-section-head"><h3>Or add a new client</h3></div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Client Name *</label>
+            <input type="text" id="clientPickerNewName" placeholder="Client name" />
+          </div>
+          <div class="form-group">
+            <label>Mobile</label>
+            <input type="text" id="clientPickerNewMobile" placeholder="Mobile number" />
+          </div>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" id="clientPickerUseNewBtn" style="margin-top:8px;"><i class="fa-solid fa-plus"></i> Continue with new client</button>
       </div>
     </div>
   </div>

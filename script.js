@@ -43,7 +43,11 @@
     editingJobId: null,
     editingPackageId: null,
     pendingPackageType: null,   // set by the type-picker before opening the right modal
-    mgSelectedPlatforms: []     // [{name, active, posts, reels, stories}] while editing a Management package
+    mgSelectedPlatforms: [],    // [{name, active, posts, reels, stories}] while editing a Management package
+
+    // Global "Add" flow (from the Clients main tab, before any client is open)
+    addFlowTarget: null,        // null | "onetime" | "postreel" | "management" — what to open once a client is picked
+    addFlowFromGlobal: false    // true while the package type picker was opened from the global Add flow
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -1157,6 +1161,13 @@
         showToast("Failed to save: " + err.message, "error");
       }
     });
+  }
+
+  async function refreshClientsGridIfVisible() {
+    const view = $("#view-clients");
+    if (view && view.classList.contains("active")) {
+      await renderClientsView();
+    }
   }
 
   async function refreshClientTabData() {
@@ -2437,6 +2448,7 @@
         }
         closeOneTimeJobModal();
         await refreshClientTabData();
+        await refreshClientsGridIfVisible();
         state.payments = await Api.getPayments();
       } catch (err) {
         showToast("Failed to save job: " + err.message, "error");
@@ -2453,17 +2465,138 @@
     $("#packageTypePickerOverlay").hidden = true;
   }
   function initPackageTypePicker() {
-    $("#closePackageTypePicker").addEventListener("click", closePackageTypePicker);
+    $("#closePackageTypePicker").addEventListener("click", () => {
+      closePackageTypePicker();
+      state.addFlowFromGlobal = false;
+    });
     $("#packageTypePickerOverlay").addEventListener("click", (e) => {
-      if (e.target.id === "packageTypePickerOverlay") closePackageTypePicker();
+      if (e.target.id === "packageTypePickerOverlay") {
+        closePackageTypePicker();
+        state.addFlowFromGlobal = false;
+      }
     });
     $("#pickPostReelType").addEventListener("click", () => {
       closePackageTypePicker();
-      openPostReelPackageModal(null);
+      if (state.addFlowFromGlobal) {
+        state.addFlowFromGlobal = false;
+        state.addFlowTarget = "postreel";
+        openClientPickerModal();
+      } else {
+        openPostReelPackageModal(null);
+      }
     });
     $("#pickManagementType").addEventListener("click", () => {
       closePackageTypePicker();
-      openManagementPackageModal(null);
+      if (state.addFlowFromGlobal) {
+        state.addFlowFromGlobal = false;
+        state.addFlowTarget = "management";
+        openClientPickerModal();
+      } else {
+        openManagementPackageModal(null);
+      }
+    });
+  }
+
+  /* ---------------- Global "Add" flow: type picker + client picker ---------------- */
+
+  function openAddTypePicker() {
+    $("#addTypePickerOverlay").hidden = false;
+  }
+  function closeAddTypePicker() {
+    $("#addTypePickerOverlay").hidden = true;
+  }
+  function initAddTypePicker() {
+    $("#clientsAddBtn").addEventListener("click", openAddTypePicker);
+    $("#closeAddTypePicker").addEventListener("click", closeAddTypePicker);
+    $("#addTypePickerOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "addTypePickerOverlay") closeAddTypePicker();
+    });
+    $("#pickAddOneTimeType").addEventListener("click", () => {
+      closeAddTypePicker();
+      state.addFlowTarget = "onetime";
+      openClientPickerModal();
+    });
+    $("#pickAddPackageType").addEventListener("click", () => {
+      closeAddTypePicker();
+      state.addFlowFromGlobal = true;
+      openPackageTypePicker();
+    });
+  }
+
+  function renderClientPickerList(filter = "") {
+    const list = $("#clientPickerList");
+    const search = filter.toLowerCase();
+    const clients = state.clients.filter((c) =>
+      !search || [c.clientName, c.mobile, c.businessName].some((f) => (f || "").toLowerCase().includes(search))
+    );
+    if (!clients.length) {
+      list.innerHTML = `<p class="client-picker-empty">No matching clients — add a new one below.</p>`;
+      return;
+    }
+    list.innerHTML = clients.map((c, idx) => `
+      <div class="client-picker-row" data-index="${idx}">
+        <div class="client-avatar">${initials(c.clientName)}</div>
+        <div class="client-picker-row-info">
+          <b>${escapeHtml(c.clientName)}</b>
+          <span>${escapeHtml(c.businessName || c.mobile || "")}</span>
+        </div>
+      </div>`).join("");
+    $$(".client-picker-row", list).forEach((row) => {
+      row.addEventListener("click", () => {
+        selectClientForAddFlow(clients[Number(row.dataset.index)]);
+      });
+    });
+  }
+
+  function selectClientForAddFlow(client) {
+    state.currentClient = client;
+    state.currentClientKey = client.mobile || client.clientName;
+    closeClientPickerModal();
+
+    const target = state.addFlowTarget;
+    state.addFlowTarget = null;
+    if (target === "onetime") openOneTimeJobModal(null);
+    else if (target === "postreel") openPostReelPackageModal(null);
+    else if (target === "management") openManagementPackageModal(null);
+  }
+
+  async function openClientPickerModal() {
+    const titleMap = { onetime: "Select Client — One-Time Job", postreel: "Select Client — Post & Reel Package", management: "Select Client — Management Package" };
+    $("#clientPickerTitle").textContent = titleMap[state.addFlowTarget] || "Select Client";
+    $("#clientPickerSearch").value = "";
+    $("#clientPickerNewName").value = "";
+    $("#clientPickerNewMobile").value = "";
+    if (!state.clients.length) {
+      try { state.clients = await Api.getClients(state.clientsFilterMonth || "all"); } catch (err) { /* fall back to empty list */ }
+    }
+    renderClientPickerList("");
+    $("#clientPickerOverlay").hidden = false;
+  }
+  function closeClientPickerModal() {
+    $("#clientPickerOverlay").hidden = true;
+  }
+  function initClientPickerModal() {
+    $("#closeClientPicker").addEventListener("click", () => {
+      closeClientPickerModal();
+      state.addFlowTarget = null;
+    });
+    $("#clientPickerOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "clientPickerOverlay") {
+        closeClientPickerModal();
+        state.addFlowTarget = null;
+      }
+    });
+    $("#clientPickerSearch").addEventListener("input", debounce(() => {
+      renderClientPickerList($("#clientPickerSearch").value);
+    }, 150));
+    $("#clientPickerUseNewBtn").addEventListener("click", () => {
+      const name = $("#clientPickerNewName").value.trim();
+      if (!name) {
+        showToast("Client name is required", "error");
+        return;
+      }
+      const mobile = $("#clientPickerNewMobile").value.trim();
+      selectClientForAddFlow({ clientName: name, mobile, businessName: "", totalBusiness: 0, totalReceived: 0, totalPending: 0 });
     });
   }
 
@@ -2597,6 +2730,7 @@
         }
         closePostReelPackageModal();
         await refreshClientTabData();
+        await refreshClientsGridIfVisible();
         state.payments = await Api.getPayments();
       } catch (err) {
         showToast("Failed to save package: " + err.message, "error");
@@ -2776,6 +2910,7 @@
         }
         closeManagementPackageModal();
         await refreshClientTabData();
+        await refreshClientsGridIfVisible();
         state.payments = await Api.getPayments();
       } catch (err) {
         showToast("Failed to save package: " + err.message, "error");
@@ -2845,6 +2980,8 @@
     initPackageTypePicker();
     initPostReelPackageModal();
     initManagementPackageModal();
+    initAddTypePicker();
+    initClientPickerModal();
 
     try {
       await loadInitialData();
