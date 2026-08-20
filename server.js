@@ -58,7 +58,12 @@ const DEFAULT_DATA = {
     currency: "₹",
     themeColor: "teal",
     darkMode: false
-  }
+  },
+  // ---- One-Time Jobs / Packages tracking ----
+  oneTimeJobs: [],
+  packages: [],
+  clientProfiles: {},        // keyed by mobile (or clientName fallback) -> { location, folderPath }
+  platformOptions: ["Instagram", "Facebook", "YouTube", "LinkedIn", "Twitter/X", "Pinterest", "Other"]
 };
 
 async function loadData() {
@@ -76,7 +81,11 @@ async function loadData() {
     settings: {
       ...DEFAULT_DATA.settings,
       ...(raw.settings && typeof raw.settings === "object" ? raw.settings : {})
-    }
+    },
+    oneTimeJobs: Array.isArray(raw.oneTimeJobs) ? raw.oneTimeJobs : [],
+    packages: Array.isArray(raw.packages) ? raw.packages : [],
+    clientProfiles: raw.clientProfiles && typeof raw.clientProfiles === "object" ? raw.clientProfiles : {},
+    platformOptions: Array.isArray(raw.platformOptions) ? raw.platformOptions : [...DEFAULT_DATA.platformOptions]
   };
 
   // One-time migration: make sure the "Nasto" expense category exists on
@@ -195,6 +204,174 @@ function normalizeLead(input, existing = {}) {
     createdAt: existing.createdAt || new Date().toISOString()
   };
 }
+
+/* ---------------------------------------------------------------------- */
+/* One-Time Jobs / Packages                                               */
+/* Both belong directly to a Client (clientMobile / clientName).          */
+/* Package has a `type`: "PostReel" (fixed deliverable counts) or         */
+/* "Management" (ongoing, platform-wise upload counters).                 */
+/* ---------------------------------------------------------------------- */
+
+const JOB_STATUSES = ["Active", "In Progress", "On Hold", "Completed"];
+const JOB_PRIORITIES = ["Low", "Medium", "High"];
+const PACKAGE_STATUSES = ["Active", "On Hold", "Completed"];
+const PACKAGE_TYPES = ["PostReel", "Management"];
+
+function nextId(list, prefix) {
+  let maxNum = 1000;
+  list.forEach((item) => {
+    const match = new RegExp(`^${prefix}-(\\d+)$`).exec(item.id || "");
+    if (match) {
+      const n = parseInt(match[1], 10);
+      if (n > maxNum) maxNum = n;
+    }
+  });
+  return `${prefix}-${maxNum + 1}`;
+}
+
+function clientProfileKey(mobile, clientName) {
+  return (mobile || clientName || "").toString().trim();
+}
+
+function normalizePaymentHistoryEntry(input, existing = {}) {
+  return {
+    id: existing.id || `PH-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    date: input.date ?? existing.date ?? new Date().toISOString().slice(0, 10),
+    amount: Number(input.amount ?? existing.amount ?? 0) || 0,
+    type: (input.type ?? existing.type ?? "Advance").toString().trim() || "Advance",
+    note: (input.note ?? existing.note ?? "").toString().trim()
+  };
+}
+
+function derivePayment(totalAmount, paymentHistory) {
+  const paidAmount = paymentHistory.reduce((sum, h) => sum + (Number(h.amount) || 0), 0);
+  const pendingAmount = Math.max(totalAmount - paidAmount, 0);
+  return { paidAmount, pendingAmount, paymentStatus: computeStatus(totalAmount, paidAmount) };
+}
+
+// ONE-TIME JOB — a single, non-recurring task for a client.
+function normalizeOneTimeJob(input, existing = {}) {
+  const status = JOB_STATUSES.includes(input.status) ? input.status : (existing.status || "Active");
+  const priority = JOB_PRIORITIES.includes(input.priority) ? input.priority : (existing.priority || "Medium");
+
+  const paymentHistory = Array.isArray(input.paymentHistory)
+    ? input.paymentHistory.map((h) => normalizePaymentHistoryEntry(h))
+    : (Array.isArray(existing.paymentHistory) ? existing.paymentHistory : []);
+  const totalAmount = Number(input.totalAmount ?? existing.totalAmount ?? 0) || 0;
+  const { paidAmount, pendingAmount, paymentStatus } = derivePayment(totalAmount, paymentHistory);
+
+  return {
+    id: existing.id,
+    clientName: (input.clientName ?? existing.clientName ?? "").toString().trim(),
+    clientMobile: (input.clientMobile ?? existing.clientMobile ?? "").toString().trim(),
+    name: (input.name ?? existing.name ?? "").toString().trim(),
+    category: (input.category ?? existing.category ?? "").toString().trim(),
+    startDate: input.startDate ?? existing.startDate ?? new Date().toISOString().slice(0, 10),
+    dueDate: input.dueDate ?? existing.dueDate ?? "",
+    status,
+    priority,
+    // Optional multi-unit progress (e.g. "10 Banners")
+    totalUnits: Number(input.totalUnits ?? existing.totalUnits ?? 0) || 0,
+    doneUnits: Number(input.doneUnits ?? existing.doneUnits ?? 0) || 0,
+    // Payment
+    totalAmount,
+    paymentHistory,
+    paidAmount,
+    pendingAmount,
+    paymentStatus,
+    notes: (input.notes ?? existing.notes ?? "").toString().trim(),
+    createdAt: existing.createdAt || new Date().toISOString()
+  };
+}
+
+function normalizeCounterPair(input) {
+  return {
+    total: Number(input?.total) || 0,
+    done: Number(input?.done) || 0
+  };
+}
+
+function normalizePlatformRow(input) {
+  return {
+    name: (input.name || "").toString().trim() || "Other",
+    active: input.active !== false,
+    posts: Number(input.posts) || 0,
+    reels: Number(input.reels) || 0,
+    stories: Number(input.stories) || 0
+  };
+}
+
+// PACKAGE — flat, belongs directly to a Client. type = "PostReel" tracks
+// fixed Posts/Reels/Stories counts; type = "Management" tracks per-platform
+// upload counters against the fixed platform master list.
+function normalizePackage(input, existing = {}) {
+  const status = PACKAGE_STATUSES.includes(input.status) ? input.status : (existing.status || "Active");
+  const type = PACKAGE_TYPES.includes(input.type) ? input.type : (existing.type || "PostReel");
+
+  const paymentHistory = Array.isArray(input.paymentHistory)
+    ? input.paymentHistory.map((h) => normalizePaymentHistoryEntry(h))
+    : (Array.isArray(existing.paymentHistory) ? existing.paymentHistory : []);
+  const totalAmount = Number(input.totalAmount ?? existing.totalAmount ?? 0) || 0;
+  const { paidAmount, pendingAmount, paymentStatus } = derivePayment(totalAmount, paymentHistory);
+
+  const base = {
+    id: existing.id,
+    clientName: (input.clientName ?? existing.clientName ?? "").toString().trim(),
+    clientMobile: (input.clientMobile ?? existing.clientMobile ?? "").toString().trim(),
+    name: (input.name ?? existing.name ?? "").toString().trim(),
+    type,
+    startDate: input.startDate ?? existing.startDate ?? new Date().toISOString().slice(0, 10),
+    endDate: input.endDate ?? existing.endDate ?? "",
+    status,
+    totalAmount,
+    paymentHistory,
+    paidAmount,
+    pendingAmount,
+    paymentStatus,
+    notes: (input.notes ?? existing.notes ?? "").toString().trim(),
+    createdAt: existing.createdAt || new Date().toISOString()
+  };
+
+  if (type === "Management") {
+    const platforms = Array.isArray(input.platforms)
+      ? input.platforms.map(normalizePlatformRow)
+      : (Array.isArray(existing.platforms) ? existing.platforms : []);
+    return { ...base, platforms };
+  }
+
+  // PostReel type
+  return {
+    ...base,
+    posts: normalizeCounterPair(input.posts ?? existing.posts),
+    reels: normalizeCounterPair(input.reels ?? existing.reels),
+    stories: normalizeCounterPair(input.stories ?? existing.stories)
+  };
+}
+
+// Derived, never stored.
+function computePackageProgress(pkg) {
+  if (pkg.type === "Management") {
+    const totals = (pkg.platforms || []).reduce((acc, p) => {
+      acc.posts += Number(p.posts) || 0;
+      acc.reels += Number(p.reels) || 0;
+      acc.stories += Number(p.stories) || 0;
+      return acc;
+    }, { posts: 0, reels: 0, stories: 0 });
+    return { type: "Management", ...totals, totalUploaded: totals.posts + totals.reels + totals.stories };
+  }
+  const posts = pkg.posts || { total: 0, done: 0 };
+  const reels = pkg.reels || { total: 0, done: 0 };
+  const stories = pkg.stories || { total: 0, done: 0 };
+  const total = posts.total + reels.total + stories.total;
+  const done = posts.done + reels.done + stories.done;
+  const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+  return { type: "PostReel", total, done, pending: Math.max(total - done, 0), percent };
+}
+
+function enrichPackage(pkg) {
+  return { ...pkg, progress: computePackageProgress(pkg) };
+}
+
 
 /* ---------------------------------------------------------------------- */
 /* Derived data builders                                                  */
@@ -317,6 +494,236 @@ function buildDashboard(payments, monthKey) {
     statusCounts,
     monthlyIncome,
     categoryTotals
+  };
+}
+
+/* ---------------------------------------------------------------------- */
+/* Overview — 100% computed analytics layer.                             */
+/* Never stores its own numbers: everything below is derived live from   */
+/* One-Time Jobs (payments), Packages (+ their payment history) and      */
+/* Leads, so it automatically reflects any change to those records.      */
+/* ---------------------------------------------------------------------- */
+
+function clientKeyOfPayment(p) {
+  return (p.mobile || p.clientName || "").toString().trim();
+}
+function clientKeyOfPackage(pkg) {
+  return (pkg.clientMobile || pkg.clientName || "").toString().trim();
+}
+
+// Whole-month difference between two YYYY-MM-DD strings, rounded up to at
+// least 1 — used to bucket packages by sold duration (1 Month, 2 Months…)
+// and to spread a package's total value into a monthly-equivalent (MRR).
+function monthSpan(startDate, endDate) {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (isNaN(start) || isNaN(end)) return null;
+  let months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+  const dayAdjust = end.getDate() >= start.getDate() ? 0 : -1;
+  months += dayAdjust;
+  return Math.max(months, 1);
+}
+
+function buildOverview(data, monthKey) {
+  const payments = data.payments || [];
+  const packages = data.packages || [];
+  const leads = data.leads || [];
+
+  const now = new Date();
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const todayStr = now.toISOString().slice(0, 10);
+
+  const dataMonths = Array.from(new Set([
+    ...payments.map((p) => (p.date || "").slice(0, 7)),
+    ...packages.map((p) => (p.startDate || "").slice(0, 7)),
+    ...packages.flatMap((p) => (p.paymentHistory || []).map((h) => (h.date || "").slice(0, 7)))
+  ].filter(Boolean)));
+  const yearMonths = Array.from({ length: 12 }, (_, i) => `${now.getFullYear()}-${String(i + 1).padStart(2, "0")}`);
+  const availableMonths = Array.from(new Set([...yearMonths, ...dataMonths])).sort((a, b) => b.localeCompare(a));
+
+  let selectedMonth;
+  if (monthKey === "all") selectedMonth = "all";
+  else if (monthKey) selectedMonth = monthKey;
+  else selectedMonth = currentMonthKey;
+
+  const inScope = (dateStr) => selectedMonth === "all" || (dateStr || "").slice(0, 7) === selectedMonth;
+
+  /* ---------------- Clients (union across One-Time Jobs + Packages) --- */
+  const oneTimeClientKeys = new Set(payments.map(clientKeyOfPayment).filter(Boolean));
+  const packageClientKeys = new Set(packages.map(clientKeyOfPackage).filter(Boolean));
+  const allClientKeys = new Set([...oneTimeClientKeys, ...packageClientKeys]);
+  const oneTimeOnlyKeys = new Set([...oneTimeClientKeys].filter((k) => !packageClientKeys.has(k)));
+
+  const firstSeen = new Map();
+  payments.forEach((p) => {
+    const key = clientKeyOfPayment(p);
+    if (!key) return;
+    const d = p.date || (p.createdAt || "").slice(0, 10);
+    if (!firstSeen.has(key) || d < firstSeen.get(key)) firstSeen.set(key, d);
+  });
+  packages.forEach((p) => {
+    const key = clientKeyOfPackage(p);
+    if (!key) return;
+    const d = p.startDate || (p.createdAt || "").slice(0, 10);
+    if (!firstSeen.has(key) || d < firstSeen.get(key)) firstSeen.set(key, d);
+  });
+  const newClientsThisMonth = Array.from(firstSeen.values()).filter((d) => (d || "").slice(0, 7) === currentMonthKey).length;
+
+  /* ---------------- Income split (One-Time vs Package), scoped -------- */
+  const scopedPayments = payments.filter((p) => inScope(p.date));
+  const oneTimeIncome = scopedPayments.reduce((sum, p) => sum + (Number(p.paidAmount) || 0), 0);
+
+  const packageIncome = packages.reduce((sum, pkg) => {
+    return sum + (pkg.paymentHistory || [])
+      .filter((h) => inScope(h.date))
+      .reduce((s, h) => s + (Number(h.amount) || 0), 0);
+  }, 0);
+
+  // MRR — active packages' total value spread evenly across their sold
+  // duration, summed. Packages without a usable end date are ignored.
+  const mrr = packages
+    .filter((pkg) => pkg.status === "Active")
+    .reduce((sum, pkg) => {
+      const span = monthSpan(pkg.startDate, pkg.endDate);
+      if (!span) return sum;
+      return sum + (Number(pkg.totalAmount) || 0) / span;
+    }, 0);
+
+  const totalBusinessValue =
+    payments.reduce((s, p) => s + (Number(p.totalAmount) || 0), 0) +
+    packages.reduce((s, p) => s + (Number(p.totalAmount) || 0), 0);
+
+  const oneTimeAllTime = payments.reduce((s, p) => s + (Number(p.totalAmount) || 0), 0);
+  const packageAllTime = packages.reduce((s, p) => s + (Number(p.totalAmount) || 0), 0);
+  const avgRevPerOneTimeClient = oneTimeClientKeys.size ? oneTimeAllTime / oneTimeClientKeys.size : 0;
+  const avgRevPerPackageClient = packageClientKeys.size ? packageAllTime / packageClientKeys.size : 0;
+
+  /* ---------------- Completion status ---------------------------------- */
+  // One-Time Jobs don't carry a separate "job status" field — payment
+  // status doubles as the job lifecycle: Paid = Completed, anything else
+  // (Partial/Pending) = Active/Running.
+  const totalJobs = payments.length;
+  const jobsCompleted = payments.filter((p) => p.status === "Paid").length;
+  const jobsActive = totalJobs - jobsCompleted;
+  const packagesCompleted = packages.filter((p) => p.status === "Completed").length;
+  const packagesRunning = packages.filter((p) => p.status === "Active").length;
+
+  /* ---------------- Package duration breakdown -------------------------- */
+  const durationBuckets = new Map();
+  packages.forEach((pkg) => {
+    const span = monthSpan(pkg.startDate, pkg.endDate);
+    if (!span) return;
+    durationBuckets.set(span, (durationBuckets.get(span) || 0) + 1);
+  });
+  const packageDuration = Array.from(durationBuckets.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([months, count]) => ({
+      label: months === 1 ? "1 Month" : `${months} Months`,
+      months,
+      count
+    }));
+  const maxDurationCount = packageDuration.reduce((m, d) => Math.max(m, d.count), 0);
+
+  /* ---------------- One-Time -> Package upsell funnel -------------------- */
+  const convertedKeys = new Set([...oneTimeClientKeys].filter((k) => packageClientKeys.has(k)));
+  const upsellPct = oneTimeClientKeys.size ? Math.round((convertedKeys.size / oneTimeClientKeys.size) * 100) : 0;
+
+  const packageCountByClient = new Map();
+  packages.forEach((pkg) => {
+    const key = clientKeyOfPackage(pkg);
+    if (!key) return;
+    packageCountByClient.set(key, (packageCountByClient.get(key) || 0) + 1);
+  });
+  const repeatClients = Array.from(packageCountByClient.values()).filter((n) => n >= 2).length;
+  const repeatPackagePct = packageClientKeys.size ? Math.round((repeatClients / packageClientKeys.size) * 100) : 0;
+
+  /* ---------------- Income by service (category), scoped ---------------- */
+  const categoryTotals = {};
+  scopedPayments.forEach((p) => {
+    categoryTotals[p.category] = (categoryTotals[p.category] || 0) + (Number(p.totalAmount) || 0);
+  });
+  const categorySum = Object.values(categoryTotals).reduce((a, b) => a + b, 0);
+  const incomeByService = Object.entries(categoryTotals)
+    .sort((a, b) => b[1] - a[1])
+    .map(([category, amount]) => ({
+      category,
+      amount,
+      percent: categorySum > 0 ? Math.round((amount / categorySum) * 100) : 0
+    }));
+
+  /* ---------------- Business health signals ------------------------------ */
+  const overduePayments =
+    payments.filter((p) => (Number(p.pendingAmount) || 0) > 0 && p.dueDate && p.dueDate < todayStr).length +
+    packages.filter((p) => (Number(p.pendingAmount) || 0) > 0 && p.paymentDueDate && p.paymentDueDate < todayStr).length;
+
+  const packagesEndingThisMonth = packages.filter(
+    (p) => p.status === "Active" && p.endDate && p.endDate.slice(0, 7) === currentMonthKey
+  ).length;
+
+  const expectedCollection =
+    payments
+      .filter((p) => (Number(p.pendingAmount) || 0) > 0 && p.dueDate && p.dueDate.slice(0, 7) === currentMonthKey)
+      .reduce((s, p) => s + (Number(p.pendingAmount) || 0), 0) +
+    packages
+      .filter((p) => (Number(p.pendingAmount) || 0) > 0 && p.paymentDueDate && p.paymentDueDate.slice(0, 7) === currentMonthKey)
+      .reduce((s, p) => s + (Number(p.pendingAmount) || 0), 0);
+
+  const totalOutstanding =
+    payments.reduce((s, p) => s + (Number(p.pendingAmount) || 0), 0) +
+    packages.reduce((s, p) => s + (Number(p.pendingAmount) || 0), 0);
+
+  const followupsToday = leads.filter(
+    (l) => l.nextFollowupDate === todayStr && l.status !== "Converted" && l.status !== "Lost"
+  ).length;
+
+  const weekAgo = new Date(now);
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  const newLeadsThisWeek = leads.filter((l) => l.createdAt && new Date(l.createdAt) >= weekAgo).length;
+
+  return {
+    selectedMonth,
+    availableMonths,
+    clients: {
+      total: allClientKeys.size,
+      oneTimeOnly: oneTimeOnlyKeys.size,
+      package: packageClientKeys.size,
+      newThisMonth: newClientsThisMonth
+    },
+    business: {
+      totalValue: totalBusinessValue,
+      oneTimeIncome,
+      packageIncome,
+      mrr,
+      avgRevPerOneTimeClient,
+      avgRevPerPackageClient
+    },
+    completion: {
+      totalJobs,
+      jobsCompleted,
+      jobsActive,
+      packagesTotal: packages.length,
+      packagesCompleted,
+      packagesRunning
+    },
+    packageDuration,
+    maxDurationCount,
+    upsell: {
+      oneTimeClients: oneTimeClientKeys.size,
+      convertedClients: convertedKeys.size,
+      conversionPercent: upsellPct,
+      packageClients: packageClientKeys.size,
+      repeatClients,
+      repeatPercent: repeatPackagePct
+    },
+    incomeByService,
+    health: {
+      overduePayments,
+      packagesEndingThisMonth,
+      expectedCollection,
+      totalOutstanding,
+      followupsToday,
+      newLeadsThisWeek
+    }
   };
 }
 
@@ -634,6 +1041,293 @@ app.post("/api/lead-sources", async (req, res) => {
 });
 
 /* ---------------------------------------------------------------------- */
+/* Client Profiles (location + PC/Drive folder path)                      */
+/* ---------------------------------------------------------------------- */
+
+app.get("/api/client-profiles", async (req, res) => {
+  const data = await loadData();
+  res.json(data.clientProfiles);
+});
+
+app.put("/api/client-profiles/:key", async (req, res) => {
+  try {
+    const data = await loadData();
+    const key = decodeURIComponent(req.params.key);
+    if (!key) return res.status(400).json({ error: "Client key is required" });
+    const existing = data.clientProfiles[key] || {};
+    data.clientProfiles[key] = {
+      location: (req.body.location ?? existing.location ?? "").toString().trim(),
+      folderPath: (req.body.folderPath ?? existing.folderPath ?? "").toString().trim()
+    };
+    await saveData(data);
+    res.json(data.clientProfiles[key]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ---------------------------------------------------------------------- */
+/* Mirror Job/Package payment totals into the main `payments` list so the */
+/* existing Payments tab / Dashboard / Reports / Export keep working      */
+/* unchanged — one mirrored payment row per Job/Package, kept in sync.    */
+/* ---------------------------------------------------------------------- */
+
+function syncMirroredPayment(data, entity, sourceType) {
+  const idx = data.payments.findIndex((p) => p.sourceType === sourceType && p.sourceId === entity.id);
+  const record = {
+    id: idx >= 0 ? data.payments[idx].id : nextPaymentId(data.payments),
+    clientName: entity.clientName,
+    mobile: entity.clientMobile,
+    businessName: idx >= 0 ? data.payments[idx].businessName : "",
+    instagram: idx >= 0 ? data.payments[idx].instagram : "",
+    workDetails: entity.name,
+    category: sourceType === "one-time-job" ? (entity.category || "Other") : (entity.type === "Management" ? "Management" : "Post"),
+    date: entity.startDate,
+    totalAmount: entity.totalAmount,
+    paidAmount: entity.paidAmount,
+    pendingAmount: entity.pendingAmount,
+    status: entity.paymentStatus,
+    dueDate: entity.dueDate || entity.endDate || "",
+    notes: entity.notes,
+    createdAt: idx >= 0 ? data.payments[idx].createdAt : new Date().toISOString(),
+    sourceType,
+    sourceId: entity.id
+  };
+  if (idx >= 0) data.payments[idx] = record;
+  else data.payments.push(record);
+}
+
+function removeMirroredPayment(data, sourceType, sourceId) {
+  data.payments = data.payments.filter((p) => !(p.sourceType === sourceType && p.sourceId === sourceId));
+}
+
+/* ---------------------------------------------------------------------- */
+/* One-Time Jobs                                                          */
+/* ---------------------------------------------------------------------- */
+
+function matchesClient(entity, clientKey) {
+  if (!clientKey) return true;
+  return entity.clientMobile === clientKey || entity.clientName === clientKey;
+}
+
+app.get("/api/one-time-jobs", async (req, res) => {
+  const data = await loadData();
+  const list = data.oneTimeJobs.filter((j) => matchesClient(j, req.query.client));
+  res.json(list);
+});
+
+app.get("/api/one-time-jobs/:id", async (req, res) => {
+  const data = await loadData();
+  const job = data.oneTimeJobs.find((j) => j.id === req.params.id);
+  if (!job) return res.status(404).json({ error: "One-time job not found" });
+  res.json(job);
+});
+
+app.post("/api/one-time-jobs", async (req, res) => {
+  try {
+    const data = await loadData();
+    const job = normalizeOneTimeJob(req.body, {});
+    job.id = nextId(data.oneTimeJobs, "JOB");
+    job.createdAt = new Date().toISOString();
+    data.oneTimeJobs.push(job);
+    syncMirroredPayment(data, job, "one-time-job");
+    await saveData(data);
+    res.json(job);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/one-time-jobs/:id", async (req, res) => {
+  try {
+    const data = await loadData();
+    const idx = data.oneTimeJobs.findIndex((j) => j.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "One-time job not found" });
+    const updated = normalizeOneTimeJob(req.body, data.oneTimeJobs[idx]);
+    updated.id = data.oneTimeJobs[idx].id;
+    data.oneTimeJobs[idx] = updated;
+    syncMirroredPayment(data, updated, "one-time-job");
+    await saveData(data);
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/one-time-jobs/:id", async (req, res) => {
+  try {
+    const data = await loadData();
+    const idx = data.oneTimeJobs.findIndex((j) => j.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "One-time job not found" });
+    data.oneTimeJobs.splice(idx, 1);
+    removeMirroredPayment(data, "one-time-job", req.params.id);
+    await saveData(data);
+    res.json({ success: true, message: "One-time job deleted" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/one-time-jobs/:id/payments", async (req, res) => {
+  try {
+    const data = await loadData();
+    const idx = data.oneTimeJobs.findIndex((j) => j.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "One-time job not found" });
+    const entry = normalizePaymentHistoryEntry(req.body, {});
+    const job = data.oneTimeJobs[idx];
+    job.paymentHistory = [...(job.paymentHistory || []), entry];
+    data.oneTimeJobs[idx] = normalizeOneTimeJob(job, job);
+    syncMirroredPayment(data, data.oneTimeJobs[idx], "one-time-job");
+    await saveData(data);
+    res.json(data.oneTimeJobs[idx]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/one-time-jobs/:id/payments/:entryId", async (req, res) => {
+  try {
+    const data = await loadData();
+    const idx = data.oneTimeJobs.findIndex((j) => j.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "One-time job not found" });
+    const job = data.oneTimeJobs[idx];
+    job.paymentHistory = (job.paymentHistory || []).filter((h) => h.id !== req.params.entryId);
+    data.oneTimeJobs[idx] = normalizeOneTimeJob(job, job);
+    syncMirroredPayment(data, data.oneTimeJobs[idx], "one-time-job");
+    await saveData(data);
+    res.json(data.oneTimeJobs[idx]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ---------------------------------------------------------------------- */
+/* Packages — flat, belongs directly to a Client. type: PostReel |        */
+/* Management                                                             */
+/* ---------------------------------------------------------------------- */
+
+app.get("/api/packages", async (req, res) => {
+  const data = await loadData();
+  const list = data.packages.filter((p) => matchesClient(p, req.query.client)).map(enrichPackage);
+  res.json(list);
+});
+
+app.get("/api/packages/:id", async (req, res) => {
+  const data = await loadData();
+  const pkg = data.packages.find((p) => p.id === req.params.id);
+  if (!pkg) return res.status(404).json({ error: "Package not found" });
+  res.json(enrichPackage(pkg));
+});
+
+app.post("/api/packages", async (req, res) => {
+  try {
+    const data = await loadData();
+    const pkg = normalizePackage(req.body, {});
+    pkg.id = nextId(data.packages, "PKG");
+    pkg.createdAt = new Date().toISOString();
+    data.packages.push(pkg);
+    syncMirroredPayment(data, pkg, "package");
+    await saveData(data);
+    res.json(enrichPackage(pkg));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/packages/:id", async (req, res) => {
+  try {
+    const data = await loadData();
+    const idx = data.packages.findIndex((p) => p.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Package not found" });
+    const updated = normalizePackage(req.body, data.packages[idx]);
+    updated.id = data.packages[idx].id;
+    data.packages[idx] = updated;
+    syncMirroredPayment(data, updated, "package");
+    await saveData(data);
+    res.json(enrichPackage(updated));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/packages/:id", async (req, res) => {
+  try {
+    const data = await loadData();
+    const idx = data.packages.findIndex((p) => p.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Package not found" });
+    data.packages.splice(idx, 1);
+    removeMirroredPayment(data, "package", req.params.id);
+    await saveData(data);
+    res.json({ success: true, message: "Package deleted" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/packages/:id/payments", async (req, res) => {
+  try {
+    const data = await loadData();
+    const idx = data.packages.findIndex((p) => p.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Package not found" });
+    const entry = normalizePaymentHistoryEntry(req.body, {});
+    const pkg = data.packages[idx];
+    pkg.paymentHistory = [...(pkg.paymentHistory || []), entry];
+    data.packages[idx] = normalizePackage(pkg, pkg);
+    syncMirroredPayment(data, data.packages[idx], "package");
+    await saveData(data);
+    res.json(enrichPackage(data.packages[idx]));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/packages/:id/payments/:entryId", async (req, res) => {
+  try {
+    const data = await loadData();
+    const idx = data.packages.findIndex((p) => p.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Package not found" });
+    const pkg = data.packages[idx];
+    pkg.paymentHistory = (pkg.paymentHistory || []).filter((h) => h.id !== req.params.entryId);
+    data.packages[idx] = normalizePackage(pkg, pkg);
+    syncMirroredPayment(data, data.packages[idx], "package");
+    await saveData(data);
+    res.json(enrichPackage(data.packages[idx]));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/platform-options", async (req, res) => {
+  const data = await loadData();
+  res.json(data.platformOptions);
+});
+
+/* ---------------------------------------------------------------------- */
+/* Client Overview — live counts for the Overview tab                     */
+/* ---------------------------------------------------------------------- */
+
+app.get("/api/clients/:key/overview", async (req, res) => {
+  const data = await loadData();
+  const key = decodeURIComponent(req.params.key);
+  const jobs = data.oneTimeJobs.filter((j) => matchesClient(j, key));
+  const pkgs = data.packages.filter((p) => matchesClient(p, key));
+
+  const countBy = (list, statuses) => {
+    const out = { total: list.length, paymentPending: list.filter((x) => x.paymentStatus !== "Paid").length };
+    statuses.forEach((s) => {
+      out[s] = list.filter((x) => x.status === s).length;
+    });
+    return out;
+  };
+
+  res.json({
+    oneTime: countBy(jobs, ["Active", "In Progress", "On Hold", "Completed"]),
+    packages: countBy(pkgs, ["Active", "On Hold", "Completed"])
+  });
+});
+
+
+/* ---------------------------------------------------------------------- */
 /* Categories                                                             */
 /* ---------------------------------------------------------------------- */
 
@@ -784,6 +1478,15 @@ app.get("/api/dashboard", async (req, res) => {
 });
 
 /* ---------------------------------------------------------------------- */
+/* Overview — computed analytics (derives from payments + packages+leads) */
+/* ---------------------------------------------------------------------- */
+
+app.get("/api/overview", async (req, res) => {
+  const data = await loadData();
+  res.json(buildOverview(data, req.query.month));
+});
+
+/* ---------------------------------------------------------------------- */
 /* Reports                                                                */
 /* ---------------------------------------------------------------------- */
 
@@ -863,7 +1566,11 @@ app.post("/api/restore", upload.single("backupFile"), async (req, res) => {
       settings: {
         ...DEFAULT_DATA.settings,
         ...(parsed.settings && typeof parsed.settings === "object" ? parsed.settings : {})
-      }
+      },
+      oneTimeJobs: Array.isArray(parsed.oneTimeJobs) ? parsed.oneTimeJobs : [],
+      packages: Array.isArray(parsed.packages) ? parsed.packages : [],
+      clientProfiles: parsed.clientProfiles && typeof parsed.clientProfiles === "object" ? parsed.clientProfiles : {},
+      platformOptions: Array.isArray(parsed.platformOptions) ? parsed.platformOptions : [...DEFAULT_DATA.platformOptions]
     };
     await saveData(restored);
     res.json({ success: true, message: "Backup restored successfully" });

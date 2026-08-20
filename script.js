@@ -17,6 +17,8 @@
     settings: { companyName: "My Agency", currency: "₹", themeColor: "teal", darkMode: false },
     dashboard: null,
     dashboardMonth: currentMonthKey(),
+    overview: null,
+    overviewMonth: currentMonthKey(),
     clients: [],
     leads: [],
     paymentsFilterMonth: "all",
@@ -26,7 +28,22 @@
     editingExpenseId: null,
     editingLeadId: null,
     confirmAction: null,
-    charts: { pie: null, monthly: null, category: null, expenseCategory: null }
+    charts: { pie: null, monthly: null, category: null, expenseCategory: null },
+
+    // One-Time Jobs / Packages (per open Client)
+    oneTimeJobs: [],
+    packages: [],
+    platformOptions: [],
+    clientProfiles: {},
+    currentClientKey: null,     // mobile||name of the client currently open in the drawer
+    currentClient: null,        // full client object currently open
+    activeClientTab: "overview",
+    jobFilterStatus: "",
+    packageFilterStatus: "",
+    editingJobId: null,
+    editingPackageId: null,
+    pendingPackageType: null,   // set by the type-picker before opening the right modal
+    mgSelectedPlatforms: []     // [{name, active, posts, reels, stories}] while editing a Management package
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -82,7 +99,30 @@
     getSettings: () => api("/api/settings"),
     updateSettings: (data) => api("/api/settings", { method: "PUT", body: JSON.stringify(data) }),
 
+    getOneTimeJobs: (clientKey) => api(`/api/one-time-jobs${clientKey ? `?client=${encodeURIComponent(clientKey)}` : ""}`),
+    getOneTimeJob: (id) => api(`/api/one-time-jobs/${id}`),
+    createOneTimeJob: (data) => api("/api/one-time-jobs", { method: "POST", body: JSON.stringify(data) }),
+    updateOneTimeJob: (id, data) => api(`/api/one-time-jobs/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    deleteOneTimeJob: (id) => api(`/api/one-time-jobs/${id}`, { method: "DELETE" }),
+    addOneTimeJobPayment: (id, data) => api(`/api/one-time-jobs/${id}/payments`, { method: "POST", body: JSON.stringify(data) }),
+    deleteOneTimeJobPayment: (id, entryId) => api(`/api/one-time-jobs/${id}/payments/${entryId}`, { method: "DELETE" }),
+
+    getPackages: (clientKey) => api(`/api/packages${clientKey ? `?client=${encodeURIComponent(clientKey)}` : ""}`),
+    getPackage: (id) => api(`/api/packages/${id}`),
+    createPackage: (data) => api("/api/packages", { method: "POST", body: JSON.stringify(data) }),
+    updatePackage: (id, data) => api(`/api/packages/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    deletePackage: (id) => api(`/api/packages/${id}`, { method: "DELETE" }),
+    addPackagePayment: (id, data) => api(`/api/packages/${id}/payments`, { method: "POST", body: JSON.stringify(data) }),
+    deletePackagePayment: (id, entryId) => api(`/api/packages/${id}/payments/${entryId}`, { method: "DELETE" }),
+
+    getPlatformOptions: () => api("/api/platform-options"),
+    getClientOverview: (key) => api(`/api/clients/${encodeURIComponent(key)}/overview`),
+
+    getClientProfiles: () => api("/api/client-profiles"),
+    updateClientProfile: (key, data) => api(`/api/client-profiles/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify(data) }),
+
     getDashboard: (month) => api(`/api/dashboard?month=${encodeURIComponent(month || "all")}`),
+    getOverview: (month) => api(`/api/overview?month=${encodeURIComponent(month || "all")}`),
 
     getReport: (type, status) => api(`/api/reports?type=${encodeURIComponent(type)}&status=${encodeURIComponent(status || "")}`),
     getTopClients: () => api("/api/reports/top-clients")
@@ -238,6 +278,7 @@
     });
 
     // Lazy-load per-view data
+    if (view === "overview") loadOverview().catch((err) => showToast("Failed to load overview: " + err.message, "error"));
     if (view === "payments") renderPaymentsView();
     if (view === "clients") renderClientsView();
     if (view === "leads") renderLeadsView();
@@ -246,6 +287,7 @@
     if (view === "expenses") renderExpensesView();
     if (view === "export") populateInvoiceSelect();
     if (view === "settings") renderSettingsForm();
+    if (view === "packages") renderPackagesView();
 
     closeSidebarMobile();
   }
@@ -537,6 +579,131 @@
   }
 
   /* ------------------------------------------------------------------ */
+  /* Overview — computed analytics (One-Time Jobs + Packages + Leads)   */
+  /* ------------------------------------------------------------------ */
+  async function loadOverview() {
+    state.overview = await Api.getOverview(state.overviewMonth);
+    renderOverview();
+  }
+
+  function renderOverviewMonthFilter(o) {
+    const sel = $("#overviewMonthFilter");
+    if (!sel) return;
+    const months = new Set(o.availableMonths || []);
+    months.add(currentMonthKey());
+    const sorted = Array.from(months).sort((a, b) => b.localeCompare(a));
+    const options = ["all", ...sorted];
+    sel.innerHTML = options.map((key) => `<option value="${key}">${monthLabel(key)}</option>`).join("");
+    sel.value = state.overviewMonth;
+  }
+
+  function renderOverview() {
+    const o = state.overview;
+    if (!o) return;
+
+    renderOverviewMonthFilter(o);
+    const monthText = o.selectedMonth === "all" ? "All Time" : monthShortLabel(o.selectedMonth);
+
+    // Top stat cards
+    $("#ovTotalClients").textContent = o.clients.total;
+    $("#ovNewClients").textContent = `↑ ${o.clients.newThisMonth}`;
+    $("#ovOneTimeClients").textContent = o.clients.oneTimeOnly;
+    $("#ovOneTimeClientsPct").textContent = `${o.clients.total ? Math.round((o.clients.oneTimeOnly / o.clients.total) * 100) : 0}% of total clients`;
+    $("#ovPackageClients").textContent = o.clients.package;
+    $("#ovPackageClientsPct").textContent = `${o.clients.total ? Math.round((o.clients.package / o.clients.total) * 100) : 0}% of total clients`;
+    $("#ovTotalBusinessValue").textContent = fmtMoney(o.business.totalValue);
+
+    // Income split
+    $("#ovIncomeHint").textContent = monthText;
+    $("#ovOneTimeIncomeVal").textContent = fmtMoney(o.business.oneTimeIncome);
+    $("#ovPackageIncomeVal").textContent = fmtMoney(o.business.packageIncome);
+    const incomeSum = o.business.oneTimeIncome + o.business.packageIncome;
+    $("#ovOneTimeIncomeBar").style.width = `${incomeSum > 0 ? Math.round((o.business.oneTimeIncome / incomeSum) * 100) : 0}%`;
+    $("#ovPackageIncomeBar").style.width = `${incomeSum > 0 ? Math.round((o.business.packageIncome / incomeSum) * 100) : 0}%`;
+    $("#ovMrr").textContent = fmtMoney(o.business.mrr);
+    $("#ovAvgOneTime").innerHTML = `${fmtMoney(o.business.avgRevPerOneTimeClient)} <span class="ov-faint">One-Time</span>`;
+    $("#ovAvgPackage").textContent = fmtMoney(o.business.avgRevPerPackageClient);
+    const multiplier = o.business.avgRevPerOneTimeClient > 0
+      ? (o.business.avgRevPerPackageClient / o.business.avgRevPerOneTimeClient)
+      : 0;
+    $("#ovAvgMultiplier").textContent = multiplier > 0 ? `(${multiplier.toFixed(1)}x higher)` : "";
+
+    // Completion donut
+    const c = o.completion;
+    const completedPct = c.totalJobs ? Math.round((c.jobsCompleted / c.totalJobs) * 100) : 0;
+    $("#ovCompletionDonut").style.background =
+      `conic-gradient(var(--success) 0% ${completedPct}%, var(--warning) ${completedPct}% 100%)`;
+    $("#ovTotalJobs").textContent = c.totalJobs;
+    $("#ovJobsCompleted").textContent = `${c.jobsCompleted} Completed`;
+    $("#ovJobsCompletedPct").textContent = `${completedPct}%`;
+    $("#ovJobsActive").textContent = `${c.jobsActive} Active/Running`;
+    $("#ovJobsActivePct").textContent = `${100 - completedPct}%`;
+    $("#ovPackagesCompleted").innerHTML = `${c.packagesCompleted} <span class="ov-faint">/ ${c.packagesTotal}</span>`;
+    $("#ovPackagesRunning").textContent = c.packagesRunning;
+
+    // Package duration
+    const durationRows = $("#ovDurationRows");
+    if (durationRows) {
+      durationRows.innerHTML = (o.packageDuration || []).map((d) => {
+        const pct = o.maxDurationCount ? Math.round((d.count / o.maxDurationCount) * 100) : 0;
+        const pop = d.count === o.maxDurationCount && d.count > 0 ? `<span class="ov-dur-pop">Popular</span>` : "";
+        return `
+          <div class="ov-dur-row">
+            <div class="ov-dur-label">${escapeHtml(d.label)}</div>
+            <div class="ov-dur-track"><div class="ov-dur-fill" style="width:${Math.max(pct, 6)}%;"><span>${d.count}</span></div></div>
+            <div class="ov-dur-count">${d.count} pkg${d.count === 1 ? "" : "s"} ${pop}</div>
+          </div>`;
+      }).join("") || `<p style="color:var(--text-muted);font-size:12.5px;">No packages yet.</p>`;
+    }
+
+    // Upsell funnel
+    const u = o.upsell;
+    $("#ovFunnelAll").textContent = `${u.oneTimeClients} One-Time Clients`;
+    $("#ovFunnelConverted").style.width = `${Math.max(u.conversionPercent, u.convertedClients > 0 ? 4 : 0)}%`;
+    $("#ovFunnelConverted").textContent = `${u.convertedClients} Converted →`;
+    $("#ovFunnelPct").textContent = `${u.conversionPercent}%`;
+    $("#ovRepeatRate").textContent = `${u.repeatPercent}%`;
+    $("#ovRepeatNote").textContent = `${u.repeatClients} of ${u.packageClients} package clients renewed 2+ packages`;
+
+    // Income by service
+    const serviceRows = $("#ovServiceRows");
+    $("#ovServiceHint").textContent = monthText;
+    const palette = ["var(--violet)", "var(--blue)", "var(--teal-400)", "var(--warning)", "var(--success)", "var(--danger)"];
+    if (serviceRows) {
+      serviceRows.innerHTML = (o.incomeByService || []).map((s, i) => `
+        <div class="ov-cat-item">
+          <div class="ov-name">${escapeHtml(s.category)}</div>
+          <div class="ov-bar"><i style="width:${s.percent}%;background:${palette[i % palette.length]};"></i></div>
+          <div class="ov-val">${fmtMoney(s.amount)}</div>
+        </div>
+      `).join("") || `<p style="color:var(--text-muted);font-size:12.5px;">No income recorded yet.</p>`;
+    }
+
+    // Health signals
+    const h = o.health;
+    $("#ovOverdue").textContent = h.overduePayments;
+    $("#ovPackagesEnding").textContent = h.packagesEndingThisMonth;
+    $("#ovExpectedCollectionMonth").textContent = `(${monthShortLabel(currentMonthKey())})`;
+    $("#ovExpectedCollection").textContent = fmtMoney(h.expectedCollection);
+    $("#ovOutstanding").textContent = fmtMoney(h.totalOutstanding);
+    $("#ovFollowups").textContent = h.followupsToday;
+    $("#ovNewLeads").textContent = h.newLeadsThisWeek;
+  }
+
+  function initOverviewFilter() {
+    const sel = $("#overviewMonthFilter");
+    if (!sel) return;
+    sel.addEventListener("change", async () => {
+      state.overviewMonth = sel.value;
+      try {
+        await loadOverview();
+      } catch (err) {
+        showToast("Failed to load overview: " + err.message, "error");
+      }
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
   /* Categories (dropdowns + filters)                                   */
   /* ------------------------------------------------------------------ */
   function populateCategorySelects() {
@@ -551,6 +718,11 @@
     if (filterCat) {
       filterCat.innerHTML = `<option value="">All Categories</option>` +
         state.categories.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+    }
+    // One-Time Job category select (same source list as payment categories)
+    const jCat = $("#jCategory");
+    if (jCat) {
+      jCat.innerHTML = state.categories.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
     }
   }
 
@@ -929,45 +1101,278 @@
     });
   }
 
-  function openClientDrawer(client) {
+  async function openClientDrawer(client) {
+    state.currentClient = client;
+    state.currentClientKey = client.mobile || client.clientName;
+    state.activeClientTab = "overview";
+    state.jobFilterStatus = "";
+    state.packageFilterStatus = "";
+
     $("#clientDrawerTitle").textContent = client.clientName;
-    const body = $("#clientDrawerBody");
-    body.innerHTML = `
-      <div style="display:flex; flex-direction:column; gap:16px;">
-        <div class="client-stats" style="border-top:none; padding-top:0;">
-          <div><span class="cs-label">Business</span><span class="cs-value">${fmtMoney(client.totalBusiness)}</span></div>
-          <div><span class="cs-label">Received</span><span class="cs-value">${fmtMoney(client.totalReceived)}</span></div>
-          <div><span class="cs-label">Pending</span><span class="cs-value">${fmtMoney(client.totalPending)}</span></div>
-        </div>
-        <p style="font-size:13px; color:var(--text-muted);">
-          <b>Mobile:</b> ${escapeHtml(client.mobile || "—")}<br/>
-          <b>Instagram:</b> ${escapeHtml(client.instagram || "—")}
-        </p>
-        <div class="table-scroll">
-          <table class="data-table">
-            <thead><tr><th>Date</th><th>Category</th><th>Total</th><th>Status</th></tr></thead>
-            <tbody>
-              ${client.payments.map((p) => `
-                <tr>
-                  <td>${fmtDate(p.date)}</td>
-                  <td>${escapeHtml(p.category)}</td>
-                  <td>${fmtMoney(p.totalAmount)}</td>
-                  <td><span class="badge ${statusClass(p.status)}">${escapeHtml(p.status)}</span></td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
+    renderClientDrawerHeader(client);
+
+    $$(".client-tabs .tab-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.tab === "overview"));
+    $("#tabPanel-overview").hidden = false;
+    $("#tabPanel-onetime").hidden = true;
+    $("#tabPanel-packages").hidden = true;
+
+    $("#clientDrawerOverlay").hidden = false;
+
+    await refreshClientTabData();
+  }
+
+  function renderClientDrawerHeader(client) {
+    const profileKey = client.mobile || client.clientName;
+    const profile = state.clientProfiles[profileKey] || { location: "", folderPath: "" };
+    $("#clientDrawerHeader").innerHTML = `
+      <div class="client-stats" style="border-top:none; padding-top:0; margin-bottom:14px;">
+        <div><span class="cs-label">Business</span><span class="cs-value">${fmtMoney(client.totalBusiness)}</span></div>
+        <div><span class="cs-label">Received</span><span class="cs-value">${fmtMoney(client.totalReceived)}</span></div>
+        <div><span class="cs-label">Pending</span><span class="cs-value">${fmtMoney(client.totalPending)}</span></div>
+      </div>
+      <p style="font-size:13px; color:var(--text-muted); margin-bottom:14px;">
+        <b>Mobile:</b> ${escapeHtml(client.mobile || "—")} &nbsp;·&nbsp;
+        <b>Instagram:</b> ${escapeHtml(client.instagram || "—")}
+      </p>
+      <div class="drawer-section" style="margin-bottom:14px;">
+        <div class="drawer-section-head"><h3>Location &amp; File Folder</h3></div>
+        <div class="inline-form" style="flex-direction:column; align-items:stretch;">
+          <input type="text" id="cpLocation" placeholder="Client location (city/area)" value="${escapeHtml(profile.location)}" />
+          <input type="text" id="cpFolderPath" placeholder="e.g. D:\\Clients\\${escapeHtml(client.clientName)}\\" value="${escapeHtml(profile.folderPath)}" />
+          <button type="button" class="btn btn-primary btn-sm" id="saveClientProfileBtn" style="align-self:flex-start;">
+            <i class="fa-solid fa-check"></i> Save
+          </button>
         </div>
       </div>
     `;
-    $("#clientDrawerOverlay").hidden = false;
+    $("#saveClientProfileBtn")?.addEventListener("click", async () => {
+      try {
+        const updated = await Api.updateClientProfile(profileKey, {
+          location: $("#cpLocation").value.trim(),
+          folderPath: $("#cpFolderPath").value.trim()
+        });
+        state.clientProfiles[profileKey] = updated;
+        showToast("Client profile saved", "success");
+      } catch (err) {
+        showToast("Failed to save: " + err.message, "error");
+      }
+    });
+  }
+
+  async function refreshClientTabData() {
+    const key = state.currentClientKey;
+    if (!key) return;
+    const [jobs, packages, overview] = await Promise.all([
+      Api.getOneTimeJobs(key),
+      Api.getPackages(key),
+      Api.getClientOverview(key)
+    ]);
+    state.oneTimeJobs = jobs;
+    state.packages = packages;
+    $("#cOneTimeCount").textContent = jobs.length ? `(${jobs.length})` : "";
+    $("#cPackageCount").textContent = packages.length ? `(${packages.length})` : "";
+    renderClientOverviewTab(overview);
+    renderOneTimeTab();
+    renderPackagesTab();
+  }
+
+  function renderClientOverviewTab(overview) {
+    const o = overview.oneTime;
+    const p = overview.packages;
+    $("#tabPanel-overview").innerHTML = `
+      <div class="drawer-section">
+        <h3>One-Time Jobs</h3>
+        <div class="stat-mini-grid">
+          <div><b>${o.total}</b><span>Total</span></div>
+          <div><b>${o.Active || 0}</b><span>Active</span></div>
+          <div><b>${o["In Progress"] || 0}</b><span>In Progress</span></div>
+          <div><b>${o["On Hold"] || 0}</b><span>On Hold</span></div>
+          <div><b>${o.Completed || 0}</b><span>Completed</span></div>
+          <div><b class="danger-num">${o.paymentPending}</b><span>Payment Pending</span></div>
+        </div>
+      </div>
+      <div class="drawer-section">
+        <h3>Packages</h3>
+        <div class="stat-mini-grid">
+          <div><b>${p.total}</b><span>Total</span></div>
+          <div><b>${p.Active || 0}</b><span>Active</span></div>
+          <div><b>${p["On Hold"] || 0}</b><span>On Hold</span></div>
+          <div><b>${p.Completed || 0}</b><span>Completed</span></div>
+          <div><b class="danger-num">${p.paymentPending}</b><span>Payment Pending</span></div>
+        </div>
+      </div>
+    `;
+  }
+
+  // --- One-Time tab ---
+
+  function filteredJobs() {
+    return state.oneTimeJobs.filter((j) => !state.jobFilterStatus || j.status === state.jobFilterStatus);
+  }
+
+  function renderOneTimeTab() {
+    const list = filteredJobs();
+    const container = $("#oneTimeJobList");
+    if (!list.length) {
+      container.innerHTML = `<p class="muted" style="padding:20px 0;">No one-time jobs${state.jobFilterStatus ? ` with status "${escapeHtml(state.jobFilterStatus)}"` : ""} yet.</p>`;
+      return;
+    }
+    container.innerHTML = list.map((j) => `
+      <div class="mini-project-row" data-id="${j.id}">
+        <div class="mini-project-main">
+          <b>${escapeHtml(j.name)}</b>
+          <span class="muted">${escapeHtml(j.category || "—")}${j.totalUnits ? ` · ${j.doneUnits}/${j.totalUnits} done` : ""}</span>
+        </div>
+        <div class="mini-project-meta">
+          <span class="muted"><i class="fa-regular fa-calendar"></i> ${fmtDate(j.startDate)} → ${j.dueDate ? fmtDate(j.dueDate) : "—"}</span>
+          <span class="badge ${pkgStatusClass(j.status)}">${escapeHtml(j.status)}</span>
+          <span class="badge ${pkgStatusClass(j.paymentStatus)}">${escapeHtml(j.paymentStatus)}</span>
+          <button class="icon-btn-sm edit-job-btn"><i class="fa-solid fa-pen"></i></button>
+          <button class="icon-btn-sm delete-job-btn"><i class="fa-solid fa-trash"></i></button>
+        </div>
+      </div>`).join("");
+
+    $$(".mini-project-row", container).forEach((row) => {
+      row.addEventListener("click", (e) => {
+        if (e.target.closest(".edit-job-btn") || e.target.closest(".delete-job-btn")) return;
+        const job = state.oneTimeJobs.find((x) => x.id === row.dataset.id);
+        openOneTimeJobModal(job);
+      });
+    });
+    $$(".edit-job-btn", container).forEach((btn) => btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const job = state.oneTimeJobs.find((x) => x.id === btn.closest(".mini-project-row").dataset.id);
+      openOneTimeJobModal(job);
+    }));
+    $$(".delete-job-btn", container).forEach((btn) => btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = btn.closest(".mini-project-row").dataset.id;
+      openConfirm("Delete One-Time Job", "Are you sure you want to delete this job?", async () => {
+        try {
+          await Api.deleteOneTimeJob(id);
+          showToast("Job deleted", "success");
+          await refreshClientTabData();
+          state.payments = await Api.getPayments();
+        } catch (err) {
+          showToast("Failed to delete: " + err.message, "error");
+        }
+      });
+    }));
+  }
+
+  function initJobFilterChips() {
+    $$("#jobFilterChips .chip").forEach((chip) => chip.addEventListener("click", () => {
+      $$("#jobFilterChips .chip").forEach((c) => c.classList.remove("active"));
+      chip.classList.add("active");
+      state.jobFilterStatus = chip.dataset.status;
+      renderOneTimeTab();
+    }));
+  }
+
+  // --- Package tab ---
+
+  function filteredClientPackages() {
+    return state.packages.filter((p) => !state.packageFilterStatus || p.status === state.packageFilterStatus);
+  }
+
+  function renderPackagesTab() {
+    const list = filteredClientPackages();
+    const container = $("#clientPackageList");
+    if (!list.length) {
+      container.innerHTML = `<p class="muted" style="padding:20px 0;">No packages${state.packageFilterStatus ? ` with status "${escapeHtml(state.packageFilterStatus)}"` : ""} yet.</p>`;
+      return;
+    }
+    container.innerHTML = list.map((pk) => {
+      const progress = pk.progress || {};
+      const progressText = pk.type === "Management"
+        ? `${progress.posts || 0} Posts · ${progress.reels || 0} Reels · ${progress.stories || 0} Stories`
+        : `${progress.percent || 0}% (${progress.done || 0}/${progress.total || 0})`;
+      return `
+      <div class="mini-project-row" data-id="${pk.id}" data-type="${pk.type}">
+        <div class="mini-project-main">
+          <b>${escapeHtml(pk.name)}</b>
+          <span class="muted">${pk.type === "Management" ? "Management" : "Post &amp; Reel"} · ${progressText}</span>
+        </div>
+        <div class="mini-project-meta">
+          <span class="muted"><i class="fa-regular fa-calendar"></i> ${fmtDate(pk.startDate)} → ${pk.endDate ? fmtDate(pk.endDate) : "—"}</span>
+          <span class="badge ${pkgStatusClass(pk.status)}">${escapeHtml(pk.status)}</span>
+          <span class="badge ${pkgStatusClass(pk.paymentStatus)}">${escapeHtml(pk.paymentStatus)}</span>
+          <button class="icon-btn-sm edit-pkg-btn"><i class="fa-solid fa-pen"></i></button>
+          <button class="icon-btn-sm delete-pkg-btn"><i class="fa-solid fa-trash"></i></button>
+        </div>
+      </div>`;
+    }).join("");
+
+    $$(".mini-project-row", container).forEach((row) => {
+      row.addEventListener("click", (e) => {
+        if (e.target.closest(".edit-pkg-btn") || e.target.closest(".delete-pkg-btn")) return;
+        openPackageEditByType(row.dataset.id, row.dataset.type);
+      });
+    });
+    $$(".edit-pkg-btn", container).forEach((btn) => btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const row = btn.closest(".mini-project-row");
+      openPackageEditByType(row.dataset.id, row.dataset.type);
+    }));
+    $$(".delete-pkg-btn", container).forEach((btn) => btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = btn.closest(".mini-project-row").dataset.id;
+      openConfirm("Delete Package", "Are you sure you want to delete this package?", async () => {
+        try {
+          await Api.deletePackage(id);
+          showToast("Package deleted", "success");
+          await refreshClientTabData();
+          state.payments = await Api.getPayments();
+        } catch (err) {
+          showToast("Failed to delete: " + err.message, "error");
+        }
+      });
+    }));
+  }
+
+  function openPackageEditByType(id, type) {
+    const pkg = state.packages.find((p) => p.id === id);
+    if (!pkg) return;
+    if (type === "Management") openManagementPackageModal(pkg);
+    else openPostReelPackageModal(pkg);
+  }
+
+  function initPackageFilterChips() {
+    $$("#packageFilterChips .chip").forEach((chip) => chip.addEventListener("click", () => {
+      $$("#packageFilterChips .chip").forEach((c) => c.classList.remove("active"));
+      chip.classList.add("active");
+      state.packageFilterStatus = chip.dataset.status;
+      renderPackagesTab();
+    }));
   }
 
   function initClientDrawer() {
-    $("#closeClientDrawer").addEventListener("click", () => { $("#clientDrawerOverlay").hidden = true; });
-    $("#clientDrawerOverlay").addEventListener("click", (e) => {
-      if (e.target.id === "clientDrawerOverlay") $("#clientDrawerOverlay").hidden = true;
+    $("#closeClientDrawer").addEventListener("click", () => {
+      $("#clientDrawerOverlay").hidden = true;
+      state.currentClientKey = null;
+      state.currentClient = null;
     });
+    $("#clientDrawerOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "clientDrawerOverlay") {
+        $("#clientDrawerOverlay").hidden = true;
+        state.currentClientKey = null;
+        state.currentClient = null;
+      }
+    });
+    $$(".client-tabs .tab-btn").forEach((btn) => btn.addEventListener("click", () => {
+      $$(".client-tabs .tab-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      const tab = btn.dataset.tab;
+      state.activeClientTab = tab;
+      $("#tabPanel-overview").hidden = tab !== "overview";
+      $("#tabPanel-onetime").hidden = tab !== "onetime";
+      $("#tabPanel-packages").hidden = tab !== "packages";
+    }));
+    initJobFilterChips();
+    initPackageFilterChips();
+
+    $("#addOneTimeJobBtn").addEventListener("click", () => openOneTimeJobModal(null));
+    $("#addPackageBtn").addEventListener("click", () => openPackageTypePicker());
   }
 
   /* ------------------------------------------------------------------ */
@@ -1894,14 +2299,500 @@
   /* ------------------------------------------------------------------ */
   /* Initial data load                                                   */
   /* ------------------------------------------------------------------ */
+  /* ------------------------------------------------------------------ */
+  /* One-Time Jobs / Packages (inside the Client Detail Drawer)          */
+  /* ------------------------------------------------------------------ */
+
+  function pkgStatusClass(status) {
+    return (status || "Pending").replace(/\s+/g, "");
+  }
+
+  function paymentSummaryHtml(entity) {
+    return `
+      <div><span class="cs-label">Total</span><span class="cs-value">${fmtMoney(entity.totalAmount)}</span></div>
+      <div><span class="cs-label">Paid</span><span class="cs-value" style="color:var(--success);">${fmtMoney(entity.paidAmount)}</span></div>
+      <div><span class="cs-label">Pending</span><span class="cs-value" style="color:var(--danger);">${fmtMoney(entity.pendingAmount)}</span></div>
+      <div><span class="cs-label">Status</span><span class="cs-value"><span class="badge ${pkgStatusClass(entity.paymentStatus)}">${escapeHtml(entity.paymentStatus)}</span></span></div>
+    `;
+  }
+
+  function paymentHistoryRowsHtml(entity, deleteBtnClass) {
+    const history = entity.paymentHistory || [];
+    if (!history.length) return `<tr><td colspan="5" class="muted">No payments recorded yet.</td></tr>`;
+    return history.map((h) => `
+      <tr>
+        <td>${fmtDate(h.date)}</td>
+        <td>${fmtMoney(h.amount)}</td>
+        <td>${escapeHtml(h.type)}</td>
+        <td>${escapeHtml(h.note || "—")}</td>
+        <td><button type="button" class="icon-btn-sm ${deleteBtnClass}" data-id="${h.id}"><i class="fa-solid fa-trash"></i></button></td>
+      </tr>`).join("");
+  }
+
+  /* ---------------- One-Time Job modal ---------------- */
+
+  function openOneTimeJobModal(job = null) {
+    state.editingJobId = job ? job.id : null;
+    $("#oneTimeJobModalTitle").textContent = job ? "Edit One-Time Job" : "Add One-Time Job";
+    $("#jobId").value = job ? job.id : "";
+    $("#jClientName").value = state.currentClient.clientName;
+    $("#jClientMobile").value = state.currentClient.mobile || "";
+    $("#jName").value = job ? job.name : "";
+    $("#jCategory").value = job ? job.category : (state.categories[0] || "");
+    $("#jPriority").value = job ? job.priority : "Medium";
+    $("#jStartDate").value = job ? job.startDate : new Date().toISOString().slice(0, 10);
+    $("#jDueDate").value = job ? job.dueDate : "";
+    $("#jStatus").value = job ? job.status : "Active";
+    $("#jTotalUnits").value = job ? job.totalUnits : 0;
+    $("#jDoneUnits").value = job ? job.doneUnits : 0;
+    $("#jTotalAmount").value = job ? job.totalAmount : "";
+    $("#jNotes").value = job ? job.notes : "";
+
+    const paymentSection = $("#jPaymentSection");
+    if (job) {
+      paymentSection.hidden = false;
+      $("#jPaymentSummary").innerHTML = paymentSummaryHtml(job);
+      $("#jPaymentHistoryBody").innerHTML = paymentHistoryRowsHtml(job, "delete-job-payment-btn");
+      $$(".delete-job-payment-btn").forEach((btn) => btn.addEventListener("click", async () => {
+        try {
+          const updated = await Api.deleteOneTimeJobPayment(job.id, btn.dataset.id);
+          Object.assign(job, updated);
+          $("#jPaymentSummary").innerHTML = paymentSummaryHtml(job);
+          $("#jPaymentHistoryBody").innerHTML = paymentHistoryRowsHtml(job, "delete-job-payment-btn");
+          state.payments = await Api.getPayments();
+        } catch (err) {
+          showToast("Failed to delete: " + err.message, "error");
+        }
+      }));
+    } else {
+      paymentSection.hidden = true;
+    }
+    $("#jPaymentAddForm").hidden = true;
+
+    $("#oneTimeJobModalOverlay").hidden = false;
+  }
+
+  function closeOneTimeJobModal() {
+    $("#oneTimeJobModalOverlay").hidden = true;
+    $("#oneTimeJobForm").reset();
+    state.editingJobId = null;
+  }
+
+  function initOneTimeJobModal() {
+    $("#closeOneTimeJobModal").addEventListener("click", closeOneTimeJobModal);
+    $("#cancelOneTimeJobBtn").addEventListener("click", closeOneTimeJobModal);
+    $("#oneTimeJobModalOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "oneTimeJobModalOverlay") closeOneTimeJobModal();
+    });
+
+    $("#jAddPaymentBtn").addEventListener("click", () => {
+      $("#jphDate").value = new Date().toISOString().slice(0, 10);
+      $("#jPaymentAddForm").hidden = !$("#jPaymentAddForm").hidden;
+    });
+    $("#jSavePaymentBtn").addEventListener("click", async () => {
+      const amount = Number($("#jphAmount").value);
+      if (!amount || !state.editingJobId) { showToast("Enter a valid amount", "error"); return; }
+      try {
+        const updated = await Api.addOneTimeJobPayment(state.editingJobId, {
+          date: $("#jphDate").value,
+          amount,
+          type: $("#jphType").value,
+          note: $("#jphNote").value.trim()
+        });
+        $("#jPaymentSummary").innerHTML = paymentSummaryHtml(updated);
+        $("#jPaymentHistoryBody").innerHTML = paymentHistoryRowsHtml(updated, "delete-job-payment-btn");
+        $("#jPaymentAddForm").hidden = true;
+        $("#jphAmount").value = "";
+        $("#jphNote").value = "";
+        state.payments = await Api.getPayments();
+        showToast("Payment added", "success");
+      } catch (err) {
+        showToast("Failed to add payment: " + err.message, "error");
+      }
+    });
+
+    $("#oneTimeJobForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = {
+        clientName: $("#jClientName").value,
+        clientMobile: $("#jClientMobile").value,
+        name: $("#jName").value.trim(),
+        category: $("#jCategory").value,
+        priority: $("#jPriority").value,
+        startDate: $("#jStartDate").value,
+        dueDate: $("#jDueDate").value,
+        status: $("#jStatus").value,
+        totalUnits: Number($("#jTotalUnits").value) || 0,
+        doneUnits: Number($("#jDoneUnits").value) || 0,
+        totalAmount: Number($("#jTotalAmount").value) || 0,
+        notes: $("#jNotes").value.trim()
+      };
+      try {
+        if (state.editingJobId) {
+          await Api.updateOneTimeJob(state.editingJobId, payload);
+          showToast("Job updated", "success");
+        } else {
+          await Api.createOneTimeJob(payload);
+          showToast("One-time job added", "success");
+        }
+        closeOneTimeJobModal();
+        await refreshClientTabData();
+        state.payments = await Api.getPayments();
+      } catch (err) {
+        showToast("Failed to save job: " + err.message, "error");
+      }
+    });
+  }
+
+  /* ---------------- Package type picker ---------------- */
+
+  function openPackageTypePicker() {
+    $("#packageTypePickerOverlay").hidden = false;
+  }
+  function closePackageTypePicker() {
+    $("#packageTypePickerOverlay").hidden = true;
+  }
+  function initPackageTypePicker() {
+    $("#closePackageTypePicker").addEventListener("click", closePackageTypePicker);
+    $("#packageTypePickerOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "packageTypePickerOverlay") closePackageTypePicker();
+    });
+    $("#pickPostReelType").addEventListener("click", () => {
+      closePackageTypePicker();
+      openPostReelPackageModal(null);
+    });
+    $("#pickManagementType").addEventListener("click", () => {
+      closePackageTypePicker();
+      openManagementPackageModal(null);
+    });
+  }
+
+  /* ---------------- Post & Reel Package modal ---------------- */
+
+  function updatePrPendingCells() {
+    const pairs = [["prPostsTotal", "prPostsDone", "prPostsPending"], ["prReelsTotal", "prReelsDone", "prReelsPending"], ["prStoriesTotal", "prStoriesDone", "prStoriesPending"]];
+    let totalAll = 0, doneAll = 0;
+    pairs.forEach(([totalId, doneId, pendingId]) => {
+      const total = Number($(`#${totalId}`).value) || 0;
+      const done = Number($(`#${doneId}`).value) || 0;
+      $(`#${pendingId}`).textContent = Math.max(total - done, 0);
+      totalAll += total;
+      doneAll += done;
+    });
+    const percent = totalAll > 0 ? Math.round((doneAll / totalAll) * 100) : 0;
+    $("#prProgressFill").style.width = percent + "%";
+    $("#prProgressLabel").textContent = percent + "%";
+  }
+
+  function openPostReelPackageModal(pkg = null) {
+    state.editingPackageId = pkg ? pkg.id : null;
+    $("#postReelPackageModalTitle").textContent = pkg ? "Edit Post & Reel Package" : "Add Post & Reel Package";
+    $("#prPackageId").value = pkg ? pkg.id : "";
+    $("#prClientName").value = state.currentClient.clientName;
+    $("#prClientMobile").value = state.currentClient.mobile || "";
+    $("#prName").value = pkg ? pkg.name : "";
+    $("#prStartDate").value = pkg ? pkg.startDate : new Date().toISOString().slice(0, 10);
+    $("#prEndDate").value = pkg ? pkg.endDate : "";
+    $("#prStatus").value = pkg ? pkg.status : "Active";
+    $("#prTotalAmount").value = pkg ? pkg.totalAmount : "";
+    $("#prNotes").value = pkg ? pkg.notes : "";
+
+    const posts = (pkg && pkg.posts) || { total: 0, done: 0 };
+    const reels = (pkg && pkg.reels) || { total: 0, done: 0 };
+    const stories = (pkg && pkg.stories) || { total: 0, done: 0 };
+    $("#prPostsTotal").value = posts.total; $("#prPostsDone").value = posts.done;
+    $("#prReelsTotal").value = reels.total; $("#prReelsDone").value = reels.done;
+    $("#prStoriesTotal").value = stories.total; $("#prStoriesDone").value = stories.done;
+    updatePrPendingCells();
+
+    const paymentSection = $("#prPaymentSection");
+    if (pkg) {
+      paymentSection.hidden = false;
+      $("#prPaymentSummary").innerHTML = paymentSummaryHtml(pkg);
+      $("#prPaymentHistoryBody").innerHTML = paymentHistoryRowsHtml(pkg, "delete-pr-payment-btn");
+      $$(".delete-pr-payment-btn").forEach((btn) => btn.addEventListener("click", async () => {
+        try {
+          const updated = await Api.deletePackagePayment(pkg.id, btn.dataset.id);
+          Object.assign(pkg, updated);
+          $("#prPaymentSummary").innerHTML = paymentSummaryHtml(pkg);
+          $("#prPaymentHistoryBody").innerHTML = paymentHistoryRowsHtml(pkg, "delete-pr-payment-btn");
+          state.payments = await Api.getPayments();
+        } catch (err) {
+          showToast("Failed to delete: " + err.message, "error");
+        }
+      }));
+    } else {
+      paymentSection.hidden = true;
+    }
+    $("#prPaymentAddForm").hidden = true;
+
+    $("#postReelPackageModalOverlay").hidden = false;
+  }
+
+  function closePostReelPackageModal() {
+    $("#postReelPackageModalOverlay").hidden = true;
+    $("#postReelPackageForm").reset();
+    state.editingPackageId = null;
+  }
+
+  function initPostReelPackageModal() {
+    $("#closePostReelPackageModal").addEventListener("click", closePostReelPackageModal);
+    $("#cancelPostReelPackageBtn").addEventListener("click", closePostReelPackageModal);
+    $("#postReelPackageModalOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "postReelPackageModalOverlay") closePostReelPackageModal();
+    });
+    ["prPostsTotal", "prPostsDone", "prReelsTotal", "prReelsDone", "prStoriesTotal", "prStoriesDone"].forEach((id) => {
+      $(`#${id}`).addEventListener("input", updatePrPendingCells);
+    });
+
+    $("#prAddPaymentBtn").addEventListener("click", () => {
+      $("#prphDate").value = new Date().toISOString().slice(0, 10);
+      $("#prPaymentAddForm").hidden = !$("#prPaymentAddForm").hidden;
+    });
+    $("#prSavePaymentBtn").addEventListener("click", async () => {
+      const amount = Number($("#prphAmount").value);
+      if (!amount || !state.editingPackageId) { showToast("Enter a valid amount", "error"); return; }
+      try {
+        const updated = await Api.addPackagePayment(state.editingPackageId, {
+          date: $("#prphDate").value,
+          amount,
+          type: $("#prphType").value,
+          note: $("#prphNote").value.trim()
+        });
+        $("#prPaymentSummary").innerHTML = paymentSummaryHtml(updated);
+        $("#prPaymentHistoryBody").innerHTML = paymentHistoryRowsHtml(updated, "delete-pr-payment-btn");
+        $("#prPaymentAddForm").hidden = true;
+        $("#prphAmount").value = "";
+        $("#prphNote").value = "";
+        state.payments = await Api.getPayments();
+        showToast("Payment added", "success");
+      } catch (err) {
+        showToast("Failed to add payment: " + err.message, "error");
+      }
+    });
+
+    $("#postReelPackageForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = {
+        clientName: $("#prClientName").value,
+        clientMobile: $("#prClientMobile").value,
+        type: "PostReel",
+        name: $("#prName").value.trim(),
+        startDate: $("#prStartDate").value,
+        endDate: $("#prEndDate").value,
+        status: $("#prStatus").value,
+        totalAmount: Number($("#prTotalAmount").value) || 0,
+        notes: $("#prNotes").value.trim(),
+        posts: { total: Number($("#prPostsTotal").value) || 0, done: Number($("#prPostsDone").value) || 0 },
+        reels: { total: Number($("#prReelsTotal").value) || 0, done: Number($("#prReelsDone").value) || 0 },
+        stories: { total: Number($("#prStoriesTotal").value) || 0, done: Number($("#prStoriesDone").value) || 0 }
+      };
+      try {
+        if (state.editingPackageId) {
+          await Api.updatePackage(state.editingPackageId, payload);
+          showToast("Package updated", "success");
+        } else {
+          await Api.createPackage(payload);
+          showToast("Package added", "success");
+        }
+        closePostReelPackageModal();
+        await refreshClientTabData();
+        state.payments = await Api.getPayments();
+      } catch (err) {
+        showToast("Failed to save package: " + err.message, "error");
+      }
+    });
+  }
+
+  /* ---------------- Management Package modal ---------------- */
+
+  function renderPlatformChips() {
+    $("#platformChipRow").innerHTML = state.platformOptions.map((name) => {
+      const selected = state.mgSelectedPlatforms.some((p) => p.name === name);
+      return `<button type="button" class="platform-chip ${selected ? "selected" : ""}" data-name="${escapeHtml(name)}">${escapeHtml(name)}</button>`;
+    }).join("");
+
+    $$("#platformChipRow .platform-chip").forEach((chip) => chip.addEventListener("click", () => {
+      const name = chip.dataset.name;
+      const idx = state.mgSelectedPlatforms.findIndex((p) => p.name === name);
+      if (idx >= 0) {
+        state.mgSelectedPlatforms.splice(idx, 1);
+      } else {
+        state.mgSelectedPlatforms.push({ name, active: true, posts: 0, reels: 0, stories: 0 });
+      }
+      renderPlatformChips();
+      renderPlatformCounters();
+    }));
+  }
+
+  function renderPlatformCounters() {
+    const area = $("#platformCountersArea");
+    if (!state.mgSelectedPlatforms.length) {
+      area.innerHTML = `<p class="muted" style="margin-top:10px;">Upar thi platform select karo.</p>`;
+      updateMgTotalsRollup();
+      return;
+    }
+    area.innerHTML = `
+      <table class="mini-table" style="margin-top:10px;">
+        <thead><tr><th>Platform</th><th>Posts</th><th>Reels</th><th>Stories</th></tr></thead>
+        <tbody>
+          ${state.mgSelectedPlatforms.map((p, idx) => `
+            <tr data-idx="${idx}">
+              <td>${escapeHtml(p.name)}</td>
+              <td><input type="number" min="0" class="mini-input plat-posts" value="${p.posts}" /></td>
+              <td><input type="number" min="0" class="mini-input plat-reels" value="${p.reels}" /></td>
+              <td><input type="number" min="0" class="mini-input plat-stories" value="${p.stories}" /></td>
+            </tr>`).join("")}
+        </tbody>
+      </table>`;
+    $$(".plat-posts, .plat-reels, .plat-stories", area).forEach((input) => input.addEventListener("input", () => {
+      const row = input.closest("tr");
+      const idx = Number(row.dataset.idx);
+      state.mgSelectedPlatforms[idx].posts = Number(row.querySelector(".plat-posts").value) || 0;
+      state.mgSelectedPlatforms[idx].reels = Number(row.querySelector(".plat-reels").value) || 0;
+      state.mgSelectedPlatforms[idx].stories = Number(row.querySelector(".plat-stories").value) || 0;
+      updateMgTotalsRollup();
+    }));
+    updateMgTotalsRollup();
+  }
+
+  function updateMgTotalsRollup() {
+    const totals = state.mgSelectedPlatforms.reduce((acc, p) => {
+      acc.posts += Number(p.posts) || 0;
+      acc.reels += Number(p.reels) || 0;
+      acc.stories += Number(p.stories) || 0;
+      return acc;
+    }, { posts: 0, reels: 0, stories: 0 });
+    $("#mgTotalsRollup").innerHTML = `
+      <div><span class="cs-label">Posts</span><span class="cs-value">${totals.posts}</span></div>
+      <div><span class="cs-label">Reels</span><span class="cs-value">${totals.reels}</span></div>
+      <div><span class="cs-label">Stories</span><span class="cs-value">${totals.stories}</span></div>
+      <div><span class="cs-label">Total Content</span><span class="cs-value">${totals.posts + totals.reels + totals.stories}</span></div>
+    `;
+  }
+
+  function openManagementPackageModal(pkg = null) {
+    state.editingPackageId = pkg ? pkg.id : null;
+    $("#managementPackageModalTitle").textContent = pkg ? "Edit Management Package" : "Add Management Package";
+    $("#mgPackageId").value = pkg ? pkg.id : "";
+    $("#mgClientName").value = state.currentClient.clientName;
+    $("#mgClientMobile").value = state.currentClient.mobile || "";
+    $("#mgName").value = pkg ? pkg.name : "";
+    $("#mgStartDate").value = pkg ? pkg.startDate : new Date().toISOString().slice(0, 10);
+    $("#mgEndDate").value = pkg ? pkg.endDate : "";
+    $("#mgStatus").value = pkg ? pkg.status : "Active";
+    $("#mgTotalAmount").value = pkg ? pkg.totalAmount : "";
+    $("#mgNotes").value = pkg ? pkg.notes : "";
+
+    state.mgSelectedPlatforms = pkg && Array.isArray(pkg.platforms) ? pkg.platforms.map((p) => ({ ...p })) : [];
+    renderPlatformChips();
+    renderPlatformCounters();
+
+    const paymentSection = $("#mgPaymentSection");
+    if (pkg) {
+      paymentSection.hidden = false;
+      $("#mgPaymentSummary").innerHTML = paymentSummaryHtml(pkg);
+      $("#mgPaymentHistoryBody").innerHTML = paymentHistoryRowsHtml(pkg, "delete-mg-payment-btn");
+      $$(".delete-mg-payment-btn").forEach((btn) => btn.addEventListener("click", async () => {
+        try {
+          const updated = await Api.deletePackagePayment(pkg.id, btn.dataset.id);
+          Object.assign(pkg, updated);
+          $("#mgPaymentSummary").innerHTML = paymentSummaryHtml(pkg);
+          $("#mgPaymentHistoryBody").innerHTML = paymentHistoryRowsHtml(pkg, "delete-mg-payment-btn");
+          state.payments = await Api.getPayments();
+        } catch (err) {
+          showToast("Failed to delete: " + err.message, "error");
+        }
+      }));
+    } else {
+      paymentSection.hidden = true;
+    }
+    $("#mgPaymentAddForm").hidden = true;
+
+    $("#managementPackageModalOverlay").hidden = false;
+  }
+
+  function closeManagementPackageModal() {
+    $("#managementPackageModalOverlay").hidden = true;
+    $("#managementPackageForm").reset();
+    state.editingPackageId = null;
+    state.mgSelectedPlatforms = [];
+  }
+
+  function initManagementPackageModal() {
+    $("#closeManagementPackageModal").addEventListener("click", closeManagementPackageModal);
+    $("#cancelManagementPackageBtn").addEventListener("click", closeManagementPackageModal);
+    $("#managementPackageModalOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "managementPackageModalOverlay") closeManagementPackageModal();
+    });
+
+    $("#mgAddPaymentBtn").addEventListener("click", () => {
+      $("#mgphDate").value = new Date().toISOString().slice(0, 10);
+      $("#mgPaymentAddForm").hidden = !$("#mgPaymentAddForm").hidden;
+    });
+    $("#mgSavePaymentBtn").addEventListener("click", async () => {
+      const amount = Number($("#mgphAmount").value);
+      if (!amount || !state.editingPackageId) { showToast("Enter a valid amount", "error"); return; }
+      try {
+        const updated = await Api.addPackagePayment(state.editingPackageId, {
+          date: $("#mgphDate").value,
+          amount,
+          type: $("#mgphType").value,
+          note: $("#mgphNote").value.trim()
+        });
+        $("#mgPaymentSummary").innerHTML = paymentSummaryHtml(updated);
+        $("#mgPaymentHistoryBody").innerHTML = paymentHistoryRowsHtml(updated, "delete-mg-payment-btn");
+        $("#mgPaymentAddForm").hidden = true;
+        $("#mgphAmount").value = "";
+        $("#mgphNote").value = "";
+        state.payments = await Api.getPayments();
+        showToast("Payment added", "success");
+      } catch (err) {
+        showToast("Failed to add payment: " + err.message, "error");
+      }
+    });
+
+    $("#managementPackageForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = {
+        clientName: $("#mgClientName").value,
+        clientMobile: $("#mgClientMobile").value,
+        type: "Management",
+        name: $("#mgName").value.trim(),
+        startDate: $("#mgStartDate").value,
+        endDate: $("#mgEndDate").value,
+        status: $("#mgStatus").value,
+        totalAmount: Number($("#mgTotalAmount").value) || 0,
+        notes: $("#mgNotes").value.trim(),
+        platforms: state.mgSelectedPlatforms
+      };
+      try {
+        if (state.editingPackageId) {
+          await Api.updatePackage(state.editingPackageId, payload);
+          showToast("Package updated", "success");
+        } else {
+          await Api.createPackage(payload);
+          showToast("Package added", "success");
+        }
+        closeManagementPackageModal();
+        await refreshClientTabData();
+        state.payments = await Api.getPayments();
+      } catch (err) {
+        showToast("Failed to save package: " + err.message, "error");
+      }
+    });
+  }
+
   async function loadInitialData() {
-    const [payments, categories, settings, expenses, expenseCategories, leads] = await Promise.all([
+    const [payments, categories, settings, expenses, expenseCategories, leads, platformOptions, clientProfiles] = await Promise.all([
       Api.getPayments(),
       Api.getCategories(),
       Api.getSettings(),
       Api.getExpenses(),
       Api.getExpenseCategories(),
-      Api.getLeads()
+      Api.getLeads(),
+      Api.getPlatformOptions(),
+      Api.getClientProfiles()
     ]);
     state.payments = payments;
     state.categories = categories;
@@ -1909,14 +2800,17 @@
     state.expenses = expenses;
     state.expenseCategories = expenseCategories;
     state.leads = leads;
+    state.platformOptions = platformOptions;
+    state.clientProfiles = clientProfiles;
 
     applySettingsToUI();
     renderGreeting();
     populateCategorySelects();
 
     await loadDashboard();
+    await loadOverview();
 
-    const view = (window.location.hash || "#dashboard").slice(1);
+    const view = (window.location.hash || "#overview").slice(1);
     setActiveView(view);
   }
 
@@ -1946,6 +2840,11 @@
     initGlobalSearch();
     initProfileAndLogout();
     initDashboardFilter();
+    initOverviewFilter();
+    initOneTimeJobModal();
+    initPackageTypePicker();
+    initPostReelPackageModal();
+    initManagementPackageModal();
 
     try {
       await loadInitialData();
