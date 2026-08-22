@@ -490,20 +490,58 @@
           <h1>Clients</h1>
           <p class="view-subtitle">Every client, their business history and pending balances.</p>
         </div>
-        <button class="btn btn-primary" id="clientsAddBtn"><i class="fa-solid fa-plus"></i> Add</button>
       </div>
 
-      <div class="toolbar card">
-        <div class="toolbar-search">
-          <i class="fa-solid fa-magnifying-glass"></i>
-          <input type="text" id="clientSearch" placeholder="Search clients…" />
-        </div>
-        <div class="toolbar-filters">
-          <select id="clientFilterMonth"><option value="all">All Months</option></select>
-        </div>
+      <!-- Category menu: Overview / One-Time / Package -->
+      <div id="clientsCategoryMenu" class="client-category-menu">
+        <button type="button" class="client-category-row" data-category="overview">
+          <div class="client-category-icon blue"><i class="fa-solid fa-list-ul"></i></div>
+          <div class="client-category-info">
+            <h4>Overview</h4>
+            <span>Badha clients, total business ane pending</span>
+          </div>
+          <i class="fa-solid fa-chevron-right"></i>
+        </button>
+        <button type="button" class="client-category-row" data-category="onetime">
+          <div class="client-category-icon green"><i class="fa-solid fa-pen"></i></div>
+          <div class="client-category-info">
+            <h4>One-Time</h4>
+            <span>One-Time Job wala clients</span>
+          </div>
+          <i class="fa-solid fa-chevron-right"></i>
+        </button>
+        <button type="button" class="client-category-row" data-category="package">
+          <div class="client-category-icon amber"><i class="fa-solid fa-box-archive"></i></div>
+          <div class="client-category-info">
+            <h4>Package</h4>
+            <span>Package wala clients</span>
+          </div>
+          <i class="fa-solid fa-chevron-right"></i>
+        </button>
       </div>
 
-      <div class="client-grid" id="clientGrid"></div>
+      <!-- Category content: shown after selecting a category above -->
+      <div id="clientsCategoryContent" hidden>
+        <div class="view-header" style="margin-bottom:14px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <button class="icon-btn" id="clientsCategoryBack"><i class="fa-solid fa-arrow-left"></i></button>
+            <h2 id="clientsCategoryTitle" style="margin:0; font-size:18px;">Overview</h2>
+          </div>
+          <button class="btn btn-primary" id="clientsCategoryAddBtn" hidden><i class="fa-solid fa-plus"></i> Add</button>
+        </div>
+
+        <div class="toolbar card">
+          <div class="toolbar-search">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="clientSearch" placeholder="Search clients…" />
+          </div>
+          <div class="toolbar-filters">
+            <select id="clientFilterMonth"><option value="all">All Months</option></select>
+          </div>
+        </div>
+
+        <div class="client-grid" id="clientGrid"></div>
+      </div>
     </section>
 
     <!-- ======================= LEADS ======================= -->
@@ -1129,32 +1167,7 @@
   </div>
 </div>
 
-<!-- Add Type Picker (from Clients main tab) -->
-<div class="modal-overlay" id="addTypePickerOverlay" hidden>
-  <div class="modal modal-sm">
-    <div class="modal-head">
-      <h2>Add</h2>
-      <button class="icon-btn" id="closeAddTypePicker"><i class="fa-solid fa-xmark"></i></button>
-    </div>
-    <div class="modal-body">
-      <p class="muted" style="margin-bottom:14px;">Su add karvu che?</p>
-      <div class="package-type-picker">
-        <button type="button" class="package-type-card" id="pickAddOneTimeType">
-          <i class="fa-solid fa-pen"></i>
-          <h4>One-Time Job</h4>
-          <p>Single job — status + payment history</p>
-        </button>
-        <button type="button" class="package-type-card" id="pickAddPackageType">
-          <i class="fa-solid fa-box-archive"></i>
-          <h4>Package</h4>
-          <p>Post &amp; Reel or Management package</p>
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Client Picker (select existing client or add a new one, from global Add flow) -->
+<!-- Client Picker (select existing client or add a new one, from category Add flow) -->
 <div class="modal-overlay" id="clientPickerOverlay" hidden>
   <div class="modal modal-sm">
     <div class="modal-head">

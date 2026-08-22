@@ -45,9 +45,10 @@
     pendingPackageType: null,   // set by the type-picker before opening the right modal
     mgSelectedPlatforms: [],    // [{name, active, posts, reels, stories}] while editing a Management package
 
-    // Global "Add" flow (from the Clients main tab, before any client is open)
+    // Global "Add" flow (from the Clients category tabs, before any client is open)
     addFlowTarget: null,        // null | "onetime" | "postreel" | "management" — what to open once a client is picked
-    addFlowFromGlobal: false    // true while the package type picker was opened from the global Add flow
+    addFlowFromGlobal: false,   // true while the package type picker was opened from the category Add flow
+    clientsCategory: null       // null | "overview" | "onetime" | "package" — which Clients category is open
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -284,7 +285,7 @@
     // Lazy-load per-view data
     if (view === "overview") loadOverview().catch((err) => showToast("Failed to load overview: " + err.message, "error"));
     if (view === "payments") renderPaymentsView();
-    if (view === "clients") renderClientsView();
+    if (view === "clients") { closeClientsCategory(); renderClientsView(); }
     if (view === "leads") renderLeadsView();
     if (view === "reports") runReport();
     if (view === "categories") renderCategoriesView();
@@ -1050,7 +1051,13 @@
           : state.payments.filter((p) => monthKeyOf(p.date) === state.clientsFilterMonth)
       );
     }
-    renderClientGrid(state.clients);
+    renderClientGrid(clientsForCurrentCategory());
+  }
+
+  function clientsForCurrentCategory() {
+    if (state.clientsCategory === "onetime") return state.clients.filter(clientHasOneTime);
+    if (state.clientsCategory === "package") return state.clients.filter(clientHasPackage);
+    return state.clients;
   }
 
   function renderClientGrid(clients) {
@@ -1093,7 +1100,7 @@
   function initClientSearch() {
     $("#clientSearch").addEventListener("input", debounce(() => {
       const search = $("#clientSearch").value.toLowerCase();
-      const filtered = state.clients.filter((c) =>
+      const filtered = clientsForCurrentCategory().filter((c) =>
         [c.clientName, c.mobile, c.businessName, c.instagram].some((f) => (f || "").toLowerCase().includes(search))
       );
       renderClientGrid(filtered);
@@ -2497,29 +2504,45 @@
     });
   }
 
-  /* ---------------- Global "Add" flow: type picker + client picker ---------------- */
+  /* ---------------- Clients category menu (Overview / One-Time / Package) ---------------- */
 
-  function openAddTypePicker() {
-    $("#addTypePickerOverlay").hidden = false;
+  function clientHasOneTime(c) {
+    return (c.payments || []).some((p) => p.sourceType === "one-time-job");
   }
-  function closeAddTypePicker() {
-    $("#addTypePickerOverlay").hidden = true;
+  function clientHasPackage(c) {
+    return (c.payments || []).some((p) => p.sourceType === "package");
   }
-  function initAddTypePicker() {
-    $("#clientsAddBtn").addEventListener("click", openAddTypePicker);
-    $("#closeAddTypePicker").addEventListener("click", closeAddTypePicker);
-    $("#addTypePickerOverlay").addEventListener("click", (e) => {
-      if (e.target.id === "addTypePickerOverlay") closeAddTypePicker();
+
+  function openClientsCategory(category) {
+    state.clientsCategory = category;
+    const titleMap = { overview: "Overview", onetime: "One-Time", package: "Package" };
+    $("#clientsCategoryTitle").textContent = titleMap[category] || "Overview";
+    $("#clientsCategoryAddBtn").hidden = category === "overview";
+    $("#clientsCategoryMenu").hidden = true;
+    $("#clientsCategoryContent").hidden = false;
+    $("#clientSearch").value = "";
+    renderClientsView();
+  }
+
+  function closeClientsCategory() {
+    state.clientsCategory = null;
+    $("#clientsCategoryContent").hidden = true;
+    $("#clientsCategoryMenu").hidden = false;
+  }
+
+  function initClientsCategoryMenu() {
+    $$(".client-category-row").forEach((row) => {
+      row.addEventListener("click", () => openClientsCategory(row.dataset.category));
     });
-    $("#pickAddOneTimeType").addEventListener("click", () => {
-      closeAddTypePicker();
-      state.addFlowTarget = "onetime";
-      openClientPickerModal();
-    });
-    $("#pickAddPackageType").addEventListener("click", () => {
-      closeAddTypePicker();
-      state.addFlowFromGlobal = true;
-      openPackageTypePicker();
+    $("#clientsCategoryBack").addEventListener("click", closeClientsCategory);
+    $("#clientsCategoryAddBtn").addEventListener("click", () => {
+      if (state.clientsCategory === "onetime") {
+        state.addFlowTarget = "onetime";
+        openClientPickerModal();
+      } else if (state.clientsCategory === "package") {
+        state.addFlowFromGlobal = true;
+        openPackageTypePicker();
+      }
     });
   }
 
@@ -2980,7 +3003,7 @@
     initPackageTypePicker();
     initPostReelPackageModal();
     initManagementPackageModal();
-    initAddTypePicker();
+    initClientsCategoryMenu();
     initClientPickerModal();
 
     try {
