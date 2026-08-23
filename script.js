@@ -1248,29 +1248,110 @@
   function renderClientOverviewTab(overview) {
     const o = overview.oneTime;
     const p = overview.packages;
+    const since = overview.clientSince ? fmtDate(overview.clientSince) : "—";
+
     $("#tabPanel-overview").innerHTML = `
-      <div class="drawer-section">
-        <h3>One-Time Jobs</h3>
-        <div class="stat-mini-grid">
-          <div><b>${o.total}</b><span>Total</span></div>
-          <div><b>${o.Active || 0}</b><span>Active</span></div>
-          <div><b>${o["In Progress"] || 0}</b><span>In Progress</span></div>
-          <div><b>${o["On Hold"] || 0}</b><span>On Hold</span></div>
-          <div><b>${o.Completed || 0}</b><span>Completed</span></div>
-          <div><b class="danger-num">${o.paymentPending}</b><span>Payment Pending</span></div>
+      <div class="cov-section-label">This Client — At a Glance</div>
+      <div class="cov-stat-grid">
+        <div class="stat-card blue">
+          <div class="stat-icon"><i class="fa-solid fa-briefcase"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Total One-Time Jobs</span>
+            <span class="stat-value">${o.total}</span>
+          </div>
+        </div>
+        <div class="stat-card violet">
+          <div class="stat-icon"><i class="fa-solid fa-box-archive"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Total Packages</span>
+            <span class="stat-value">${p.total}</span>
+          </div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-icon"><i class="fa-solid fa-indian-rupee-sign"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Total Payments Received</span>
+            <span class="stat-value">${fmtMoney(overview.totalPaid)}</span>
+          </div>
+        </div>
+        <div class="stat-card rose">
+          <div class="stat-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Pending Amount</span>
+            <span class="stat-value">${fmtMoney(overview.totalPending)}</span>
+          </div>
+        </div>
+        <div class="stat-card teal">
+          <div class="stat-icon"><i class="fa-solid fa-circle-check"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Completed Work</span>
+            <span class="stat-value">${overview.completedWork}</span>
+          </div>
+        </div>
+        <div class="stat-card amber">
+          <div class="stat-icon"><i class="fa-solid fa-spinner"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Running / Active Work</span>
+            <span class="stat-value">${overview.runningWork}</span>
+          </div>
+        </div>
+        <div class="stat-card teal">
+          <div class="stat-icon"><i class="fa-solid fa-clock-rotate-left"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Recent Activity</span>
+            <span class="stat-value">${overview.recentActivity.length}</span>
+          </div>
+        </div>
+        <div class="stat-card blue" id="covOverallSummaryCard" style="cursor:pointer;">
+          <div class="stat-icon"><i class="fa-solid fa-file-lines"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Overall Summary</span>
+            <span class="stat-value">${overview.totalItems}</span>
+          </div>
         </div>
       </div>
-      <div class="drawer-section">
-        <h3>Packages</h3>
-        <div class="stat-mini-grid">
-          <div><b>${p.total}</b><span>Total</span></div>
-          <div><b>${p.Active || 0}</b><span>Active</span></div>
-          <div><b>${p["On Hold"] || 0}</b><span>On Hold</span></div>
-          <div><b>${p.Completed || 0}</b><span>Completed</span></div>
-          <div><b class="danger-num">${p.paymentPending}</b><span>Payment Pending</span></div>
+
+      <div class="cov-lower-grid">
+        <div class="cov-panel">
+          <div class="cov-panel-head"><h3>Recent Activity</h3></div>
+          ${overview.recentActivity.length ? overview.recentActivity.map((a) => `
+            <div class="cov-activity-row">
+              <div class="cov-act-dot ${covActivityIconClass(a.type)}"><i class="fa-solid ${covActivityIcon(a.type)}"></i></div>
+              <div>
+                <div class="cov-act-text">${escapeHtml(a.text)}</div>
+                <div class="cov-act-time">${fmtDate(a.date)}</div>
+              </div>
+            </div>`).join("") : `<p class="muted" style="padding:12px 0;">No activity yet.</p>`}
+        </div>
+
+        <div class="cov-panel">
+          <div class="cov-panel-head"><h3>Overall Summary</h3></div>
+          <div class="cov-summary-row">
+            <div class="cov-summary-l"><i class="fa-solid fa-briefcase" style="background:var(--blue-bg); color:var(--blue);"></i>Jobs + Packages combined</div>
+            <div class="cov-summary-v">${overview.totalItems}</div>
+          </div>
+          <div class="cov-summary-row">
+            <div class="cov-summary-l"><i class="fa-solid fa-chart-simple" style="background:var(--success-bg); color:var(--success);"></i>Completion rate</div>
+            <div class="cov-summary-v">${overview.completionRate}%</div>
+          </div>
+          <div class="cov-summary-row">
+            <div class="cov-summary-l"><i class="fa-solid fa-calendar-check" style="background:var(--accent-light); color:var(--accent-dark);"></i>Client since</div>
+            <div class="cov-summary-v">${since}</div>
+          </div>
         </div>
       </div>
     `;
+  }
+
+  function covActivityIcon(type) {
+    if (type === "payment") return "fa-indian-rupee-sign";
+    if (type === "package_added") return "fa-box-archive";
+    return "fa-plus";
+  }
+  function covActivityIconClass(type) {
+    if (type === "payment") return "cov-act-green";
+    if (type === "package_added") return "cov-act-violet";
+    return "cov-act-blue";
   }
 
   // --- One-Time tab ---
