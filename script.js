@@ -46,8 +46,7 @@
     mgSelectedPlatforms: [],    // [{name, active, posts, reels, stories}] while editing a Management package
 
     // Global "Add" flow (from the Clients category tabs, before any client is open)
-    addFlowTarget: null,        // null | "onetime" | "postreel" | "management" — what to open once a client is picked
-    addFlowFromGlobal: false,   // true while the package type picker was opened from the category Add flow
+    addFlowTarget: null,        // null | "onetime" | "package" — what to open once a client is picked
     clientsCategory: null       // null | "overview" | "onetime" | "package" — which Clients category is open
   };
 
@@ -237,6 +236,27 @@
     if (status === "Paid") return "Paid";
     if (status === "Partial") return "Partial";
     return "Pending";
+  }
+
+  // Location lives in the separate clientProfiles store (keyed by mobile||name),
+  // not on the client/payment record itself — this looks it up for display.
+  function getClientLocation(client) {
+    if (!client) return "";
+    const key = client.mobile || client.clientName;
+    const profile = state.clientProfiles[key];
+    if (profile && profile.location) return profile.location;
+    return client.location || "";
+  }
+
+  // Fills the read-only "Client Information" block (Name / Mobile / Business
+  // Name / Instagram / Location) shown at the top of the One-Time Job and
+  // Package modals, using the id prefix for that modal ("j" | "pr" | "mg").
+  function fillClientInfoFields(prefix, client) {
+    $(`#${prefix}ClientName`).value = client.clientName || "";
+    $(`#${prefix}ClientMobile`).value = client.mobile || "";
+    $(`#${prefix}ClientBusinessName`).value = client.businessName || "";
+    $(`#${prefix}ClientInstagram`).value = client.instagram || "";
+    $(`#${prefix}ClientLocation`).value = getClientLocation(client);
   }
 
   function debounce(fn, delay = 250) {
@@ -2353,8 +2373,7 @@
     state.editingJobId = job ? job.id : null;
     $("#oneTimeJobModalTitle").textContent = job ? "Edit One-Time Job" : "Add One-Time Job";
     $("#jobId").value = job ? job.id : "";
-    $("#jClientName").value = state.currentClient.clientName;
-    $("#jClientMobile").value = state.currentClient.mobile || "";
+    fillClientInfoFields("j", state.currentClient);
     $("#jName").value = job ? job.name : "";
     $("#jCategory").value = job ? job.category : (state.categories[0] || "");
     $("#jPriority").value = job ? job.priority : "Medium";
@@ -2434,6 +2453,8 @@
       const payload = {
         clientName: $("#jClientName").value,
         clientMobile: $("#jClientMobile").value,
+        clientBusinessName: $("#jClientBusinessName").value,
+        clientInstagram: $("#jClientInstagram").value,
         name: $("#jName").value.trim(),
         category: $("#jCategory").value,
         priority: $("#jPriority").value,
@@ -2472,35 +2493,21 @@
     $("#packageTypePickerOverlay").hidden = true;
   }
   function initPackageTypePicker() {
-    $("#closePackageTypePicker").addEventListener("click", () => {
-      closePackageTypePicker();
-      state.addFlowFromGlobal = false;
-    });
+    $("#closePackageTypePicker").addEventListener("click", closePackageTypePicker);
     $("#packageTypePickerOverlay").addEventListener("click", (e) => {
-      if (e.target.id === "packageTypePickerOverlay") {
-        closePackageTypePicker();
-        state.addFlowFromGlobal = false;
-      }
+      if (e.target.id === "packageTypePickerOverlay") closePackageTypePicker();
     });
+    // A client (existing or new) is always selected before this picker opens —
+    // either via the client drawer's "Add Package" button (client already
+    // open) or via the Clients → Package → Add Package flow, which selects
+    // the client first, then reaches this type picker.
     $("#pickPostReelType").addEventListener("click", () => {
       closePackageTypePicker();
-      if (state.addFlowFromGlobal) {
-        state.addFlowFromGlobal = false;
-        state.addFlowTarget = "postreel";
-        openClientPickerModal();
-      } else {
-        openPostReelPackageModal(null);
-      }
+      openPostReelPackageModal(null);
     });
     $("#pickManagementType").addEventListener("click", () => {
       closePackageTypePicker();
-      if (state.addFlowFromGlobal) {
-        state.addFlowFromGlobal = false;
-        state.addFlowTarget = "management";
-        openClientPickerModal();
-      } else {
-        openManagementPackageModal(null);
-      }
+      openManagementPackageModal(null);
     });
   }
 
@@ -2540,8 +2547,8 @@
         state.addFlowTarget = "onetime";
         openClientPickerModal();
       } else if (state.clientsCategory === "package") {
-        state.addFlowFromGlobal = true;
-        openPackageTypePicker();
+        state.addFlowTarget = "package";
+        openClientPickerModal();
       }
     });
   }
@@ -2579,16 +2586,18 @@
     const target = state.addFlowTarget;
     state.addFlowTarget = null;
     if (target === "onetime") openOneTimeJobModal(null);
-    else if (target === "postreel") openPostReelPackageModal(null);
-    else if (target === "management") openManagementPackageModal(null);
+    else if (target === "package") openPackageTypePicker();
   }
 
   async function openClientPickerModal() {
-    const titleMap = { onetime: "Select Client — One-Time Job", postreel: "Select Client — Post & Reel Package", management: "Select Client — Management Package" };
+    const titleMap = { onetime: "Select Client — One-Time Job", package: "Select Client — Package" };
     $("#clientPickerTitle").textContent = titleMap[state.addFlowTarget] || "Select Client";
     $("#clientPickerSearch").value = "";
     $("#clientPickerNewName").value = "";
     $("#clientPickerNewMobile").value = "";
+    $("#clientPickerNewBusinessName").value = "";
+    $("#clientPickerNewInstagram").value = "";
+    $("#clientPickerNewLocation").value = "";
     if (!state.clients.length) {
       try { state.clients = await Api.getClients(state.clientsFilterMonth || "all"); } catch (err) { /* fall back to empty list */ }
     }
@@ -2612,14 +2621,25 @@
     $("#clientPickerSearch").addEventListener("input", debounce(() => {
       renderClientPickerList($("#clientPickerSearch").value);
     }, 150));
-    $("#clientPickerUseNewBtn").addEventListener("click", () => {
+    $("#clientPickerUseNewBtn").addEventListener("click", async () => {
       const name = $("#clientPickerNewName").value.trim();
       if (!name) {
         showToast("Client name is required", "error");
         return;
       }
       const mobile = $("#clientPickerNewMobile").value.trim();
-      selectClientForAddFlow({ clientName: name, mobile, businessName: "", totalBusiness: 0, totalReceived: 0, totalPending: 0 });
+      const businessName = $("#clientPickerNewBusinessName").value.trim();
+      const instagram = $("#clientPickerNewInstagram").value.trim();
+      const location = $("#clientPickerNewLocation").value.trim();
+      if (location) {
+        // Save immediately so it's available the moment the client is reused
+        // for another job/package, same as an existing client's location.
+        const key = mobile || name;
+        try {
+          state.clientProfiles[key] = await Api.updateClientProfile(key, { location });
+        } catch (err) { /* non-fatal — the modal will still show the typed location */ }
+      }
+      selectClientForAddFlow({ clientName: name, mobile, businessName, instagram, location, totalBusiness: 0, totalReceived: 0, totalPending: 0 });
     });
   }
 
@@ -2644,8 +2664,7 @@
     state.editingPackageId = pkg ? pkg.id : null;
     $("#postReelPackageModalTitle").textContent = pkg ? "Edit Post & Reel Package" : "Add Post & Reel Package";
     $("#prPackageId").value = pkg ? pkg.id : "";
-    $("#prClientName").value = state.currentClient.clientName;
-    $("#prClientMobile").value = state.currentClient.mobile || "";
+    fillClientInfoFields("pr", state.currentClient);
     $("#prName").value = pkg ? pkg.name : "";
     $("#prStartDate").value = pkg ? pkg.startDate : new Date().toISOString().slice(0, 10);
     $("#prEndDate").value = pkg ? pkg.endDate : "";
@@ -2732,6 +2751,8 @@
       const payload = {
         clientName: $("#prClientName").value,
         clientMobile: $("#prClientMobile").value,
+        clientBusinessName: $("#prClientBusinessName").value,
+        clientInstagram: $("#prClientInstagram").value,
         type: "PostReel",
         name: $("#prName").value.trim(),
         startDate: $("#prStartDate").value,
@@ -2832,8 +2853,7 @@
     state.editingPackageId = pkg ? pkg.id : null;
     $("#managementPackageModalTitle").textContent = pkg ? "Edit Management Package" : "Add Management Package";
     $("#mgPackageId").value = pkg ? pkg.id : "";
-    $("#mgClientName").value = state.currentClient.clientName;
-    $("#mgClientMobile").value = state.currentClient.mobile || "";
+    fillClientInfoFields("mg", state.currentClient);
     $("#mgName").value = pkg ? pkg.name : "";
     $("#mgStartDate").value = pkg ? pkg.startDate : new Date().toISOString().slice(0, 10);
     $("#mgEndDate").value = pkg ? pkg.endDate : "";
@@ -2914,6 +2934,8 @@
       const payload = {
         clientName: $("#mgClientName").value,
         clientMobile: $("#mgClientMobile").value,
+        clientBusinessName: $("#mgClientBusinessName").value,
+        clientInstagram: $("#mgClientInstagram").value,
         type: "Management",
         name: $("#mgName").value.trim(),
         startDate: $("#mgStartDate").value,

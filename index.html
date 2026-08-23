@@ -1192,6 +1192,18 @@
             <label>Mobile</label>
             <input type="text" id="clientPickerNewMobile" placeholder="Mobile number" />
           </div>
+          <div class="form-group">
+            <label>Business Name</label>
+            <input type="text" id="clientPickerNewBusinessName" placeholder="Business name" />
+          </div>
+          <div class="form-group">
+            <label>Instagram</label>
+            <input type="text" id="clientPickerNewInstagram" placeholder="@handle" />
+          </div>
+          <div class="form-group full">
+            <label>Location</label>
+            <input type="text" id="clientPickerNewLocation" placeholder="City / area" />
+          </div>
         </div>
         <button type="button" class="btn btn-primary btn-sm" id="clientPickerUseNewBtn" style="margin-top:8px;"><i class="fa-solid fa-plus"></i> Continue with new client</button>
       </div>
@@ -1232,9 +1244,32 @@
       <button class="icon-btn" id="closeOneTimeJobModal"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <form id="oneTimeJobForm" class="modal-body">
-      <input type="hidden" id="jClientName" />
-      <input type="hidden" id="jClientMobile" />
       <input type="hidden" id="jobId" />
+      <div class="drawer-section">
+        <div class="drawer-section-head"><h3>Client Information</h3></div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Client Name</label>
+            <input type="text" id="jClientName" readonly />
+          </div>
+          <div class="form-group">
+            <label>Mobile</label>
+            <input type="text" id="jClientMobile" readonly />
+          </div>
+          <div class="form-group">
+            <label>Business Name</label>
+            <input type="text" id="jClientBusinessName" readonly />
+          </div>
+          <div class="form-group">
+            <label>Instagram</label>
+            <input type="text" id="jClientInstagram" readonly />
+          </div>
+          <div class="form-group full">
+            <label>Location</label>
+            <input type="text" id="jClientLocation" readonly />
+          </div>
+        </div>
+      </div>
       <div class="form-grid">
         <div class="form-group full">
           <label>Job Name *</label>
@@ -1323,9 +1358,32 @@
       <button class="icon-btn" id="closePostReelPackageModal"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <form id="postReelPackageForm" class="modal-body">
-      <input type="hidden" id="prClientName" />
-      <input type="hidden" id="prClientMobile" />
       <input type="hidden" id="prPackageId" />
+      <div class="drawer-section">
+        <div class="drawer-section-head"><h3>Client Information</h3></div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Client Name</label>
+            <input type="text" id="prClientName" readonly />
+          </div>
+          <div class="form-group">
+            <label>Mobile</label>
+            <input type="text" id="prClientMobile" readonly />
+          </div>
+          <div class="form-group">
+            <label>Business Name</label>
+            <input type="text" id="prClientBusinessName" readonly />
+          </div>
+          <div class="form-group">
+            <label>Instagram</label>
+            <input type="text" id="prClientInstagram" readonly />
+          </div>
+          <div class="form-group full">
+            <label>Location</label>
+            <input type="text" id="prClientLocation" readonly />
+          </div>
+        </div>
+      </div>
       <div class="form-grid">
         <div class="form-group full">
           <label>Package Name *</label>
@@ -1425,9 +1483,32 @@
       <button class="icon-btn" id="closeManagementPackageModal"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <form id="managementPackageForm" class="modal-body">
-      <input type="hidden" id="mgClientName" />
-      <input type="hidden" id="mgClientMobile" />
       <input type="hidden" id="mgPackageId" />
+      <div class="drawer-section">
+        <div class="drawer-section-head"><h3>Client Information</h3></div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Client Name</label>
+            <input type="text" id="mgClientName" readonly />
+          </div>
+          <div class="form-group">
+            <label>Mobile</label>
+            <input type="text" id="mgClientMobile" readonly />
+          </div>
+          <div class="form-group">
+            <label>Business Name</label>
+            <input type="text" id="mgClientBusinessName" readonly />
+          </div>
+          <div class="form-group">
+            <label>Instagram</label>
+            <input type="text" id="mgClientInstagram" readonly />
+          </div>
+          <div class="form-group full">
+            <label>Location</label>
+            <input type="text" id="mgClientLocation" readonly />
+          </div>
+        </div>
+      </div>
       <div class="form-grid">
         <div class="form-group full">
           <label>Package Name *</label>
