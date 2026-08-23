@@ -452,7 +452,6 @@ input, select, textarea { font-family: inherit; }
 .data-table tbody td { padding: 13px 12px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: middle; }
 .data-table tbody tr { transition: background .15s var(--ease); }
 .data-table tbody tr:hover { background: var(--bg); }
-#clientGrid .data-table tbody tr[data-id] { cursor: pointer; }
 .data-table tbody tr:last-child td { border-bottom: none; }
 .cell-name { font-weight: 600; }
 .cell-sub { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
@@ -534,27 +533,6 @@ select:focus { border-color: var(--accent); }
 .client-picker-row-info b { font-size: 13px; }
 .client-picker-row-info span { font-size: 11.5px; color: var(--text-muted); }
 .client-picker-empty { font-size: 12.5px; color: var(--text-muted); padding: 6px 2px; }
-
-.client-category-menu { display: flex; flex-direction: column; gap: 12px; max-width: 560px; }
-.client-category-row {
-  display: flex; align-items: center; gap: 14px;
-  padding: 16px 18px; border: 1px solid var(--border); border-radius: 14px;
-  background: var(--surface); cursor: pointer; text-align: left; width: 100%;
-  font-family: inherit; box-shadow: var(--shadow-sm);
-  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
-}
-.client-category-row:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: var(--accent); }
-.client-category-icon {
-  width: 42px; height: 42px; min-width: 42px; border-radius: 12px;
-  display: flex; align-items: center; justify-content: center; font-size: 18px;
-}
-.client-category-icon.blue { background: var(--blue-bg); color: var(--blue); }
-.client-category-icon.green { background: var(--success-bg); color: var(--success); }
-.client-category-icon.amber { background: var(--warning-bg); color: var(--warning); }
-.client-category-info { flex: 1; min-width: 0; }
-.client-category-info h4 { font-size: 15px; font-weight: 700; margin: 0 0 3px; }
-.client-category-info span { font-size: 12.5px; color: var(--text-muted); }
-.client-category-row > i.fa-chevron-right { color: var(--text-muted); font-size: 14px; }
 
 .client-card {
   background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg);
@@ -667,8 +645,6 @@ select:focus { border-color: var(--accent); }
   padding: 20px 24px; border-bottom: 1px solid var(--border);
 }
 .modal-head h2 { font-size: 17px; font-weight: 700; }
-.modal-head-title { display: flex; align-items: center; gap: 12px; }
-.modal-head-eyebrow { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin-bottom: 2px; }
 .modal-body { padding: 22px 24px; overflow-y: auto; }
 .modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 18px 24px; border-top: 1px solid var(--border); }
 .modal-footer.center { justify-content: center; }
@@ -978,7 +954,7 @@ select:focus { border-color: var(--accent); }
 
 .tab-panel { min-height: 120px; }
 
-/* Overview stat mini-grid (legacy — kept for anywhere still using it) */
+/* Overview stat mini-grid */
 .stat-mini-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 12px; margin-top: 8px; }
 .stat-mini-grid > div {
   display: flex; flex-direction: column; gap: 4px; padding: 14px 12px;
@@ -987,49 +963,6 @@ select:focus { border-color: var(--accent); }
 .stat-mini-grid b { font-family: var(--font-mono); font-size: 20px; font-weight: 700; }
 .stat-mini-grid b.danger-num { color: var(--danger); }
 .stat-mini-grid span { font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; font-weight: 700; }
-
-/* =========================================================================
-   Client Overview dashboard (tabPanel-overview) — reuses the .stat-card
-   color system from the global dashboard so it matches the rest of the app.
-   ========================================================================= */
-.cov-section-label {
-  font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;
-  letter-spacing: .05em; margin: 4px 0 12px;
-}
-.cov-stat-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 20px;
-}
-.cov-stat-grid .stat-card { padding: 16px; gap: 12px; }
-.cov-stat-grid .stat-icon { width: 38px; height: 38px; border-radius: 11px; font-size: 15px; }
-.cov-stat-grid .stat-value { font-size: 19px; }
-
-.cov-lower-grid { display: grid; grid-template-columns: 1.3fr .9fr; gap: 16px; }
-@media (max-width: 900px) { .cov-lower-grid { grid-template-columns: 1fr; } }
-
-.cov-panel {
-  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg);
-  padding: 18px 20px; box-shadow: var(--shadow-sm);
-}
-.cov-panel-head { margin-bottom: 10px; }
-.cov-panel-head h3 { font-size: 14px; font-weight: 700; }
-
-.cov-activity-row { display: flex; align-items: flex-start; gap: 11px; padding: 10px 0; border-bottom: 1px solid var(--border); }
-.cov-activity-row:last-child { border-bottom: none; }
-.cov-act-dot {
-  width: 28px; height: 28px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
-  font-size: 11.5px; flex-shrink: 0; margin-top: 1px;
-}
-.cov-act-dot.cov-act-green { background: var(--success-bg); color: var(--success); }
-.cov-act-dot.cov-act-blue { background: var(--blue-bg); color: var(--blue); }
-.cov-act-dot.cov-act-violet { background: var(--violet-bg); color: var(--violet); }
-.cov-act-text { font-size: 12.5px; font-weight: 500; }
-.cov-act-time { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
-
-.cov-summary-row { display: flex; align-items: center; justify-content: space-between; padding: 11px 0; border-bottom: 1px solid var(--border); }
-.cov-summary-row:last-child { border-bottom: none; }
-.cov-summary-l { display: flex; align-items: center; gap: 10px; font-size: 12.5px; font-weight: 600; color: var(--text); }
-.cov-summary-l i { width: 26px; height: 26px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 11px; }
-.cov-summary-v { font-family: var(--font-mono); font-weight: 700; font-size: 13.5px; }
 
 /* Filter chips (One-Time / Package tab) */
 .drawer-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }

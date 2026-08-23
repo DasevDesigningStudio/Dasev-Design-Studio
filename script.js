@@ -37,6 +37,7 @@
     clientProfiles: {},
     currentClientKey: null,     // mobile||name of the client currently open in the drawer
     currentClient: null,        // full client object currently open
+    activeClientTab: "overview",
     jobFilterStatus: "",
     packageFilterStatus: "",
     editingJobId: null,
@@ -44,15 +45,9 @@
     pendingPackageType: null,   // set by the type-picker before opening the right modal
     mgSelectedPlatforms: [],    // [{name, active, posts, reels, stories}] while editing a Management package
 
-    // Global "Add" flow (from the Clients category tabs, before any client is open)
-    addFlowTarget: null,        // null | "onetime" | "package" — what to open once a client is picked
-    clientsCategory: null,      // null | "overview" | "onetime" | "package" — which Clients category is open
-
-    // Raw One-Time Job / Package records for the open Clients → One-Time /
-    // Package section, grouped client-side into one row per client so each
-    // section shows a CLIENT LIST (not a flat record list).
-    catRecords: [],
-    catStatusFilter: ""
+    // Global "Add" flow (from the Clients main tab, before any client is open)
+    addFlowTarget: null,        // null | "onetime" | "postreel" | "management" — what to open once a client is picked
+    addFlowFromGlobal: false    // true while the package type picker was opened from the global Add flow
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -243,27 +238,6 @@
     return "Pending";
   }
 
-  // Location lives in the separate clientProfiles store (keyed by mobile||name),
-  // not on the client/payment record itself — this looks it up for display.
-  function getClientLocation(client) {
-    if (!client) return "";
-    const key = client.mobile || client.clientName;
-    const profile = state.clientProfiles[key];
-    if (profile && profile.location) return profile.location;
-    return client.location || "";
-  }
-
-  // Fills the read-only "Client Information" block (Name / Mobile / Business
-  // Name / Instagram / Location) shown at the top of the One-Time Job and
-  // Package modals, using the id prefix for that modal ("j" | "pr" | "mg").
-  function fillClientInfoFields(prefix, client) {
-    $(`#${prefix}ClientName`).value = client.clientName || "";
-    $(`#${prefix}ClientMobile`).value = client.mobile || "";
-    $(`#${prefix}ClientBusinessName`).value = client.businessName || "";
-    $(`#${prefix}ClientInstagram`).value = client.instagram || "";
-    $(`#${prefix}ClientLocation`).value = getClientLocation(client);
-  }
-
   function debounce(fn, delay = 250) {
     let t;
     return (...args) => {
@@ -310,7 +284,7 @@
     // Lazy-load per-view data
     if (view === "overview") loadOverview().catch((err) => showToast("Failed to load overview: " + err.message, "error"));
     if (view === "payments") renderPaymentsView();
-    if (view === "clients") { closeClientsCategory(); renderClientsView(); }
+    if (view === "clients") renderClientsView();
     if (view === "leads") renderLeadsView();
     if (view === "reports") runReport();
     if (view === "categories") renderCategoriesView();
@@ -1076,13 +1050,7 @@
           : state.payments.filter((p) => monthKeyOf(p.date) === state.clientsFilterMonth)
       );
     }
-    renderClientGrid(clientsForCurrentCategory());
-  }
-
-  function clientsForCurrentCategory() {
-    if (state.clientsCategory === "onetime") return state.clients.filter(clientHasOneTime);
-    if (state.clientsCategory === "package") return state.clients.filter(clientHasPackage);
-    return state.clients;
+    renderClientGrid(state.clients);
   }
 
   function renderClientGrid(clients) {
@@ -1124,10 +1092,8 @@
 
   function initClientSearch() {
     $("#clientSearch").addEventListener("input", debounce(() => {
-      if (state.clientsCategory === "onetime") { renderOneTimeClientsTable(); return; }
-      if (state.clientsCategory === "package") { renderPackageClientsTable(); return; }
       const search = $("#clientSearch").value.toLowerCase();
-      const filtered = clientsForCurrentCategory().filter((c) =>
+      const filtered = state.clients.filter((c) =>
         [c.clientName, c.mobile, c.businessName, c.instagram].some((f) => (f || "").toLowerCase().includes(search))
       );
       renderClientGrid(filtered);
@@ -1137,40 +1103,22 @@
       state.clientsFilterMonth = $("#clientFilterMonth").value;
       await renderClientsView();
     });
-
-    $("#clientCatStatusFilter").addEventListener("change", () => {
-      state.catStatusFilter = $("#clientCatStatusFilter").value;
-      if (state.clientsCategory === "onetime") renderOneTimeClientsTable();
-      else if (state.clientsCategory === "package") renderPackageClientsTable();
-    });
-  }
-
-  // Which Clients section the detail view is being opened from — the same
-  // section stays selected the whole time the drawer is open (it's an
-  // overlay on top of that section's client list), so this doubles as the
-  // "which context to show directly" flag. No second category menu is ever
-  // shown after the client is clicked.
-  function clientDetailOrigin() {
-    return state.clientsCategory || "overview";
   }
 
   async function openClientDrawer(client) {
     state.currentClient = client;
     state.currentClientKey = client.mobile || client.clientName;
+    state.activeClientTab = "overview";
     state.jobFilterStatus = "";
     state.packageFilterStatus = "";
 
-    const origin = clientDetailOrigin();
-    const eyebrowMap = { overview: "Overview Details", onetime: "One-Time Details", package: "Package Details" };
     $("#clientDrawerTitle").textContent = client.clientName;
-    $("#clientDrawerEyebrow").textContent = eyebrowMap[origin] || "Overview Details";
     renderClientDrawerHeader(client);
 
-    // Show only the panel matching where the client was opened from — direct
-    // details, never another Overview / One-Time / Package chooser.
-    $("#tabPanel-overview").hidden = origin !== "overview";
-    $("#tabPanel-onetime").hidden = origin !== "onetime";
-    $("#tabPanel-packages").hidden = origin !== "package";
+    $$(".client-tabs .tab-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.tab === "overview"));
+    $("#tabPanel-overview").hidden = false;
+    $("#tabPanel-onetime").hidden = true;
+    $("#tabPanel-packages").hidden = true;
 
     $("#clientDrawerOverlay").hidden = false;
 
@@ -1217,141 +1165,54 @@
 
   async function refreshClientsGridIfVisible() {
     const view = $("#view-clients");
-    if (view && view.classList.contains("active") && !$("#clientsCategoryContent").hidden) {
-      await loadClientsCategoryContent();
+    if (view && view.classList.contains("active")) {
+      await renderClientsView();
     }
   }
 
-  // Only fetches/renders whichever single context the open client detail is
-  // showing (Overview summary, this client's One-Time Jobs, or this client's
-  // Packages) — matching the "direct details, no submenu" flow.
   async function refreshClientTabData() {
     const key = state.currentClientKey;
     if (!key) return;
-    const origin = clientDetailOrigin();
-    try {
-      if (origin === "onetime") {
-        state.oneTimeJobs = await Api.getOneTimeJobs(key);
-        renderOneTimeTab();
-      } else if (origin === "package") {
-        state.packages = await Api.getPackages(key);
-        renderPackagesTab();
-      } else {
-        const overview = await Api.getClientOverview(key);
-        renderClientOverviewTab(overview);
-      }
-    } catch (err) {
-      showToast(err.message, "error");
-    }
+    const [jobs, packages, overview] = await Promise.all([
+      Api.getOneTimeJobs(key),
+      Api.getPackages(key),
+      Api.getClientOverview(key)
+    ]);
+    state.oneTimeJobs = jobs;
+    state.packages = packages;
+    $("#cOneTimeCount").textContent = jobs.length ? `(${jobs.length})` : "";
+    $("#cPackageCount").textContent = packages.length ? `(${packages.length})` : "";
+    renderClientOverviewTab(overview);
+    renderOneTimeTab();
+    renderPackagesTab();
   }
 
   function renderClientOverviewTab(overview) {
     const o = overview.oneTime;
     const p = overview.packages;
-    const since = overview.clientSince ? fmtDate(overview.clientSince) : "—";
-
     $("#tabPanel-overview").innerHTML = `
-      <div class="cov-section-label">This Client — At a Glance</div>
-      <div class="cov-stat-grid">
-        <div class="stat-card blue">
-          <div class="stat-icon"><i class="fa-solid fa-briefcase"></i></div>
-          <div class="stat-info">
-            <span class="stat-label">Total One-Time Jobs</span>
-            <span class="stat-value">${o.total}</span>
-          </div>
-        </div>
-        <div class="stat-card violet">
-          <div class="stat-icon"><i class="fa-solid fa-box-archive"></i></div>
-          <div class="stat-info">
-            <span class="stat-label">Total Packages</span>
-            <span class="stat-value">${p.total}</span>
-          </div>
-        </div>
-        <div class="stat-card green">
-          <div class="stat-icon"><i class="fa-solid fa-indian-rupee-sign"></i></div>
-          <div class="stat-info">
-            <span class="stat-label">Total Payments Received</span>
-            <span class="stat-value">${fmtMoney(overview.totalPaid)}</span>
-          </div>
-        </div>
-        <div class="stat-card rose">
-          <div class="stat-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
-          <div class="stat-info">
-            <span class="stat-label">Pending Amount</span>
-            <span class="stat-value">${fmtMoney(overview.totalPending)}</span>
-          </div>
-        </div>
-        <div class="stat-card teal">
-          <div class="stat-icon"><i class="fa-solid fa-circle-check"></i></div>
-          <div class="stat-info">
-            <span class="stat-label">Completed Work</span>
-            <span class="stat-value">${overview.completedWork}</span>
-          </div>
-        </div>
-        <div class="stat-card amber">
-          <div class="stat-icon"><i class="fa-solid fa-spinner"></i></div>
-          <div class="stat-info">
-            <span class="stat-label">Running / Active Work</span>
-            <span class="stat-value">${overview.runningWork}</span>
-          </div>
-        </div>
-        <div class="stat-card teal">
-          <div class="stat-icon"><i class="fa-solid fa-clock-rotate-left"></i></div>
-          <div class="stat-info">
-            <span class="stat-label">Recent Activity</span>
-            <span class="stat-value">${overview.recentActivity.length}</span>
-          </div>
-        </div>
-        <div class="stat-card blue" id="covOverallSummaryCard" style="cursor:pointer;">
-          <div class="stat-icon"><i class="fa-solid fa-file-lines"></i></div>
-          <div class="stat-info">
-            <span class="stat-label">Overall Summary</span>
-            <span class="stat-value">${overview.totalItems}</span>
-          </div>
+      <div class="drawer-section">
+        <h3>One-Time Jobs</h3>
+        <div class="stat-mini-grid">
+          <div><b>${o.total}</b><span>Total</span></div>
+          <div><b>${o.Active || 0}</b><span>Active</span></div>
+          <div><b>${o["In Progress"] || 0}</b><span>In Progress</span></div>
+          <div><b>${o["On Hold"] || 0}</b><span>On Hold</span></div>
+          <div><b>${o.Completed || 0}</b><span>Completed</span></div>
+          <div><b class="danger-num">${o.paymentPending}</b><span>Payment Pending</span></div>
         </div>
       </div>
-
-      <div class="cov-lower-grid">
-        <div class="cov-panel">
-          <div class="cov-panel-head"><h3>Recent Activity</h3></div>
-          ${overview.recentActivity.length ? overview.recentActivity.map((a) => `
-            <div class="cov-activity-row">
-              <div class="cov-act-dot ${covActivityIconClass(a.type)}"><i class="fa-solid ${covActivityIcon(a.type)}"></i></div>
-              <div>
-                <div class="cov-act-text">${escapeHtml(a.text)}</div>
-                <div class="cov-act-time">${fmtDate(a.date)}</div>
-              </div>
-            </div>`).join("") : `<p class="muted" style="padding:12px 0;">No activity yet.</p>`}
-        </div>
-
-        <div class="cov-panel">
-          <div class="cov-panel-head"><h3>Overall Summary</h3></div>
-          <div class="cov-summary-row">
-            <div class="cov-summary-l"><i class="fa-solid fa-briefcase" style="background:var(--blue-bg); color:var(--blue);"></i>Jobs + Packages combined</div>
-            <div class="cov-summary-v">${overview.totalItems}</div>
-          </div>
-          <div class="cov-summary-row">
-            <div class="cov-summary-l"><i class="fa-solid fa-chart-simple" style="background:var(--success-bg); color:var(--success);"></i>Completion rate</div>
-            <div class="cov-summary-v">${overview.completionRate}%</div>
-          </div>
-          <div class="cov-summary-row">
-            <div class="cov-summary-l"><i class="fa-solid fa-calendar-check" style="background:var(--accent-light); color:var(--accent-dark);"></i>Client since</div>
-            <div class="cov-summary-v">${since}</div>
-          </div>
+      <div class="drawer-section">
+        <h3>Packages</h3>
+        <div class="stat-mini-grid">
+          <div><b>${p.total}</b><span>Total</span></div>
+          <div><b>${p.Active || 0}</b><span>Active</span></div>
+          <div><b>${p["On Hold"] || 0}</b><span>On Hold</span></div>
+          <div><b>${p.Completed || 0}</b><span>Completed</span></div>
+          <div><b class="danger-num">${p.paymentPending}</b><span>Payment Pending</span></div>
         </div>
       </div>
     `;
-  }
-
-  function covActivityIcon(type) {
-    if (type === "payment") return "fa-indian-rupee-sign";
-    if (type === "package_added") return "fa-box-archive";
-    return "fa-plus";
-  }
-  function covActivityIconClass(type) {
-    if (type === "payment") return "cov-act-green";
-    if (type === "package_added") return "cov-act-violet";
-    return "cov-act-blue";
   }
 
   // --- One-Time tab ---
@@ -1496,21 +1357,28 @@
     }));
   }
 
-  // Closing/going back always returns to the section (Overview / One-Time /
-  // Package) the client was opened from, since that section's client list is
-  // still rendered underneath this overlay and never changed.
-  function closeClientDrawer() {
-    $("#clientDrawerOverlay").hidden = true;
-    state.currentClientKey = null;
-    state.currentClient = null;
-  }
-
   function initClientDrawer() {
-    $("#closeClientDrawer").addEventListener("click", closeClientDrawer);
-    $("#clientDrawerBackBtn").addEventListener("click", closeClientDrawer);
-    $("#clientDrawerOverlay").addEventListener("click", (e) => {
-      if (e.target.id === "clientDrawerOverlay") closeClientDrawer();
+    $("#closeClientDrawer").addEventListener("click", () => {
+      $("#clientDrawerOverlay").hidden = true;
+      state.currentClientKey = null;
+      state.currentClient = null;
     });
+    $("#clientDrawerOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "clientDrawerOverlay") {
+        $("#clientDrawerOverlay").hidden = true;
+        state.currentClientKey = null;
+        state.currentClient = null;
+      }
+    });
+    $$(".client-tabs .tab-btn").forEach((btn) => btn.addEventListener("click", () => {
+      $$(".client-tabs .tab-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      const tab = btn.dataset.tab;
+      state.activeClientTab = tab;
+      $("#tabPanel-overview").hidden = tab !== "overview";
+      $("#tabPanel-onetime").hidden = tab !== "onetime";
+      $("#tabPanel-packages").hidden = tab !== "packages";
+    }));
     initJobFilterChips();
     initPackageFilterChips();
 
@@ -2478,7 +2346,8 @@
     state.editingJobId = job ? job.id : null;
     $("#oneTimeJobModalTitle").textContent = job ? "Edit One-Time Job" : "Add One-Time Job";
     $("#jobId").value = job ? job.id : "";
-    fillClientInfoFields("j", state.currentClient);
+    $("#jClientName").value = state.currentClient.clientName;
+    $("#jClientMobile").value = state.currentClient.mobile || "";
     $("#jName").value = job ? job.name : "";
     $("#jCategory").value = job ? job.category : (state.categories[0] || "");
     $("#jPriority").value = job ? job.priority : "Medium";
@@ -2558,8 +2427,6 @@
       const payload = {
         clientName: $("#jClientName").value,
         clientMobile: $("#jClientMobile").value,
-        clientBusinessName: $("#jClientBusinessName").value,
-        clientInstagram: $("#jClientInstagram").value,
         name: $("#jName").value.trim(),
         category: $("#jCategory").value,
         priority: $("#jPriority").value,
@@ -2598,317 +2465,61 @@
     $("#packageTypePickerOverlay").hidden = true;
   }
   function initPackageTypePicker() {
-    $("#closePackageTypePicker").addEventListener("click", closePackageTypePicker);
-    $("#packageTypePickerOverlay").addEventListener("click", (e) => {
-      if (e.target.id === "packageTypePickerOverlay") closePackageTypePicker();
+    $("#closePackageTypePicker").addEventListener("click", () => {
+      closePackageTypePicker();
+      state.addFlowFromGlobal = false;
     });
-    // A client (existing or new) is always selected before this picker opens —
-    // either via the client drawer's "Add Package" button (client already
-    // open) or via the Clients → Package → Add Package flow, which selects
-    // the client first, then reaches this type picker.
+    $("#packageTypePickerOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "packageTypePickerOverlay") {
+        closePackageTypePicker();
+        state.addFlowFromGlobal = false;
+      }
+    });
     $("#pickPostReelType").addEventListener("click", () => {
       closePackageTypePicker();
-      openPostReelPackageModal(null);
+      if (state.addFlowFromGlobal) {
+        state.addFlowFromGlobal = false;
+        state.addFlowTarget = "postreel";
+        openClientPickerModal();
+      } else {
+        openPostReelPackageModal(null);
+      }
     });
     $("#pickManagementType").addEventListener("click", () => {
       closePackageTypePicker();
-      openManagementPackageModal(null);
-    });
-  }
-
-  /* ---------------- Clients category menu (Overview / One-Time / Package) ---------------- */
-
-  function clientHasOneTime(c) {
-    return (c.payments || []).some((p) => p.sourceType === "one-time-job");
-  }
-  function clientHasPackage(c) {
-    return (c.payments || []).some((p) => p.sourceType === "package");
-  }
-
-  function openClientsCategory(category) {
-    state.clientsCategory = category;
-    const titleMap = { overview: "Overview", onetime: "One-Time", package: "Package" };
-    $("#clientsCategoryTitle").textContent = titleMap[category] || "Overview";
-    $("#clientsCategoryAddBtn").hidden = category === "overview";
-    $("#clientsCategoryMenu").hidden = true;
-    $("#clientsCategoryContent").hidden = false;
-    $("#clientSearch").value = "";
-    state.catStatusFilter = "";
-    updateClientCategoryToolbar(category);
-    loadClientsCategoryContent();
-  }
-
-  function closeClientsCategory() {
-    state.clientsCategory = null;
-    $("#clientsCategoryContent").hidden = true;
-    $("#clientsCategoryMenu").hidden = false;
-  }
-
-  // Toggle the month filter (Overview) vs status filter (One-Time / Package),
-  // and adjust the search placeholder for the active category.
-  const JOB_STATUS_OPTIONS = ["Active", "In Progress", "On Hold", "Completed"];
-  const PACKAGE_STATUS_OPTIONS = ["Active", "On Hold", "Completed"];
-
-  function updateClientCategoryToolbar(category) {
-    const monthFilter = $("#clientFilterMonth");
-    const statusFilter = $("#clientCatStatusFilter");
-    const search = $("#clientSearch");
-    if (category === "onetime" || category === "package") {
-      monthFilter.hidden = true;
-      statusFilter.hidden = false;
-      const options = category === "onetime" ? JOB_STATUS_OPTIONS : PACKAGE_STATUS_OPTIONS;
-      statusFilter.innerHTML = `<option value="">All Status</option>` +
-        options.map((s) => `<option value="${s}">${s}</option>`).join("");
-      statusFilter.value = "";
-      search.placeholder = "Search client, mobile, business, Instagram…";
-    } else {
-      monthFilter.hidden = false;
-      statusFilter.hidden = true;
-      search.placeholder = "Search clients…";
-    }
-  }
-
-  // Load whichever content the open Clients category needs: the client grid
-  // for Overview, or a CLIENT LIST (grouped from all One-Time Jobs / Packages)
-  // for the other two — "One-Time only shows clients with One-Time Jobs,
-  // Package only shows clients with Packages". Clicking a client in either
-  // list opens that client's details directly (see openClientDrawer).
-  async function loadClientsCategoryContent() {
-    const category = state.clientsCategory;
-    if (category === "onetime") {
-      try {
-        state.catRecords = await Api.getOneTimeJobs();
-      } catch (err) {
-        showToast(err.message, "error");
-        state.catRecords = [];
-      }
-      renderOneTimeClientsTable();
-    } else if (category === "package") {
-      try {
-        state.catRecords = await Api.getPackages();
-      } catch (err) {
-        showToast(err.message, "error");
-        state.catRecords = [];
-      }
-      renderPackageClientsTable();
-    } else {
-      await renderClientsView();
-    }
-  }
-
-  // Group the flat One-Time Job records (state.catRecords) into one row per
-  // client, with the summary counts the "One-Time" client list needs.
-  function buildOneTimeClientRows() {
-    const map = new Map();
-    state.catRecords.forEach((j) => {
-      const key = j.clientMobile || j.clientName;
-      if (!map.has(key)) {
-        map.set(key, {
-          clientKey: key,
-          clientName: j.clientName,
-          clientMobile: j.clientMobile,
-          clientBusinessName: j.clientBusinessName,
-          clientInstagram: j.clientInstagram,
-          total: 0, completed: 0, inProgress: 0,
-          totalAmount: 0, pendingAmount: 0
-        });
-      }
-      const row = map.get(key);
-      row.total += 1;
-      if (j.status === "Completed") row.completed += 1;
-      if (j.status === "In Progress") row.inProgress += 1;
-      row.totalAmount += Number(j.totalAmount) || 0;
-      row.pendingAmount += Number(j.pendingAmount) || 0;
-      if (j.clientBusinessName) row.clientBusinessName = j.clientBusinessName;
-      if (j.clientInstagram) row.clientInstagram = j.clientInstagram;
-    });
-    return Array.from(map.values()).map((r) => ({ ...r, pending: Math.max(0, r.total - r.completed - r.inProgress) }));
-  }
-
-  // Same idea for Packages: total / active / completed / pending per client.
-  function buildPackageClientRows() {
-    const map = new Map();
-    state.catRecords.forEach((p) => {
-      const key = p.clientMobile || p.clientName;
-      if (!map.has(key)) {
-        map.set(key, {
-          clientKey: key,
-          clientName: p.clientName,
-          clientMobile: p.clientMobile,
-          clientBusinessName: p.clientBusinessName,
-          clientInstagram: p.clientInstagram,
-          total: 0, active: 0, completed: 0,
-          totalAmount: 0, pendingAmount: 0
-        });
-      }
-      const row = map.get(key);
-      row.total += 1;
-      if (p.status === "Active") row.active += 1;
-      if (p.status === "Completed") row.completed += 1;
-      row.totalAmount += Number(p.totalAmount) || 0;
-      row.pendingAmount += Number(p.pendingAmount) || 0;
-      if (p.clientBusinessName) row.clientBusinessName = p.clientBusinessName;
-      if (p.clientInstagram) row.clientInstagram = p.clientInstagram;
-    });
-    return Array.from(map.values()).map((r) => ({ ...r, pending: Math.max(0, r.total - r.active - r.completed) }));
-  }
-
-  function filteredOneTimeClientRows() {
-    const search = ($("#clientSearch").value || "").toLowerCase();
-    const status = state.catStatusFilter;
-    let rows = buildOneTimeClientRows();
-    if (search) {
-      rows = rows.filter((r) => [r.clientName, r.clientMobile, r.clientBusinessName, r.clientInstagram]
-        .some((f) => (f || "").toString().toLowerCase().includes(search)));
-    }
-    if (status) {
-      const keysWithStatus = new Set(
-        state.catRecords.filter((j) => j.status === status).map((j) => j.clientMobile || j.clientName)
-      );
-      rows = rows.filter((r) => keysWithStatus.has(r.clientKey));
-    }
-    return rows.sort((a, b) => b.total - a.total);
-  }
-
-  function filteredPackageClientRows() {
-    const search = ($("#clientSearch").value || "").toLowerCase();
-    const status = state.catStatusFilter;
-    let rows = buildPackageClientRows();
-    if (search) {
-      rows = rows.filter((r) => [r.clientName, r.clientMobile, r.clientBusinessName, r.clientInstagram]
-        .some((f) => (f || "").toString().toLowerCase().includes(search)));
-    }
-    if (status) {
-      const keysWithStatus = new Set(
-        state.catRecords.filter((p) => p.status === status).map((p) => p.clientMobile || p.clientName)
-      );
-      rows = rows.filter((r) => keysWithStatus.has(r.clientKey));
-    }
-    return rows.sort((a, b) => b.total - a.total);
-  }
-
-  // Open a client's direct details from an aggregated row. Prefer the full
-  // client record (with totalBusiness/received/pending) already loaded for
-  // the Clients view, falling back to the row's own fields if not found.
-  function openClientFromKey(key, rows) {
-    const row = rows.find((r) => r.clientKey === key);
-    if (!row) return;
-    const full = state.clients.find((c) => (c.mobile || c.clientName) === key);
-    openClientDrawer(full || {
-      clientName: row.clientName,
-      mobile: row.clientMobile,
-      businessName: row.clientBusinessName,
-      instagram: row.clientInstagram
-    });
-  }
-
-  function renderOneTimeClientsTable() {
-    const rows = filteredOneTimeClientRows();
-    const grid = $("#clientGrid");
-    if (!rows.length) {
-      grid.innerHTML = `<div class="card table-card"><div class="empty-state"><i class="fa-solid fa-inbox"></i><p>No clients with one-time jobs yet.</p></div></div>`;
-      return;
-    }
-    grid.innerHTML = `
-      <div class="card table-card">
-        <div class="table-scroll">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Client Name</th><th>Business</th><th>Total Jobs</th><th>Completed</th>
-                <th>In Progress</th><th>Pending</th><th>Total Amount</th><th>Pending Amount</th><th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows.map((r) => `
-                <tr data-key="${escapeHtml(r.clientKey)}">
-                  <td>${escapeHtml(r.clientName)}</td>
-                  <td>${escapeHtml(r.clientBusinessName || "—")}</td>
-                  <td>${r.total}</td>
-                  <td>${r.completed}</td>
-                  <td>${r.inProgress}</td>
-                  <td>${r.pending}</td>
-                  <td>${fmtMoney(r.totalAmount)}</td>
-                  <td>${fmtMoney(r.pendingAmount)}</td>
-                  <td class="row-actions">
-                    <button class="icon-btn open-cat-client-btn" data-key="${escapeHtml(r.clientKey)}" title="View Details"><i class="fa-solid fa-arrow-right"></i></button>
-                  </td>
-                </tr>`).join("")}
-            </tbody>
-          </table>
-        </div>
-      </div>`;
-
-    $$("tr[data-key]", grid).forEach((row) => row.addEventListener("click", (e) => {
-      if (e.target.closest(".row-actions")) return;
-      openClientFromKey(row.dataset.key, rows);
-    }));
-    $$(".open-cat-client-btn", grid).forEach((btn) => btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      openClientFromKey(btn.dataset.key, rows);
-    }));
-  }
-
-  function renderPackageClientsTable() {
-    const rows = filteredPackageClientRows();
-    const grid = $("#clientGrid");
-    if (!rows.length) {
-      grid.innerHTML = `<div class="card table-card"><div class="empty-state"><i class="fa-solid fa-inbox"></i><p>No clients with packages yet.</p></div></div>`;
-      return;
-    }
-    grid.innerHTML = `
-      <div class="card table-card">
-        <div class="table-scroll">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Client Name</th><th>Business</th><th>Total Packages</th><th>Active</th>
-                <th>Completed</th><th>Pending</th><th>Total Amount</th><th>Pending Amount</th><th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows.map((r) => `
-                <tr data-key="${escapeHtml(r.clientKey)}">
-                  <td>${escapeHtml(r.clientName)}</td>
-                  <td>${escapeHtml(r.clientBusinessName || "—")}</td>
-                  <td>${r.total}</td>
-                  <td>${r.active}</td>
-                  <td>${r.completed}</td>
-                  <td>${r.pending}</td>
-                  <td>${fmtMoney(r.totalAmount)}</td>
-                  <td>${fmtMoney(r.pendingAmount)}</td>
-                  <td class="row-actions">
-                    <button class="icon-btn open-cat-client-btn" data-key="${escapeHtml(r.clientKey)}" title="View Details"><i class="fa-solid fa-arrow-right"></i></button>
-                  </td>
-                </tr>`).join("")}
-            </tbody>
-          </table>
-        </div>
-      </div>`;
-
-    $$("tr[data-key]", grid).forEach((row) => row.addEventListener("click", (e) => {
-      if (e.target.closest(".row-actions")) return;
-      openClientFromKey(row.dataset.key, rows);
-    }));
-    $$(".open-cat-client-btn", grid).forEach((btn) => btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      openClientFromKey(btn.dataset.key, rows);
-    }));
-  }
-
-  function initClientsCategoryMenu() {
-    $$(".client-category-row").forEach((row) => {
-      row.addEventListener("click", () => openClientsCategory(row.dataset.category));
-    });
-    $("#clientsCategoryBack").addEventListener("click", closeClientsCategory);
-    $("#clientsCategoryAddBtn").addEventListener("click", () => {
-      if (state.clientsCategory === "onetime") {
-        state.addFlowTarget = "onetime";
+      if (state.addFlowFromGlobal) {
+        state.addFlowFromGlobal = false;
+        state.addFlowTarget = "management";
         openClientPickerModal();
-      } else if (state.clientsCategory === "package") {
-        state.addFlowTarget = "package";
-        openClientPickerModal();
+      } else {
+        openManagementPackageModal(null);
       }
+    });
+  }
+
+  /* ---------------- Global "Add" flow: type picker + client picker ---------------- */
+
+  function openAddTypePicker() {
+    $("#addTypePickerOverlay").hidden = false;
+  }
+  function closeAddTypePicker() {
+    $("#addTypePickerOverlay").hidden = true;
+  }
+  function initAddTypePicker() {
+    $("#clientsAddBtn").addEventListener("click", openAddTypePicker);
+    $("#closeAddTypePicker").addEventListener("click", closeAddTypePicker);
+    $("#addTypePickerOverlay").addEventListener("click", (e) => {
+      if (e.target.id === "addTypePickerOverlay") closeAddTypePicker();
+    });
+    $("#pickAddOneTimeType").addEventListener("click", () => {
+      closeAddTypePicker();
+      state.addFlowTarget = "onetime";
+      openClientPickerModal();
+    });
+    $("#pickAddPackageType").addEventListener("click", () => {
+      closeAddTypePicker();
+      state.addFlowFromGlobal = true;
+      openPackageTypePicker();
     });
   }
 
@@ -2945,22 +2556,19 @@
     const target = state.addFlowTarget;
     state.addFlowTarget = null;
     if (target === "onetime") openOneTimeJobModal(null);
-    else if (target === "package") openPackageTypePicker();
+    else if (target === "postreel") openPostReelPackageModal(null);
+    else if (target === "management") openManagementPackageModal(null);
   }
 
   async function openClientPickerModal() {
-    const titleMap = { onetime: "Select Client — One-Time Job", package: "Select Client — Package" };
+    const titleMap = { onetime: "Select Client — One-Time Job", postreel: "Select Client — Post & Reel Package", management: "Select Client — Management Package" };
     $("#clientPickerTitle").textContent = titleMap[state.addFlowTarget] || "Select Client";
     $("#clientPickerSearch").value = "";
     $("#clientPickerNewName").value = "";
     $("#clientPickerNewMobile").value = "";
-    $("#clientPickerNewBusinessName").value = "";
-    $("#clientPickerNewInstagram").value = "";
-    $("#clientPickerNewLocation").value = "";
-    // Always fetch fresh — a client added or reused moments ago (e.g. right
-    // after saving their first Job/Package) must show up here immediately,
-    // not just after the next full page load.
-    try { state.clients = await Api.getClients("all"); } catch (err) { /* fall back to whatever we already have */ }
+    if (!state.clients.length) {
+      try { state.clients = await Api.getClients(state.clientsFilterMonth || "all"); } catch (err) { /* fall back to empty list */ }
+    }
     renderClientPickerList("");
     $("#clientPickerOverlay").hidden = false;
   }
@@ -2981,25 +2589,14 @@
     $("#clientPickerSearch").addEventListener("input", debounce(() => {
       renderClientPickerList($("#clientPickerSearch").value);
     }, 150));
-    $("#clientPickerUseNewBtn").addEventListener("click", async () => {
+    $("#clientPickerUseNewBtn").addEventListener("click", () => {
       const name = $("#clientPickerNewName").value.trim();
       if (!name) {
         showToast("Client name is required", "error");
         return;
       }
       const mobile = $("#clientPickerNewMobile").value.trim();
-      const businessName = $("#clientPickerNewBusinessName").value.trim();
-      const instagram = $("#clientPickerNewInstagram").value.trim();
-      const location = $("#clientPickerNewLocation").value.trim();
-      if (location) {
-        // Save immediately so it's available the moment the client is reused
-        // for another job/package, same as an existing client's location.
-        const key = mobile || name;
-        try {
-          state.clientProfiles[key] = await Api.updateClientProfile(key, { location });
-        } catch (err) { /* non-fatal — the modal will still show the typed location */ }
-      }
-      selectClientForAddFlow({ clientName: name, mobile, businessName, instagram, location, totalBusiness: 0, totalReceived: 0, totalPending: 0 });
+      selectClientForAddFlow({ clientName: name, mobile, businessName: "", totalBusiness: 0, totalReceived: 0, totalPending: 0 });
     });
   }
 
@@ -3024,7 +2621,8 @@
     state.editingPackageId = pkg ? pkg.id : null;
     $("#postReelPackageModalTitle").textContent = pkg ? "Edit Post & Reel Package" : "Add Post & Reel Package";
     $("#prPackageId").value = pkg ? pkg.id : "";
-    fillClientInfoFields("pr", state.currentClient);
+    $("#prClientName").value = state.currentClient.clientName;
+    $("#prClientMobile").value = state.currentClient.mobile || "";
     $("#prName").value = pkg ? pkg.name : "";
     $("#prStartDate").value = pkg ? pkg.startDate : new Date().toISOString().slice(0, 10);
     $("#prEndDate").value = pkg ? pkg.endDate : "";
@@ -3111,8 +2709,6 @@
       const payload = {
         clientName: $("#prClientName").value,
         clientMobile: $("#prClientMobile").value,
-        clientBusinessName: $("#prClientBusinessName").value,
-        clientInstagram: $("#prClientInstagram").value,
         type: "PostReel",
         name: $("#prName").value.trim(),
         startDate: $("#prStartDate").value,
@@ -3213,7 +2809,8 @@
     state.editingPackageId = pkg ? pkg.id : null;
     $("#managementPackageModalTitle").textContent = pkg ? "Edit Management Package" : "Add Management Package";
     $("#mgPackageId").value = pkg ? pkg.id : "";
-    fillClientInfoFields("mg", state.currentClient);
+    $("#mgClientName").value = state.currentClient.clientName;
+    $("#mgClientMobile").value = state.currentClient.mobile || "";
     $("#mgName").value = pkg ? pkg.name : "";
     $("#mgStartDate").value = pkg ? pkg.startDate : new Date().toISOString().slice(0, 10);
     $("#mgEndDate").value = pkg ? pkg.endDate : "";
@@ -3294,8 +2891,6 @@
       const payload = {
         clientName: $("#mgClientName").value,
         clientMobile: $("#mgClientMobile").value,
-        clientBusinessName: $("#mgClientBusinessName").value,
-        clientInstagram: $("#mgClientInstagram").value,
         type: "Management",
         name: $("#mgName").value.trim(),
         startDate: $("#mgStartDate").value,
@@ -3385,7 +2980,7 @@
     initPackageTypePicker();
     initPostReelPackageModal();
     initManagementPackageModal();
-    initClientsCategoryMenu();
+    initAddTypePicker();
     initClientPickerModal();
 
     try {

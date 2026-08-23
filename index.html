@@ -490,59 +490,20 @@
           <h1>Clients</h1>
           <p class="view-subtitle">Every client, their business history and pending balances.</p>
         </div>
+        <button class="btn btn-primary" id="clientsAddBtn"><i class="fa-solid fa-plus"></i> Add</button>
       </div>
 
-      <!-- Category menu: Overview / One-Time / Package -->
-      <div id="clientsCategoryMenu" class="client-category-menu">
-        <button type="button" class="client-category-row" data-category="overview">
-          <div class="client-category-icon blue"><i class="fa-solid fa-list-ul"></i></div>
-          <div class="client-category-info">
-            <h4>Overview</h4>
-            <span>Badha clients, total business ane pending</span>
-          </div>
-          <i class="fa-solid fa-chevron-right"></i>
-        </button>
-        <button type="button" class="client-category-row" data-category="onetime">
-          <div class="client-category-icon green"><i class="fa-solid fa-pen"></i></div>
-          <div class="client-category-info">
-            <h4>One-Time</h4>
-            <span>One-Time Job wala clients</span>
-          </div>
-          <i class="fa-solid fa-chevron-right"></i>
-        </button>
-        <button type="button" class="client-category-row" data-category="package">
-          <div class="client-category-icon amber"><i class="fa-solid fa-box-archive"></i></div>
-          <div class="client-category-info">
-            <h4>Package</h4>
-            <span>Package wala clients</span>
-          </div>
-          <i class="fa-solid fa-chevron-right"></i>
-        </button>
-      </div>
-
-      <!-- Category content: shown after selecting a category above -->
-      <div id="clientsCategoryContent" hidden>
-        <div class="view-header" style="margin-bottom:14px;">
-          <div style="display:flex; align-items:center; gap:10px;">
-            <button class="icon-btn" id="clientsCategoryBack"><i class="fa-solid fa-arrow-left"></i></button>
-            <h2 id="clientsCategoryTitle" style="margin:0; font-size:18px;">Overview</h2>
-          </div>
-          <button class="btn btn-primary" id="clientsCategoryAddBtn" hidden><i class="fa-solid fa-plus"></i> Add</button>
+      <div class="toolbar card">
+        <div class="toolbar-search">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input type="text" id="clientSearch" placeholder="Search clients…" />
         </div>
-
-        <div class="toolbar card">
-          <div class="toolbar-search">
-            <i class="fa-solid fa-magnifying-glass"></i>
-            <input type="text" id="clientSearch" placeholder="Search clients…" />
-          </div>
-          <div class="toolbar-filters">
-            <select id="clientFilterMonth"><option value="all">All Months</option></select>
-            <select id="clientCatStatusFilter" hidden><option value="">All Status</option></select>
-          </div>
+        <div class="toolbar-filters">
+          <select id="clientFilterMonth"><option value="all">All Months</option></select>
         </div>
-
-        <div class="client-grid" id="clientGrid"></div>
       </div>
+
+      <div class="client-grid" id="clientGrid"></div>
     </section>
 
     <!-- ======================= LEADS ======================= -->
@@ -1120,23 +1081,21 @@
   </div>
 </div>
 
-<!-- Client Detail Drawer — shows ONE direct context (Overview / One-Time / Package)
-     depending on which Clients section the client was opened from. No second
-     category-selection step after the client is clicked. -->
+<!-- Client Detail Drawer (Overview / One-Time / Package tabs) -->
 <div class="modal-overlay" id="clientDrawerOverlay" hidden>
   <div class="modal modal-lg">
     <div class="modal-head">
-      <div class="modal-head-title">
-        <button class="icon-btn" id="clientDrawerBackBtn" title="Back"><i class="fa-solid fa-arrow-left"></i></button>
-        <div>
-          <span class="modal-head-eyebrow" id="clientDrawerEyebrow">Overview</span>
-          <h2 id="clientDrawerTitle">Client</h2>
-        </div>
-      </div>
+      <h2 id="clientDrawerTitle">Client</h2>
       <button class="icon-btn" id="closeClientDrawer"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="modal-body">
       <div id="clientDrawerHeader"></div>
+
+      <div class="client-tabs">
+        <button class="tab-btn active" data-tab="overview">Overview</button>
+        <button class="tab-btn" data-tab="onetime">One-Time <span class="tab-count" id="cOneTimeCount"></span></button>
+        <button class="tab-btn" data-tab="packages">Packages <span class="tab-count" id="cPackageCount"></span></button>
+      </div>
 
       <div class="tab-panel" id="tabPanel-overview"></div>
 
@@ -1170,7 +1129,32 @@
   </div>
 </div>
 
-<!-- Client Picker (select existing client or add a new one, from category Add flow) -->
+<!-- Add Type Picker (from Clients main tab) -->
+<div class="modal-overlay" id="addTypePickerOverlay" hidden>
+  <div class="modal modal-sm">
+    <div class="modal-head">
+      <h2>Add</h2>
+      <button class="icon-btn" id="closeAddTypePicker"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <p class="muted" style="margin-bottom:14px;">Su add karvu che?</p>
+      <div class="package-type-picker">
+        <button type="button" class="package-type-card" id="pickAddOneTimeType">
+          <i class="fa-solid fa-pen"></i>
+          <h4>One-Time Job</h4>
+          <p>Single job — status + payment history</p>
+        </button>
+        <button type="button" class="package-type-card" id="pickAddPackageType">
+          <i class="fa-solid fa-box-archive"></i>
+          <h4>Package</h4>
+          <p>Post &amp; Reel or Management package</p>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Client Picker (select existing client or add a new one, from global Add flow) -->
 <div class="modal-overlay" id="clientPickerOverlay" hidden>
   <div class="modal modal-sm">
     <div class="modal-head">
@@ -1194,18 +1178,6 @@
           <div class="form-group">
             <label>Mobile</label>
             <input type="text" id="clientPickerNewMobile" placeholder="Mobile number" />
-          </div>
-          <div class="form-group">
-            <label>Business Name</label>
-            <input type="text" id="clientPickerNewBusinessName" placeholder="Business name" />
-          </div>
-          <div class="form-group">
-            <label>Instagram</label>
-            <input type="text" id="clientPickerNewInstagram" placeholder="@handle" />
-          </div>
-          <div class="form-group full">
-            <label>Location</label>
-            <input type="text" id="clientPickerNewLocation" placeholder="City / area" />
           </div>
         </div>
         <button type="button" class="btn btn-primary btn-sm" id="clientPickerUseNewBtn" style="margin-top:8px;"><i class="fa-solid fa-plus"></i> Continue with new client</button>
@@ -1247,32 +1219,9 @@
       <button class="icon-btn" id="closeOneTimeJobModal"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <form id="oneTimeJobForm" class="modal-body">
+      <input type="hidden" id="jClientName" />
+      <input type="hidden" id="jClientMobile" />
       <input type="hidden" id="jobId" />
-      <div class="drawer-section">
-        <div class="drawer-section-head"><h3>Client Information</h3></div>
-        <div class="form-grid">
-          <div class="form-group">
-            <label>Client Name</label>
-            <input type="text" id="jClientName" readonly />
-          </div>
-          <div class="form-group">
-            <label>Mobile</label>
-            <input type="text" id="jClientMobile" readonly />
-          </div>
-          <div class="form-group">
-            <label>Business Name</label>
-            <input type="text" id="jClientBusinessName" readonly />
-          </div>
-          <div class="form-group">
-            <label>Instagram</label>
-            <input type="text" id="jClientInstagram" readonly />
-          </div>
-          <div class="form-group full">
-            <label>Location</label>
-            <input type="text" id="jClientLocation" readonly />
-          </div>
-        </div>
-      </div>
       <div class="form-grid">
         <div class="form-group full">
           <label>Job Name *</label>
@@ -1361,32 +1310,9 @@
       <button class="icon-btn" id="closePostReelPackageModal"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <form id="postReelPackageForm" class="modal-body">
+      <input type="hidden" id="prClientName" />
+      <input type="hidden" id="prClientMobile" />
       <input type="hidden" id="prPackageId" />
-      <div class="drawer-section">
-        <div class="drawer-section-head"><h3>Client Information</h3></div>
-        <div class="form-grid">
-          <div class="form-group">
-            <label>Client Name</label>
-            <input type="text" id="prClientName" readonly />
-          </div>
-          <div class="form-group">
-            <label>Mobile</label>
-            <input type="text" id="prClientMobile" readonly />
-          </div>
-          <div class="form-group">
-            <label>Business Name</label>
-            <input type="text" id="prClientBusinessName" readonly />
-          </div>
-          <div class="form-group">
-            <label>Instagram</label>
-            <input type="text" id="prClientInstagram" readonly />
-          </div>
-          <div class="form-group full">
-            <label>Location</label>
-            <input type="text" id="prClientLocation" readonly />
-          </div>
-        </div>
-      </div>
       <div class="form-grid">
         <div class="form-group full">
           <label>Package Name *</label>
@@ -1486,32 +1412,9 @@
       <button class="icon-btn" id="closeManagementPackageModal"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <form id="managementPackageForm" class="modal-body">
+      <input type="hidden" id="mgClientName" />
+      <input type="hidden" id="mgClientMobile" />
       <input type="hidden" id="mgPackageId" />
-      <div class="drawer-section">
-        <div class="drawer-section-head"><h3>Client Information</h3></div>
-        <div class="form-grid">
-          <div class="form-group">
-            <label>Client Name</label>
-            <input type="text" id="mgClientName" readonly />
-          </div>
-          <div class="form-group">
-            <label>Mobile</label>
-            <input type="text" id="mgClientMobile" readonly />
-          </div>
-          <div class="form-group">
-            <label>Business Name</label>
-            <input type="text" id="mgClientBusinessName" readonly />
-          </div>
-          <div class="form-group">
-            <label>Instagram</label>
-            <input type="text" id="mgClientInstagram" readonly />
-          </div>
-          <div class="form-group full">
-            <label>Location</label>
-            <input type="text" id="mgClientLocation" readonly />
-          </div>
-        </div>
-      </div>
       <div class="form-grid">
         <div class="form-group full">
           <label>Package Name *</label>

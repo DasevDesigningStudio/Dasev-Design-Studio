@@ -264,8 +264,6 @@ function normalizeOneTimeJob(input, existing = {}) {
     id: existing.id,
     clientName: (input.clientName ?? existing.clientName ?? "").toString().trim(),
     clientMobile: (input.clientMobile ?? existing.clientMobile ?? "").toString().trim(),
-    clientBusinessName: (input.clientBusinessName ?? existing.clientBusinessName ?? "").toString().trim(),
-    clientInstagram: (input.clientInstagram ?? existing.clientInstagram ?? "").toString().trim(),
     name: (input.name ?? existing.name ?? "").toString().trim(),
     category: (input.category ?? existing.category ?? "").toString().trim(),
     startDate: input.startDate ?? existing.startDate ?? new Date().toISOString().slice(0, 10),
@@ -320,8 +318,6 @@ function normalizePackage(input, existing = {}) {
     id: existing.id,
     clientName: (input.clientName ?? existing.clientName ?? "").toString().trim(),
     clientMobile: (input.clientMobile ?? existing.clientMobile ?? "").toString().trim(),
-    clientBusinessName: (input.clientBusinessName ?? existing.clientBusinessName ?? "").toString().trim(),
-    clientInstagram: (input.clientInstagram ?? existing.clientInstagram ?? "").toString().trim(),
     name: (input.name ?? existing.name ?? "").toString().trim(),
     type,
     startDate: input.startDate ?? existing.startDate ?? new Date().toISOString().slice(0, 10),
@@ -1082,8 +1078,8 @@ function syncMirroredPayment(data, entity, sourceType) {
     id: idx >= 0 ? data.payments[idx].id : nextPaymentId(data.payments),
     clientName: entity.clientName,
     mobile: entity.clientMobile,
-    businessName: entity.clientBusinessName || (idx >= 0 ? data.payments[idx].businessName : "") || "",
-    instagram: entity.clientInstagram || (idx >= 0 ? data.payments[idx].instagram : "") || "",
+    businessName: idx >= 0 ? data.payments[idx].businessName : "",
+    instagram: idx >= 0 ? data.payments[idx].instagram : "",
     workDetails: entity.name,
     category: sourceType === "one-time-job" ? (entity.category || "Other") : (entity.type === "Management" ? "Management" : "Post"),
     date: entity.startDate,
@@ -1324,59 +1320,11 @@ app.get("/api/clients/:key/overview", async (req, res) => {
     return out;
   };
 
-  // --- Money totals across both jobs and packages ---
-  const totalPaid = [...jobs, ...pkgs].reduce((sum, x) => sum + (Number(x.paidAmount) || 0), 0);
-  const totalPending = [...jobs, ...pkgs].reduce((sum, x) => sum + (Number(x.pendingAmount) || 0), 0);
-
-  // --- Completed vs currently-running work ---
-  const completedWork =
-    jobs.filter((j) => j.status === "Completed").length +
-    pkgs.filter((p) => p.status === "Completed").length;
-  const runningWork =
-    jobs.filter((j) => j.status === "Active" || j.status === "In Progress").length +
-    pkgs.filter((p) => p.status === "Active").length;
-
-  const totalItems = jobs.length + pkgs.length;
-  const completionRate = totalItems > 0 ? Math.round((completedWork / totalItems) * 100) : 0;
-
-  // --- Client since: earliest createdAt across all their jobs/packages ---
-  const allDates = [...jobs, ...pkgs].map((x) => x.createdAt).filter(Boolean).sort();
-  const clientSince = allDates.length ? allDates[0] : null;
-
-  // --- Recent activity feed: job/package creation + payments received ---
-  const activity = [];
-  jobs.forEach((j) => {
-    activity.push({ type: "job_added", date: j.createdAt, text: `New one-time job added — ${j.name}` });
-    (j.paymentHistory || []).forEach((h) => {
-      activity.push({ type: "payment", date: h.date, text: `Payment received — ${fmtMoneyForActivity(h.amount)} for ${j.name}` });
-    });
-  });
-  pkgs.forEach((p) => {
-    activity.push({ type: "package_added", date: p.createdAt, text: `New package added — ${p.name}` });
-    (p.paymentHistory || []).forEach((h) => {
-      activity.push({ type: "payment", date: h.date, text: `Payment received — ${fmtMoneyForActivity(h.amount)} for ${p.name}` });
-    });
-  });
-  activity.sort((a, b) => new Date(b.date) - new Date(a.date));
-
   res.json({
     oneTime: countBy(jobs, ["Active", "In Progress", "On Hold", "Completed"]),
-    packages: countBy(pkgs, ["Active", "On Hold", "Completed"]),
-    totalPaid,
-    totalPending,
-    completedWork,
-    runningWork,
-    totalItems,
-    completionRate,
-    clientSince,
-    recentActivity: activity.slice(0, 8)
+    packages: countBy(pkgs, ["Active", "On Hold", "Completed"])
   });
 });
-
-function fmtMoneyForActivity(amount) {
-  const n = Number(amount) || 0;
-  return "₹" + n.toLocaleString("en-IN");
-}
 
 
 /* ---------------------------------------------------------------------- */
