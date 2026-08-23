@@ -47,7 +47,11 @@
 
     // Global "Add" flow (from the Clients category tabs, before any client is open)
     addFlowTarget: null,        // null | "onetime" | "package" — what to open once a client is picked
-    clientsCategory: null       // null | "overview" | "onetime" | "package" — which Clients category is open
+    clientsCategory: null,      // null | "overview" | "onetime" | "package" — which Clients category is open
+
+    // Flat One-Time Job / Package records shown directly under Clients → One-Time / Package
+    catRecords: [],
+    catStatusFilter: ""
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -1119,6 +1123,8 @@
 
   function initClientSearch() {
     $("#clientSearch").addEventListener("input", debounce(() => {
+      if (state.clientsCategory === "onetime") { renderJobsRecordsTable(); return; }
+      if (state.clientsCategory === "package") { renderPackagesRecordsTable(); return; }
       const search = $("#clientSearch").value.toLowerCase();
       const filtered = clientsForCurrentCategory().filter((c) =>
         [c.clientName, c.mobile, c.businessName, c.instagram].some((f) => (f || "").toLowerCase().includes(search))
@@ -1129,6 +1135,12 @@
     $("#clientFilterMonth").addEventListener("change", async () => {
       state.clientsFilterMonth = $("#clientFilterMonth").value;
       await renderClientsView();
+    });
+
+    $("#clientCatStatusFilter").addEventListener("change", () => {
+      state.catStatusFilter = $("#clientCatStatusFilter").value;
+      if (state.clientsCategory === "onetime") renderJobsRecordsTable();
+      else if (state.clientsCategory === "package") renderPackagesRecordsTable();
     });
   }
 
@@ -1192,8 +1204,8 @@
 
   async function refreshClientsGridIfVisible() {
     const view = $("#view-clients");
-    if (view && view.classList.contains("active")) {
-      await renderClientsView();
+    if (view && view.classList.contains("active") && !$("#clientsCategoryContent").hidden) {
+      await loadClientsCategoryContent();
     }
   }
 
@@ -2528,13 +2540,250 @@
     $("#clientsCategoryMenu").hidden = true;
     $("#clientsCategoryContent").hidden = false;
     $("#clientSearch").value = "";
-    renderClientsView();
+    state.catStatusFilter = "";
+    updateClientCategoryToolbar(category);
+    loadClientsCategoryContent();
   }
 
   function closeClientsCategory() {
     state.clientsCategory = null;
     $("#clientsCategoryContent").hidden = true;
     $("#clientsCategoryMenu").hidden = false;
+  }
+
+  // Toggle the month filter (Overview) vs status filter (One-Time / Package),
+  // and adjust the search placeholder for the active category.
+  const JOB_STATUS_OPTIONS = ["Active", "In Progress", "On Hold", "Completed"];
+  const PACKAGE_STATUS_OPTIONS = ["Active", "On Hold", "Completed"];
+
+  function updateClientCategoryToolbar(category) {
+    const monthFilter = $("#clientFilterMonth");
+    const statusFilter = $("#clientCatStatusFilter");
+    const search = $("#clientSearch");
+    if (category === "onetime" || category === "package") {
+      monthFilter.hidden = true;
+      statusFilter.hidden = false;
+      const options = category === "onetime" ? JOB_STATUS_OPTIONS : PACKAGE_STATUS_OPTIONS;
+      statusFilter.innerHTML = `<option value="">All Status</option>` +
+        options.map((s) => `<option value="${s}">${s}</option>`).join("");
+      statusFilter.value = "";
+      search.placeholder = category === "onetime"
+        ? "Search job, client, mobile, business, Instagram…"
+        : "Search package, client, mobile, business, Instagram…";
+    } else {
+      monthFilter.hidden = false;
+      statusFilter.hidden = true;
+      search.placeholder = "Search clients…";
+    }
+  }
+
+  // Load whichever content the open Clients category needs: the client grid
+  // for Overview, or a flat table of every One-Time Job / Package for the
+  // other two — matching "One-Time only shows One-Time, Package only shows Package".
+  async function loadClientsCategoryContent() {
+    const category = state.clientsCategory;
+    if (category === "onetime") {
+      try {
+        state.catRecords = await Api.getOneTimeJobs();
+      } catch (err) {
+        showToast(err.message, "error");
+        state.catRecords = [];
+      }
+      renderJobsRecordsTable();
+    } else if (category === "package") {
+      try {
+        state.catRecords = await Api.getPackages();
+      } catch (err) {
+        showToast(err.message, "error");
+        state.catRecords = [];
+      }
+      renderPackagesRecordsTable();
+    } else {
+      await renderClientsView();
+    }
+  }
+
+  function filteredCategoryJobs() {
+    const search = ($("#clientSearch").value || "").toLowerCase();
+    const status = state.catStatusFilter;
+    return state.catRecords
+      .filter((j) => {
+        const matchesSearch = !search || [j.clientName, j.clientMobile, j.clientBusinessName, j.clientInstagram, j.name, j.category]
+          .some((f) => (f || "").toString().toLowerCase().includes(search));
+        const matchesStatus = !status || j.status === status;
+        return matchesSearch && matchesStatus;
+      })
+      .sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
+  }
+
+  function filteredCategoryPackages() {
+    const search = ($("#clientSearch").value || "").toLowerCase();
+    const status = state.catStatusFilter;
+    return state.catRecords
+      .filter((p) => {
+        const matchesSearch = !search || [p.clientName, p.clientMobile, p.clientBusinessName, p.clientInstagram, p.name]
+          .some((f) => (f || "").toString().toLowerCase().includes(search));
+        const matchesStatus = !status || p.status === status;
+        return matchesSearch && matchesStatus;
+      })
+      .sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
+  }
+
+  // Selecting a job/package straight from these flat tables needs to open the
+  // same modal the Client Detail Drawer uses, with that record's own client
+  // set as the "current client" so Client Information auto-fills correctly.
+  function setCurrentClientFromRecord(record) {
+    state.currentClient = {
+      clientName: record.clientName,
+      mobile: record.clientMobile,
+      businessName: record.clientBusinessName,
+      instagram: record.clientInstagram
+    };
+    state.currentClientKey = record.clientMobile || record.clientName;
+  }
+
+  function openJobFromCategoryList(id) {
+    const job = state.catRecords.find((j) => j.id === id);
+    if (!job) return;
+    setCurrentClientFromRecord(job);
+    openOneTimeJobModal(job);
+  }
+
+  function openPackageFromCategoryList(id, type) {
+    const pkg = state.catRecords.find((p) => p.id === id);
+    if (!pkg) return;
+    setCurrentClientFromRecord(pkg);
+    openPackageEditByType(pkg.id, type || pkg.type);
+  }
+
+  function renderJobsRecordsTable() {
+    const list = filteredCategoryJobs();
+    const grid = $("#clientGrid");
+    if (!list.length) {
+      grid.innerHTML = `<div class="card table-card"><div class="empty-state"><i class="fa-solid fa-inbox"></i><p>No one-time jobs yet. Click "Add" to create the first one.</p></div></div>`;
+      return;
+    }
+    grid.innerHTML = `
+      <div class="card table-card">
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Job ID</th><th>Client</th><th>Job Name / Work</th><th>Category</th>
+                <th>Dates</th><th>Units</th><th>Amount</th><th>Status</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${list.map((j) => `
+                <tr data-id="${j.id}">
+                  <td>${escapeHtml(j.id)}</td>
+                  <td>${escapeHtml(j.clientName)}</td>
+                  <td>${escapeHtml(j.name)}</td>
+                  <td>${escapeHtml(j.category || "—")}</td>
+                  <td>${fmtDate(j.startDate)}${j.dueDate ? ` → ${fmtDate(j.dueDate)}` : ""}</td>
+                  <td>${j.totalUnits ? `${j.doneUnits}/${j.totalUnits}` : "—"}</td>
+                  <td>${fmtMoney(j.totalAmount)}</td>
+                  <td><span class="badge ${pkgStatusClass(j.status)}">${escapeHtml(j.status)}</span></td>
+                  <td class="row-actions">
+                    <button class="icon-btn edit-cat-job-btn" data-id="${j.id}" title="View / Edit"><i class="fa-solid fa-pen"></i></button>
+                    <button class="icon-btn delete-cat-job-btn" data-id="${j.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>
+                  </td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+
+    $$("tr[data-id]", grid).forEach((row) => row.addEventListener("click", (e) => {
+      if (e.target.closest(".row-actions")) return;
+      openJobFromCategoryList(row.dataset.id);
+    }));
+    $$(".edit-cat-job-btn", grid).forEach((btn) => btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openJobFromCategoryList(btn.dataset.id);
+    }));
+    $$(".delete-cat-job-btn", grid).forEach((btn) => btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      openConfirm("Delete One-Time Job", "Are you sure you want to delete this job?", async () => {
+        try {
+          await Api.deleteOneTimeJob(id);
+          showToast("Job deleted", "success");
+          await loadClientsCategoryContent();
+          state.payments = await Api.getPayments();
+        } catch (err) {
+          showToast("Failed to delete: " + err.message, "error");
+        }
+      });
+    }));
+  }
+
+  function renderPackagesRecordsTable() {
+    const list = filteredCategoryPackages();
+    const grid = $("#clientGrid");
+    if (!list.length) {
+      grid.innerHTML = `<div class="card table-card"><div class="empty-state"><i class="fa-solid fa-inbox"></i><p>No packages yet. Click "Add" to create the first one.</p></div></div>`;
+      return;
+    }
+    grid.innerHTML = `
+      <div class="card table-card">
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Package ID</th><th>Client</th><th>Package Name</th><th>Type</th>
+                <th>Dates</th><th>Amount</th><th>Status</th><th>Progress</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${list.map((p) => {
+                const progress = p.progress || {};
+                const progressText = p.type === "Management"
+                  ? `${progress.posts || 0} Posts · ${progress.reels || 0} Reels · ${progress.stories || 0} Stories`
+                  : `${progress.percent || 0}% (${progress.done || 0}/${progress.total || 0})`;
+                return `
+                <tr data-id="${p.id}" data-type="${p.type}">
+                  <td>${escapeHtml(p.id)}</td>
+                  <td>${escapeHtml(p.clientName)}</td>
+                  <td>${escapeHtml(p.name)}</td>
+                  <td>${p.type === "Management" ? "Management" : "Post &amp; Reel"}</td>
+                  <td>${fmtDate(p.startDate)}${p.endDate ? ` → ${fmtDate(p.endDate)}` : ""}</td>
+                  <td>${fmtMoney(p.totalAmount)}</td>
+                  <td><span class="badge ${pkgStatusClass(p.status)}">${escapeHtml(p.status)}</span></td>
+                  <td>${escapeHtml(progressText)}</td>
+                  <td class="row-actions">
+                    <button class="icon-btn edit-cat-pkg-btn" data-id="${p.id}" data-type="${p.type}" title="View / Edit"><i class="fa-solid fa-pen"></i></button>
+                    <button class="icon-btn delete-cat-pkg-btn" data-id="${p.id}" title="Delete"><i class="fa-solid fa-trash"></i></button>
+                  </td>
+                </tr>`;
+              }).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+
+    $$("tr[data-id]", grid).forEach((row) => row.addEventListener("click", (e) => {
+      if (e.target.closest(".row-actions")) return;
+      openPackageFromCategoryList(row.dataset.id, row.dataset.type);
+    }));
+    $$(".edit-cat-pkg-btn", grid).forEach((btn) => btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openPackageFromCategoryList(btn.dataset.id, btn.dataset.type);
+    }));
+    $$(".delete-cat-pkg-btn", grid).forEach((btn) => btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      openConfirm("Delete Package", "Are you sure you want to delete this package?", async () => {
+        try {
+          await Api.deletePackage(id);
+          showToast("Package deleted", "success");
+          await loadClientsCategoryContent();
+          state.payments = await Api.getPayments();
+        } catch (err) {
+          showToast("Failed to delete: " + err.message, "error");
+        }
+      });
+    }));
   }
 
   function initClientsCategoryMenu() {
@@ -2598,9 +2847,10 @@
     $("#clientPickerNewBusinessName").value = "";
     $("#clientPickerNewInstagram").value = "";
     $("#clientPickerNewLocation").value = "";
-    if (!state.clients.length) {
-      try { state.clients = await Api.getClients(state.clientsFilterMonth || "all"); } catch (err) { /* fall back to empty list */ }
-    }
+    // Always fetch fresh — a client added or reused moments ago (e.g. right
+    // after saving their first Job/Package) must show up here immediately,
+    // not just after the next full page load.
+    try { state.clients = await Api.getClients("all"); } catch (err) { /* fall back to whatever we already have */ }
     renderClientPickerList("");
     $("#clientPickerOverlay").hidden = false;
   }
