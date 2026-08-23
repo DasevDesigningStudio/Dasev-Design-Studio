@@ -667,6 +667,8 @@ select:focus { border-color: var(--accent); }
   padding: 20px 24px; border-bottom: 1px solid var(--border);
 }
 .modal-head h2 { font-size: 17px; font-weight: 700; }
+.modal-head-title { display: flex; align-items: center; gap: 12px; }
+.modal-head-eyebrow { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin-bottom: 2px; }
 .modal-body { padding: 22px 24px; overflow-y: auto; }
 .modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 18px 24px; border-top: 1px solid var(--border); }
 .modal-footer.center { justify-content: center; }
