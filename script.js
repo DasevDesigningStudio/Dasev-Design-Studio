@@ -14,7 +14,7 @@
     categories: [],
     expenses: [],
     expenseCategories: [],
-    settings: { companyName: "My Agency", currency: "₹", themeColor: "teal", darkMode: false },
+    settings: { companyName: "My Agency", currency: "₹", themeColor: "orange", darkMode: true },
     dashboard: null,
     dashboardMonth: currentMonthKey(),
     overview: null,
