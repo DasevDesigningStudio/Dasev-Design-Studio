@@ -72,6 +72,7 @@ body.dark-mode {
 }
 
 /* Theme color variants (accent only — sidebar always stays teal) */
+body[data-theme="orange"] { --accent: #ea6a1f; --accent-dark: #b6480f; --accent-light: #fdece0; }
 body[data-theme="violet"] { --accent: #7c6cf0; --accent-dark: #4c3fc4; --accent-light: #efecfe; }
 body[data-theme="blue"]   { --accent: #3b82f6; --accent-dark: #1d4ed8; --accent-light: #e9f1fe; }
 body[data-theme="rose"]   { --accent: #e15b7c; --accent-dark: #b6335a; --accent-light: #fdebf0; }
@@ -603,6 +604,7 @@ select:focus { border-color: var(--accent); }
 
 .theme-swatches { display: flex; gap: 10px; }
 .swatch { width: 34px; height: 34px; border-radius: 50%; border: 3px solid transparent; box-shadow: var(--shadow-sm); }
+.swatch.orange { background: #ea6a1f; }
 .swatch.teal { background: #12756c; }
 .swatch.violet { background: #7c6cf0; }
 .swatch.blue { background: #3b82f6; }
