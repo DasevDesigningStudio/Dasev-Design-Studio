@@ -15,7 +15,126 @@ const PORT = process.env.PORT || 5000;
 app.use(express.json());
 
 // Static files (index.html, style.css, script.js, etc.)
-app.use(express.static(__dirname));
+/* ---------------------------------------------------------------------- */
+/* Password protection (single user)                                      */
+/* Set APP_PASSWORD in Render -> Environment. Without it, the app stays   */
+/* locked (safer than leaving your data open).                            */
+/* ---------------------------------------------------------------------- */
+
+const crypto = require("crypto");
+app.set("trust proxy", 1);
+app.use(express.urlencoded({ extended: false }));
+
+const APP_PASSWORD = process.env.APP_PASSWORD || "";
+const SESSION_SECRET = process.env.SESSION_SECRET || APP_PASSWORD;
+const COOKIE_NAME = "aos_session";
+const SESSION_DAYS = 30;
+
+if (!APP_PASSWORD) {
+  console.error("APP_PASSWORD is not set — the app will stay locked until you add it.");
+}
+
+function sign(value) {
+  return crypto.createHmac("sha256", SESSION_SECRET).update(value).digest("hex");
+}
+function safeEqual(a, b) {
+  const ba = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+}
+function makeToken() {
+  const exp = String(Date.now() + SESSION_DAYS * 86400000);
+  return exp + "." + sign(exp);
+}
+function isValidToken(token) {
+  if (!APP_PASSWORD || !token) return false;
+  const [exp, sig] = String(token).split(".");
+  if (!exp || !sig || !safeEqual(sig, sign(exp))) return false;
+  return Number(exp) > Date.now();
+}
+function getCookie(req, name) {
+  const raw = req.headers.cookie || "";
+  for (const part of raw.split(";")) {
+    const i = part.indexOf("=");
+    if (i > -1 && part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return null;
+}
+
+// Simple brute-force limit: 5 wrong attempts per IP per 15 minutes
+const failedLogins = new Map();
+function tooManyAttempts(ip) {
+  const rec = failedLogins.get(ip);
+  if (!rec) return false;
+  if (Date.now() - rec.first > 15 * 60000) { failedLogins.delete(ip); return false; }
+  return rec.count >= 5;
+}
+function recordFail(ip) {
+  const rec = failedLogins.get(ip);
+  if (!rec || Date.now() - rec.first > 15 * 60000) failedLogins.set(ip, { count: 1, first: Date.now() });
+  else rec.count++;
+}
+
+function loginPage(message) {
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Login</title>
+<style>
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f172a;font-family:system-ui,sans-serif}
+  form{background:#fff;padding:32px;border-radius:14px;width:min(340px,88vw);box-shadow:0 10px 40px rgba(0,0,0,.35)}
+  h1{margin:0 0 6px;font-size:22px;color:#0f172a} p{margin:0 0 18px;color:#64748b;font-size:14px}
+  input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #cbd5e1;border-radius:8px;font-size:16px;margin-bottom:12px}
+  button{width:100%;padding:12px;border:0;border-radius:8px;background:#0d9488;color:#fff;font-size:16px;font-weight:600;cursor:pointer}
+  .err{color:#dc2626;font-size:14px;margin-bottom:12px}
+</style></head><body>
+<form method="POST" action="/login">
+  <h1>Agency OS</h1><p>Password nakho</p>
+  ${message ? `<div class="err">${message}</div>` : ""}
+  <input type="password" name="password" placeholder="Password" autofocus required>
+  <button type="submit">Login</button>
+</form></body></html>`;
+}
+
+app.get("/login", (req, res) => {
+  res.send(loginPage(APP_PASSWORD ? "" : "APP_PASSWORD Render ma set nathi."));
+});
+
+app.post("/login", (req, res) => {
+  const ip = req.ip;
+  if (!APP_PASSWORD) return res.status(503).send(loginPage("APP_PASSWORD Render ma set nathi."));
+  if (tooManyAttempts(ip)) return res.status(429).send(loginPage("Ghana vadhare prayatno. 15 minute pachi try karo."));
+  if (!safeEqual(req.body.password || "", APP_PASSWORD)) {
+    recordFail(ip);
+    return res.status(401).send(loginPage("Khotu password."));
+  }
+  failedLogins.delete(ip);
+  const secure = req.secure ? "; Secure" : "";
+  res.setHeader(
+    "Set-Cookie",
+    `${COOKIE_NAME}=${encodeURIComponent(makeToken())}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_DAYS * 86400}${secure}`
+  );
+  res.redirect("/");
+});
+
+app.get("/logout", (req, res) => {
+  res.setHeader("Set-Cookie", `${COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+  res.redirect("/login");
+});
+
+// Health check stays public (Render uses it); everything else needs login.
+app.use((req, res, next) => {
+  if (req.path === "/healthz" || req.path === "/login" || req.path === "/logout") return next();
+  if (isValidToken(getCookie(req, COOKIE_NAME))) return next();
+  if (req.path.startsWith("/api")) return res.status(401).json({ error: "Login required" });
+  return res.redirect("/login");
+});
+
+// Only serve the real front-end files (NOT server.js, data.json, .env, etc.)
+["style.css", "script.js", "index.html"].forEach((f) => {
+  app.get("/" + f, (req, res) => res.sendFile(path.join(__dirname, f)));
+});
+
 
 /* ---------------------------------------------------------------------- */
 /* Database (Supabase Postgres) — replaces the old data.json file so data */
@@ -831,6 +950,24 @@ app.get("/", async (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
+app.get("/healthz", (req, res) => {
+  res.status(dbReady ? 200 : 503).json({
+    ok: dbReady,
+    db: dbReady ? "connected" : "unreachable",
+    error: dbReady ? null : dbLastError
+  });
+});
+
+// Gate every /api/* call on the database actually being connected, so a
+// DB outage returns a clear 503 immediately instead of every route
+// hanging on a query that will never resolve.
+app.use("/api", (req, res, next) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: "Database is not connected yet. Try again shortly." });
+  }
+  next();
+});
+
 /* ---------------------------------------------------------------------- */
 /* Payments CRUD                                                          */
 /* ---------------------------------------------------------------------- */
@@ -1583,13 +1720,54 @@ app.post("/api/restore", upload.single("backupFile"), async (req, res) => {
 /* Start server                                                           */
 /* ---------------------------------------------------------------------- */
 
-initDb()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`Payment Manager running on http://localhost:${PORT}`);
+// Bind the HTTP port immediately, regardless of database state. This is
+// what lets Render's port scanner see the service as "up" even while the
+// database is unreachable, instead of the whole process exiting and
+// looping (the old behavior).
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Payment Manager running on http://localhost:${PORT}`);
+});
+
+// Connect to the database in the background, retrying with backoff instead
+// of killing the process on failure. dbReady gates every /api/* route via
+// the middleware below, so requests get a clean 503 (not a hang or crash)
+// until the connection succeeds.
+let dbReady = false;
+let dbLastError = null;
+
+function connectDb(attempt = 1) {
+  initDb()
+    .then(() => {
+      dbReady = true;
+      dbLastError = null;
+      console.log("Database connected.");
+    })
+    .catch((err) => {
+      dbReady = false;
+      dbLastError = err.message;
+      const delay = Math.min(30000, attempt * 3000);
+      console.error(
+        `Database connection failed (attempt ${attempt}): ${err.message} — retrying in ${delay / 1000}s`
+      );
+      setTimeout(() => connectDb(attempt + 1), delay);
     });
-  })
-  .catch((err) => {
-    console.error("Failed to connect to database:", err.message);
-    process.exit(1);
-  });
+}
+
+// Log which host/user we're trying to reach (never the password) so a
+// wrong pooler region or malformed DATABASE_URL is obvious in the logs.
+try {
+  const u = new URL(process.env.DATABASE_URL || "");
+  console.log(`DB target -> host=${u.hostname} port=${u.port} user=${u.username}`);
+} catch {
+  console.error("DATABASE_URL is missing or not a valid connection string.");
+}
+
+connectDb();
+
+// Safety net: in newer Node versions an unhandled promise rejection
+// terminates the process. Several routes above don't wrap loadData()/
+// saveData() in try/catch, so a DB hiccup there would previously be able
+// to crash the whole server, not just that one request. Log it instead.
+process.on("unhandledRejection", (err) => {
+  console.error("Unhandled rejection (ignored, server stays up):", err);
+});
