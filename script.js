@@ -282,7 +282,6 @@
     });
 
     // Lazy-load per-view data
-    if (view === "overview") loadOverview().catch((err) => showToast("Failed to load overview: " + err.message, "error"));
     if (view === "payments") renderPaymentsView();
     if (view === "clients") renderClientsView();
     if (view === "leads") renderLeadsView();
@@ -2943,9 +2942,8 @@
     populateCategorySelects();
 
     await loadDashboard();
-    await loadOverview();
-
-    const view = (window.location.hash || "#overview").slice(1);
+    let view = (window.location.hash || "#dashboard").slice(1);
+    if (!document.getElementById("view-" + view)) view = "dashboard"; // e.g. old #overview bookmark
     setActiveView(view);
   }
 
@@ -2975,7 +2973,6 @@
     initGlobalSearch();
     initProfileAndLogout();
     initDashboardFilter();
-    initOverviewFilter();
     initOneTimeJobModal();
     initPackageTypePicker();
     initPostReelPackageModal();
