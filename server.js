@@ -182,6 +182,7 @@ const DEFAULT_DATA = {
   oneTimeJobs: [],
   packages: [],
   clientProfiles: {},        // keyed by mobile (or clientName fallback) -> { location, folderPath }
+  clientIds: {},             // keyed by mobile (or clientName fallback) -> permanent ID, e.g. "CLI-000124"
   platformOptions: ["Instagram", "Facebook", "YouTube", "LinkedIn", "Twitter/X", "Pinterest", "Other"]
 };
 
@@ -204,6 +205,7 @@ async function loadData() {
     oneTimeJobs: Array.isArray(raw.oneTimeJobs) ? raw.oneTimeJobs : [],
     packages: Array.isArray(raw.packages) ? raw.packages : [],
     clientProfiles: raw.clientProfiles && typeof raw.clientProfiles === "object" ? raw.clientProfiles : {},
+    clientIds: raw.clientIds && typeof raw.clientIds === "object" ? raw.clientIds : {},
     platformOptions: Array.isArray(raw.platformOptions) ? raw.platformOptions : [...DEFAULT_DATA.platformOptions]
   };
 
@@ -214,10 +216,17 @@ async function loadData() {
     await saveData(data);
   }
 
+  // Permanent Client IDs: give every client that has none yet an ID.
+  // Existing IDs are never changed or reused.
+  if (reconcileClients(data)) {
+    await saveData(data);
+  }
+
   return data;
 }
 
 async function saveData(data) {
+  reconcileClients(data);
   await pool.query("UPDATE app_data SET data = $1 WHERE id = $2", [data, ROW_ID]);
 }
 
@@ -249,6 +258,7 @@ function normalizePayment(input, existing = {}) {
 
   return {
     id: existing.id,
+    clientId: (existing.clientId || input.clientId || "").toString().trim(),
     clientName: (input.clientName ?? existing.clientName ?? "").toString().trim(),
     mobile: (input.mobile ?? existing.mobile ?? "").toString().trim(),
     businessName: (input.businessName ?? existing.businessName ?? "").toString().trim(),
@@ -348,6 +358,89 @@ function nextId(list, prefix) {
   return `${prefix}-${maxNum + 1}`;
 }
 
+/* ---- Permanent Client IDs (CLI-000001 …) ----------------------------- */
+/* Every payment / package / one-time job carries a `clientId`. The ID    */
+/* is generated once by the server and never changes, even if the         */
+/* client's mobile number or name is edited later.                        */
+/* data.clientIds is an alias table: mobile (or name) -> clientId. Old    */
+/* and new mobile numbers can both point to the same ID.                  */
+// CLIENT_ID_START
+function formatClientId(n) {
+  return "CLI-" + String(n).padStart(6, "0");
+}
+
+function recordClientKey(rec) {
+  return (rec.mobile || rec.clientMobile || rec.clientName || "").toString().trim();
+}
+
+function reconcileClients(data) {
+  if (!data.clientIds || typeof data.clientIds !== "object") data.clientIds = {};
+  if (!data.clientProfiles || typeof data.clientProfiles !== "object") data.clientProfiles = {};
+  const ids = data.clientIds;
+  let changed = false;
+
+  const records = [
+    ...(data.payments || []),
+    ...(data.packages || []),
+    ...(data.oneTimeJobs || [])
+  ];
+
+  let max = 0;
+  const bump = (id) => {
+    const m = /^CLI-(\d+)$/.exec(id || "");
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  };
+  Object.values(ids).forEach(bump);
+  records.forEach((r) => bump(r.clientId));
+
+  // Pass 1: records that already have an ID make sure their current
+  // mobile/name points at that ID (this is how a changed mobile is learned).
+  records.forEach((r) => {
+    const key = recordClientKey(r);
+    if (r.clientId && key && !ids[key]) {
+      ids[key] = r.clientId;
+      changed = true;
+    }
+  });
+
+  // Pass 2: records without an ID get one (existing client by key, or new).
+  records.forEach((r) => {
+    if (r.clientId) return;
+    const key = recordClientKey(r);
+    if (!key) return;
+    if (!ids[key]) {
+      max += 1;
+      ids[key] = formatClientId(max);
+    }
+    r.clientId = ids[key];
+    changed = true;
+  });
+
+  // Client profiles are stored under the permanent ID (not mobile/name).
+  Object.keys(data.clientProfiles).forEach((k) => {
+    if (/^CLI-\d+$/.test(k)) return;
+    const id = ids[k];
+    if (!id) return;
+    if (!data.clientProfiles[id]) data.clientProfiles[id] = data.clientProfiles[k];
+    delete data.clientProfiles[k];
+    changed = true;
+  });
+
+  return changed;
+}
+
+// When a record is edited and its mobile/name now matches a DIFFERENT
+// existing client, move the record to that client. If the new mobile/name
+// is unknown, the record simply keeps its client (contact detail changed).
+function retargetClientId(data, oldRec, newRec) {
+  const oldKey = recordClientKey(oldRec);
+  const newKey = recordClientKey(newRec);
+  if (oldKey === newKey) return;
+  const mapped = (data.clientIds || {})[newKey];
+  if (mapped && mapped !== newRec.clientId) newRec.clientId = mapped;
+}
+// CLIENT_ID_END
+
 function clientProfileKey(mobile, clientName) {
   return (mobile || clientName || "").toString().trim();
 }
@@ -381,6 +474,7 @@ function normalizeOneTimeJob(input, existing = {}) {
 
   return {
     id: existing.id,
+    clientId: (existing.clientId || input.clientId || "").toString().trim(),
     clientName: (input.clientName ?? existing.clientName ?? "").toString().trim(),
     clientMobile: (input.clientMobile ?? existing.clientMobile ?? "").toString().trim(),
     name: (input.name ?? existing.name ?? "").toString().trim(),
@@ -435,6 +529,7 @@ function normalizePackage(input, existing = {}) {
 
   const base = {
     id: existing.id,
+    clientId: (existing.clientId || input.clientId || "").toString().trim(),
     clientName: (input.clientName ?? existing.clientName ?? "").toString().trim(),
     clientMobile: (input.clientMobile ?? existing.clientMobile ?? "").toString().trim(),
     name: (input.name ?? existing.name ?? "").toString().trim(),
@@ -496,12 +591,13 @@ function enrichPackage(pkg) {
 /* Derived data builders                                                  */
 /* ---------------------------------------------------------------------- */
 
-function buildClients(payments) {
+function buildClients(payments, clientIds = {}) {
   const map = new Map();
   payments.forEach((p) => {
-    const key = p.mobile || p.clientName;
+    const key = p.clientId || p.mobile || p.clientName;
     if (!map.has(key)) {
       map.set(key, {
+        clientId: p.clientId || clientIds[(p.mobile || p.clientName || "").toString().trim()] || "",
         clientName: p.clientName,
         mobile: p.mobile,
         businessName: p.businessName,
@@ -519,7 +615,9 @@ function buildClients(payments) {
     c.totalPending += Number(p.pendingAmount) || 0;
     c.paymentsCount += 1;
     c.payments.push(p);
-    // Keep most recent business/instagram info
+    // Keep most recent contact info (a client's mobile/name may change)
+    if (p.clientName) c.clientName = p.clientName;
+    if (p.mobile) c.mobile = p.mobile;
     if (p.businessName) c.businessName = p.businessName;
     if (p.instagram) c.instagram = p.instagram;
   });
@@ -550,7 +648,7 @@ function buildDashboard(payments, monthKey) {
   const received = scoped.reduce((sum, p) => sum + (Number(p.paidAmount) || 0), 0);
   const pending = scoped.reduce((sum, p) => sum + (Number(p.pendingAmount) || 0), 0);
 
-  const clientKeys = new Set(scoped.map((p) => p.mobile || p.clientName));
+  const clientKeys = new Set(scoped.map((p) => p.clientId || p.mobile || p.clientName));
   const totalClients = clientKeys.size;
 
   const monthlyBusiness = payments
@@ -624,10 +722,10 @@ function buildDashboard(payments, monthKey) {
 /* ---------------------------------------------------------------------- */
 
 function clientKeyOfPayment(p) {
-  return (p.mobile || p.clientName || "").toString().trim();
+  return (p.clientId || p.mobile || p.clientName || "").toString().trim();
 }
 function clientKeyOfPackage(pkg) {
-  return (pkg.clientMobile || pkg.clientName || "").toString().trim();
+  return (pkg.clientId || pkg.clientMobile || pkg.clientName || "").toString().trim();
 }
 
 // Whole-month difference between two YYYY-MM-DD strings, rounded up to at
@@ -1000,6 +1098,7 @@ app.put("/api/payments/:id", async (req, res) => {
     }
     const updated = normalizePayment(req.body, data.payments[idx]);
     updated.id = data.payments[idx].id;
+    retargetClientId(data, data.payments[idx], updated);
     data.payments[idx] = updated;
     await saveData(data);
     res.json(updated);
@@ -1053,7 +1152,7 @@ app.get("/api/clients", async (req, res) => {
   const payments = (month && month !== "all")
     ? data.payments.filter((p) => (p.date || "").slice(0, 7) === month)
     : data.payments;
-  res.json(buildClients(payments));
+  res.json(buildClients(payments, data.clientIds));
 });
 
 /* ---------------------------------------------------------------------- */
@@ -1181,6 +1280,56 @@ app.post("/api/lead-sources", async (req, res) => {
 /* Client Profiles (location + PC/Drive folder path)                      */
 /* ---------------------------------------------------------------------- */
 
+// Edit a client's contact details everywhere at once. The Client ID stays the same.
+app.put("/api/clients/:clientId/details", async (req, res) => {
+  try {
+    const data = await loadData();
+    const clientId = req.params.clientId;
+    if (!/^CLI-\d+$/.test(clientId)) return res.status(400).json({ error: "Invalid client ID" });
+
+    const clientName = (req.body.clientName ?? "").toString().trim();
+    const mobile = (req.body.mobile ?? "").toString().trim();
+    const businessName = req.body.businessName;
+    const instagram = req.body.instagram;
+    if (!clientName) return res.status(400).json({ error: "Client name is required" });
+
+    const newKey = mobile || clientName;
+    const owner = data.clientIds[newKey];
+    if (owner && owner !== clientId) {
+      return res.status(409).json({ error: `Aa mobile/naam bija client (${owner}) ma pehla thi che` });
+    }
+
+    let touched = 0;
+    data.payments.forEach((p) => {
+      if (p.clientId !== clientId) return;
+      p.clientName = clientName;
+      p.mobile = mobile;
+      if (businessName !== undefined) p.businessName = businessName.toString().trim();
+      if (instagram !== undefined) p.instagram = instagram.toString().trim();
+      touched++;
+    });
+    [...data.packages, ...data.oneTimeJobs].forEach((r) => {
+      if (r.clientId !== clientId) return;
+      r.clientName = clientName;
+      r.clientMobile = mobile;
+      touched++;
+    });
+    if (!touched) return res.status(404).json({ error: "Client not found" });
+
+    // Old mobile/name no longer belong to this client; the new one does.
+    Object.keys(data.clientIds).forEach((k) => {
+      if (data.clientIds[k] === clientId) delete data.clientIds[k];
+    });
+    data.clientIds[newKey] = clientId;
+
+    await saveData(data);
+    const client = buildClients(data.payments, data.clientIds).find((c) => c.clientId === clientId);
+    res.json(client || { clientId, clientName, mobile });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/api/client-profiles", async (req, res) => {
   const data = await loadData();
   res.json(data.clientProfiles);
@@ -1189,8 +1338,9 @@ app.get("/api/client-profiles", async (req, res) => {
 app.put("/api/client-profiles/:key", async (req, res) => {
   try {
     const data = await loadData();
-    const key = decodeURIComponent(req.params.key);
+    let key = decodeURIComponent(req.params.key);
     if (!key) return res.status(400).json({ error: "Client key is required" });
+    if (!/^CLI-\d+$/.test(key) && data.clientIds[key]) key = data.clientIds[key];
     const existing = data.clientProfiles[key] || {};
     data.clientProfiles[key] = {
       location: (req.body.location ?? existing.location ?? "").toString().trim(),
@@ -1213,6 +1363,7 @@ function syncMirroredPayment(data, entity, sourceType) {
   const idx = data.payments.findIndex((p) => p.sourceType === sourceType && p.sourceId === entity.id);
   const record = {
     id: idx >= 0 ? data.payments[idx].id : nextPaymentId(data.payments),
+    clientId: entity.clientId || (idx >= 0 ? data.payments[idx].clientId : "") || "",
     clientName: entity.clientName,
     mobile: entity.clientMobile,
     businessName: idx >= 0 ? data.payments[idx].businessName : "",
@@ -1244,7 +1395,7 @@ function removeMirroredPayment(data, sourceType, sourceId) {
 
 function matchesClient(entity, clientKey) {
   if (!clientKey) return true;
-  return entity.clientMobile === clientKey || entity.clientName === clientKey;
+  return entity.clientId === clientKey || entity.clientMobile === clientKey || entity.clientName === clientKey;
 }
 
 app.get("/api/one-time-jobs", async (req, res) => {
@@ -1282,6 +1433,7 @@ app.put("/api/one-time-jobs/:id", async (req, res) => {
     if (idx === -1) return res.status(404).json({ error: "One-time job not found" });
     const updated = normalizeOneTimeJob(req.body, data.oneTimeJobs[idx]);
     updated.id = data.oneTimeJobs[idx].id;
+    retargetClientId(data, data.oneTimeJobs[idx], updated);
     data.oneTimeJobs[idx] = updated;
     syncMirroredPayment(data, updated, "one-time-job");
     await saveData(data);
@@ -1378,6 +1530,7 @@ app.put("/api/packages/:id", async (req, res) => {
     if (idx === -1) return res.status(404).json({ error: "Package not found" });
     const updated = normalizePackage(req.body, data.packages[idx]);
     updated.id = data.packages[idx].id;
+    retargetClientId(data, data.packages[idx], updated);
     data.packages[idx] = updated;
     syncMirroredPayment(data, updated, "package");
     await saveData(data);
@@ -1458,6 +1611,7 @@ app.get("/api/clients/:key/overview", async (req, res) => {
   };
 
   res.json({
+    clientId: /^CLI-\d+$/.test(key) ? key : (data.clientIds[key] || ""),
     oneTime: countBy(jobs, ["Active", "In Progress", "On Hold", "Completed"]),
     packages: countBy(pkgs, ["Active", "On Hold", "Completed"])
   });
@@ -1636,7 +1790,7 @@ app.get("/api/reports", async (req, res) => {
 
 app.get("/api/reports/top-clients", async (req, res) => {
   const data = await loadData();
-  const clients = buildClients(data.payments)
+  const clients = buildClients(data.payments, data.clientIds)
     .sort((a, b) => b.totalBusiness - a.totalBusiness)
     .slice(0, 10)
     .map((c) => ({
@@ -1707,6 +1861,7 @@ app.post("/api/restore", upload.single("backupFile"), async (req, res) => {
       oneTimeJobs: Array.isArray(parsed.oneTimeJobs) ? parsed.oneTimeJobs : [],
       packages: Array.isArray(parsed.packages) ? parsed.packages : [],
       clientProfiles: parsed.clientProfiles && typeof parsed.clientProfiles === "object" ? parsed.clientProfiles : {},
+      clientIds: parsed.clientIds && typeof parsed.clientIds === "object" ? parsed.clientIds : {},
       platformOptions: Array.isArray(parsed.platformOptions) ? parsed.platformOptions : [...DEFAULT_DATA.platformOptions]
     };
     await saveData(restored);
