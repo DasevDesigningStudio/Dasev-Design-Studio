@@ -14,7 +14,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
 <!-- Styles -->
-<link rel="stylesheet" href="style.css?v=2" />
+<link rel="stylesheet" href="style.css?v=4" />
 </head>
 <body>
 
@@ -29,50 +29,59 @@
   <div class="sidebar-brand">
     <div class="brand-mark"><i class="fa-solid fa-wave-square"></i></div>
     <div class="brand-text">
-      <span class="brand-name">AgencyOS</span>
-      <span class="brand-sub">Agency Payments</span>
+      <span class="brand-name">Dasev Designing Studio</span>
+      <span class="brand-sub">OPERATING SYSTEM</span>
     </div>
     <button class="sidebar-close" id="sidebarClose" aria-label="Close menu"><i class="fa-solid fa-xmark"></i></button>
   </div>
 
   <nav class="sidebar-nav">
-    <a href="#dashboard" class="nav-item active" data-view="dashboard">
-      <i class="fa-solid fa-grip"></i><span>Dashboard</span>
-    </a>
-    <a href="#payments" class="nav-item" data-view="payments">
-      <i class="fa-solid fa-money-check-dollar"></i><span>Payments</span>
-    </a>
-    <a href="#clients" class="nav-item" data-view="clients">
-      <i class="fa-solid fa-address-book"></i><span>Clients</span>
-    </a>
-    <a href="#leads" class="nav-item" data-view="leads">
-      <i class="fa-solid fa-user-plus"></i><span>Leads</span>
-    </a>
-    <a href="#reports" class="nav-item" data-view="reports">
-      <i class="fa-solid fa-chart-line"></i><span>Reports</span>
-    </a>
-    <a href="#categories" class="nav-item" data-view="categories">
-      <i class="fa-solid fa-tags"></i><span>Categories</span>
-    </a>
-    <a href="#expenses" class="nav-item" data-view="expenses">
-      <i class="fa-solid fa-wallet"></i><span>Expenses</span>
-    </a>
-    <a href="#export" class="nav-item" data-view="export">
-      <i class="fa-solid fa-file-export"></i><span>Export</span>
-    </a>
-    <a href="#backup" class="nav-item" data-view="backup">
-      <i class="fa-solid fa-database"></i><span>Backup</span>
-    </a>
-    <a href="#settings" class="nav-item" data-view="settings">
-      <i class="fa-solid fa-gear"></i><span>Settings</span>
-    </a>
-  </nav>
+    <div class="nav-group-label">Main</div>
+    <a href="#dashboard" class="nav-item active" data-view="dashboard"><i class="fa-solid fa-grip"></i><span>Dashboard</span></a>
+    <span class="nav-item nav-soon" title="Aavnari"><i class="fa-regular fa-calendar"></i><span>Agency Calendar</span><em>Soon</em></span>
 
+    <div class="nav-group-label">Clients</div>
+    <a href="#clients" class="nav-item" data-view="clients"><i class="fa-solid fa-address-book"></i><span>Clients</span></a>
+    <span class="nav-item nav-soon" title="Aavnari"><i class="fa-solid fa-chart-column"></i><span>Client Analytics</span><em>Soon</em></span>
+
+    <div class="nav-group-label">Work</div>
+    <button type="button" class="nav-item nav-parent open" data-toggle="navWork"><i class="fa-regular fa-building"></i><span>Work</span><i class="fa-solid fa-chevron-down nav-caret"></i></button>
+    <div class="nav-sub open" id="navWork">
+      <span class="nav-item nav-soon" title="Aavnari"><i class="fa-solid fa-film"></i><span>Content Production</span><em>Soon</em></span>
+      <span class="nav-item nav-soon" title="Aavnari"><i class="fa-solid fa-share-nodes"></i><span>Social Media Mgmt</span><em>Soon</em></span>
+      <a href="#clients" class="nav-item" data-goto="clients" title="Client kholine One-Time Jobs jovo"><i class="fa-solid fa-box"></i><span>One-Time Jobs</span></a>
+      <div class="nav-sub-label"><i class="fa-solid fa-cube"></i> Packages</div>
+      <a href="#clients" class="nav-item nav-deep" data-goto="clients"><i class="fa-solid fa-pen-ruler"></i><span>Design &amp; Reel</span></a>
+      <a href="#clients" class="nav-item nav-deep" data-goto="clients"><i class="fa-solid fa-bars-progress"></i><span>Management</span></a>
+      <span class="nav-item nav-deep nav-soon" title="Aavnari"><i class="fa-solid fa-gift"></i><span>64 Festival Posts</span><em>Soon</em></span>
+    </div>
+
+    <div class="nav-group-label">Leads</div>
+    <a href="#leads" class="nav-item" data-view="leads"><i class="fa-solid fa-user-plus"></i><span>Leads</span></a>
+
+    <div class="nav-group-label">Finance</div>
+    <button type="button" class="nav-item nav-parent open" data-toggle="navFinance"><i class="fa-regular fa-credit-card"></i><span>Finance</span><i class="fa-solid fa-chevron-down nav-caret"></i></button>
+    <div class="nav-sub open" id="navFinance">
+      <a href="#payments" class="nav-item" data-view="payments"><i class="fa-solid fa-money-check-dollar"></i><span>Payments</span></a>
+      <a href="#expenses" class="nav-item" data-view="expenses"><i class="fa-solid fa-wallet"></i><span>Expenses</span></a>
+    </div>
+
+    <div class="nav-group-label">Reporting &amp; Data</div>
+    <a href="#reports" class="nav-item" data-view="reports"><i class="fa-solid fa-chart-line"></i><span>Agency Reports</span></a>
+    <a href="#categories" class="nav-item" data-view="categories"><i class="fa-solid fa-tags"></i><span>Categories</span></a>
+    <a href="#export" class="nav-item" data-view="export"><i class="fa-solid fa-file-export"></i><span>Export</span></a>
+
+    <div class="nav-group-label">System</div>
+    <a href="#backup" class="nav-item" data-view="backup"><i class="fa-solid fa-database"></i><span>Backup &amp; Restore</span></a>
+    <a href="#settings" class="nav-item" data-view="settings"><i class="fa-solid fa-gear"></i><span>Settings</span></a>
+  </nav>
   <div class="sidebar-footer">
-    <button class="nav-item logout-btn" id="logoutBtn">
-      <i class="fa-solid fa-right-from-bracket"></i><span>Logout</span>
-    </button>
-    <div class="sidebar-agency" id="sidebarAgencyName">PixelWave Media Agency</div>
+    <div class="user-card">
+      <div class="user-avatar"><i class="fa-solid fa-user"></i></div>
+      <div class="user-meta"><strong id="sidebarAgencyName">Dasev Designing Studio</strong><span>Owner</span></div>
+    </div>
+    <button class="nav-item logout-btn" id="logoutBtn"><i class="fa-solid fa-right-from-bracket"></i><span>Sign Out</span></button>
+    <div class="sidebar-agency">Dasev Designing Studio · Enterprise</div>
   </div>
 </aside>
 <div class="sidebar-overlay" id="sidebarOverlay"></div>
@@ -1351,6 +1360,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js"></script>
-<script src="script.js?v=2"></script>
+<script src="script.js?v=4"></script>
 </body>
 </html>

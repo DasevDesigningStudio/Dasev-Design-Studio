@@ -123,6 +123,7 @@
     getClientOverview: (key) => api(`/api/clients/${encodeURIComponent(key)}/overview`),
 
     getClientProfiles: () => api("/api/client-profiles"),
+    updateClientDetails: (clientId, data) => api(`/api/clients/${encodeURIComponent(clientId)}/details`, { method: "PUT", body: JSON.stringify(data) }),
     updateClientProfile: (key, data) => api(`/api/client-profiles/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify(data) }),
 
     getDashboard: (month) => api(`/api/dashboard?month=${encodeURIComponent(month || "all")}`),
@@ -302,6 +303,24 @@
         const view = nav.dataset.view;
         window.location.hash = view;
         setActiveView(view);
+      });
+    });
+
+    // Collapsible groups (Work, Finance)
+    $$(".nav-parent[data-toggle]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        btn.classList.toggle("open");
+        const sub = document.getElementById(btn.dataset.toggle);
+        if (sub) sub.classList.toggle("open");
+      });
+    });
+
+    // Links that open a view without becoming "active" (e.g. Packages -> Clients)
+    $$(".nav-item[data-goto]").forEach((nav) => {
+      nav.addEventListener("click", (e) => {
+        e.preventDefault();
+        window.location.hash = nav.dataset.goto;
+        setActiveView(nav.dataset.goto);
       });
     });
 
@@ -1064,6 +1083,7 @@
           <div class="client-avatar">${initials(c.clientName)}</div>
           <div>
             <h4>${escapeHtml(c.clientName)}</h4>
+            ${c.clientId ? `<span class="client-id">${escapeHtml(c.clientId)}</span>` : ""}
             <span>${escapeHtml(c.businessName || c.mobile || "")}</span>
           </div>
         </div>
@@ -1093,7 +1113,7 @@
     $("#clientSearch").addEventListener("input", debounce(() => {
       const search = $("#clientSearch").value.toLowerCase();
       const filtered = state.clients.filter((c) =>
-        [c.clientName, c.mobile, c.businessName, c.instagram].some((f) => (f || "").toLowerCase().includes(search))
+        [c.clientId, c.clientName, c.mobile, c.businessName, c.instagram].some((f) => (f || "").toLowerCase().includes(search))
       );
       renderClientGrid(filtered);
     }, 200));
@@ -1106,7 +1126,7 @@
 
   async function openClientDrawer(client) {
     state.currentClient = client;
-    state.currentClientKey = client.mobile || client.clientName;
+    state.currentClientKey = client.clientId || client.mobile || client.clientName;
     state.activeClientTab = "overview";
     state.jobFilterStatus = "";
     state.packageFilterStatus = "";
@@ -1125,8 +1145,10 @@
   }
 
   function renderClientDrawerHeader(client) {
-    const profileKey = client.mobile || client.clientName;
-    const profile = state.clientProfiles[profileKey] || { location: "", folderPath: "" };
+    const profileKey = client.clientId || client.mobile || client.clientName;
+    const profile = state.clientProfiles[profileKey]
+      || state.clientProfiles[client.mobile || client.clientName]
+      || { location: "", folderPath: "" };
     $("#clientDrawerHeader").innerHTML = `
       <div class="client-stats" style="border-top:none; padding-top:0; margin-bottom:14px;">
         <div><span class="cs-label">Business</span><span class="cs-value">${fmtMoney(client.totalBusiness)}</span></div>
@@ -1134,9 +1156,23 @@
         <div><span class="cs-label">Pending</span><span class="cs-value">${fmtMoney(client.totalPending)}</span></div>
       </div>
       <p style="font-size:13px; color:var(--text-muted); margin-bottom:14px;">
+        <b>Client ID:</b> ${escapeHtml(client.clientId || "—")} &nbsp;·&nbsp;
         <b>Mobile:</b> ${escapeHtml(client.mobile || "—")} &nbsp;·&nbsp;
         <b>Instagram:</b> ${escapeHtml(client.instagram || "—")}
       </p>
+      <div class="drawer-section" style="margin-bottom:14px;">
+        <div class="drawer-section-head"><h3>Contact Details</h3></div>
+        <div class="inline-form" style="flex-direction:column; align-items:stretch;">
+          <input type="text" id="cdName" placeholder="Client name" value="${escapeHtml(client.clientName || "")}" />
+          <input type="text" id="cdMobile" placeholder="Mobile number" value="${escapeHtml(client.mobile || "")}" />
+          <input type="text" id="cdBusiness" placeholder="Business name" value="${escapeHtml(client.businessName || "")}" />
+          <input type="text" id="cdInstagram" placeholder="Instagram" value="${escapeHtml(client.instagram || "")}" />
+          <button type="button" class="btn btn-primary btn-sm" id="saveClientDetailsBtn" style="align-self:flex-start;">
+            <i class="fa-solid fa-check"></i> Save Contact
+          </button>
+          <small style="color:var(--text-muted);">Mobile badlo to pan Client ID (${escapeHtml(client.clientId || "—")}) same rehse.</small>
+        </div>
+      </div>
       <div class="drawer-section" style="margin-bottom:14px;">
         <div class="drawer-section-head"><h3>Location &amp; File Folder</h3></div>
         <div class="inline-form" style="flex-direction:column; align-items:stretch;">
@@ -1148,6 +1184,31 @@
         </div>
       </div>
     `;
+    $("#saveClientDetailsBtn")?.addEventListener("click", async () => {
+      if (!client.clientId) {
+        showToast("Client ID nathi, page refresh karo", "error");
+        return;
+      }
+      try {
+        const updated = await Api.updateClientDetails(client.clientId, {
+          clientName: $("#cdName").value.trim(),
+          mobile: $("#cdMobile").value.trim(),
+          businessName: $("#cdBusiness").value.trim(),
+          instagram: $("#cdInstagram").value.trim()
+        });
+        state.currentClient = { ...client, ...updated };
+        state.currentClientKey = updated.clientId || client.clientId;
+        state.payments = await Api.getPayments();
+        $("#clientDrawerTitle").textContent = state.currentClient.clientName;
+        renderClientDrawerHeader(state.currentClient);
+        await refreshClientTabData();
+        await refreshClientsGridIfVisible();
+        showToast("Contact details saved", "success");
+      } catch (err) {
+        showToast("Failed to save: " + err.message, "error");
+      }
+    });
+
     $("#saveClientProfileBtn")?.addEventListener("click", async () => {
       try {
         const updated = await Api.updateClientProfile(profileKey, {
@@ -2549,7 +2610,7 @@
 
   function selectClientForAddFlow(client) {
     state.currentClient = client;
-    state.currentClientKey = client.mobile || client.clientName;
+    state.currentClientKey = client.clientId || client.mobile || client.clientName;
     closeClientPickerModal();
 
     const target = state.addFlowTarget;
