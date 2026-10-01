@@ -84,6 +84,10 @@
     getClients: (month) => api(`/api/clients?month=${encodeURIComponent(month || "all")}`),
 
     getLeads: () => api("/api/leads"),
+    getCalendar: () => api("/api/calendar"),
+    createCalendarEvent: (data) => api("/api/calendar-events", { method: "POST", body: JSON.stringify(data) }),
+    updateCalendarEvent: (id, data) => api(`/api/calendar-events/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) }),
+    deleteCalendarEvent: (id) => api(`/api/calendar-events/${encodeURIComponent(id)}`, { method: "DELETE" }),
     createLead: (data) => api("/api/leads", { method: "POST", body: JSON.stringify(data) }),
     updateLead: (id, data) => api(`/api/leads/${id}`, { method: "PUT", body: JSON.stringify(data) }),
     deleteLead: (id) => api(`/api/leads/${id}`, { method: "DELETE" }),
@@ -292,6 +296,7 @@
     if (view === "export") populateInvoiceSelect();
     if (view === "settings") renderSettingsForm();
     if (view === "packages") renderPackagesView();
+    if (view === "calendar") renderCalendarView();
 
     closeSidebarMobile();
   }
@@ -336,6 +341,221 @@
     window.addEventListener("hashchange", () => {
       const view = (window.location.hash || "#dashboard").slice(1);
       setActiveView(view);
+    });
+  }
+
+  /* ====================== Agency Calendar ====================== */
+  const CAL = { view: "month", cursor: new Date(), events: [], hidden: new Set(), editingId: null };
+  const CAL_TYPE_LABEL = { payment: "Payment due", lead: "Lead follow-up", job: "Job due", package: "Package ends", manual: "My event" };
+  const CAL_LINK_LABEL = { payments: "Payments", leads: "Leads", clients: "Clients" };
+  const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const DAYS_SHORT = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
+  const calFmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const calParse = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+  const calAddDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+
+  function calEventsByDate() {
+    const map = {};
+    CAL.events.filter((e) => !CAL.hidden.has(e.type)).forEach((e) => { (map[e.date] = map[e.date] || []).push(e); });
+    Object.values(map).forEach((list) => list.sort((a, b) => (a.allDay === b.allDay ? (a.startTime || "").localeCompare(b.startTime || "") : (a.allDay ? -1 : 1))));
+    return map;
+  }
+
+  function calChip(e) {
+    const today = calFmt(new Date());
+    const overdue = (e.type === "payment" || e.type === "job") && e.date < today ? " overdue" : "";
+    const time = !e.allDay && e.startTime ? e.startTime + " " : "";
+    return `<div class="cal-chip cal-${e.type}${overdue}" data-evid="${escapeHtml(e.id)}" title="${escapeHtml(e.title)}">${escapeHtml(time + e.title)}</div>`;
+  }
+
+  function calDayCell(date, byDate, opts = {}) {
+    const key = calFmt(date);
+    const list = byDate[key] || [];
+    const max = opts.max || 3;
+    const shown = list.slice(0, max).map(calChip).join("");
+    const more = list.length > max ? `<div class="cal-more" data-gotoday="${key}">+${list.length - max} more</div>` : "";
+    const cls = ["cal-cell", opts.other ? "other" : "", key === calFmt(new Date()) ? "today" : "", opts.week ? "week" : ""].join(" ");
+    return `<div class="${cls}" data-date="${key}"><div class="cal-daynum">${date.getDate()}</div>${shown}${more}</div>`;
+  }
+
+  function calTitleText() {
+    const c = CAL.cursor;
+    if (CAL.view === "month") return `${MONTHS[c.getMonth()]} ${c.getFullYear()}`;
+    if (CAL.view === "week") {
+      const s = calAddDays(c, -c.getDay()), e = calAddDays(s, 6);
+      return `${MONTHS[s.getMonth()].slice(0, 3)} ${s.getDate()} – ${MONTHS[e.getMonth()].slice(0, 3)} ${e.getDate()}, ${e.getFullYear()}`;
+    }
+    if (CAL.view === "day") return `${DAYS_SHORT[c.getDay()]}, ${c.getDate()} ${MONTHS[c.getMonth()]} ${c.getFullYear()}`;
+    return "Upcoming (next 60 days)";
+  }
+
+  function drawCalendar() {
+    $("#calTitle").textContent = calTitleText();
+    $$("#calViews button").forEach((b) => b.classList.toggle("active", b.dataset.calview === CAL.view));
+    const byDate = calEventsByDate();
+    const body = $("#calBody");
+    const c = CAL.cursor;
+    let html = "";
+
+    if (CAL.view === "month") {
+      const first = new Date(c.getFullYear(), c.getMonth(), 1);
+      const start = calAddDays(first, -first.getDay());
+      html = `<div class="cal-grid">${DAYS_SHORT.map((d) => `<div class="cal-dow">${d}</div>`).join("")}`;
+      for (let i = 0; i < 42; i++) {
+        const d = calAddDays(start, i);
+        html += calDayCell(d, byDate, { other: d.getMonth() !== c.getMonth() });
+      }
+      html += "</div>";
+    } else if (CAL.view === "week") {
+      const start = calAddDays(c, -c.getDay());
+      html = `<div class="cal-grid">${DAYS_SHORT.map((d) => `<div class="cal-dow">${d}</div>`).join("")}`;
+      for (let i = 0; i < 7; i++) html += calDayCell(calAddDays(start, i), byDate, { week: true, max: 12 });
+      html += "</div>";
+    } else if (CAL.view === "day") {
+      const list = byDate[calFmt(c)] || [];
+      html = list.length
+        ? `<div class="cal-agenda-list" style="padding:8px;">${list.map(calChip).join("")}</div>`
+        : `<div class="cal-empty">Aa divas ma kai nathi. <a href="#" id="calEmptyAdd">Event add karo</a></div>`;
+    } else {
+      let any = false;
+      for (let i = 0; i < 60; i++) {
+        const d = calAddDays(c, i), list = byDate[calFmt(d)] || [];
+        if (!list.length) continue;
+        any = true;
+        html += `<div class="cal-agenda-day"><div class="cal-agenda-date"><b>${d.getDate()}</b><span>${DAYS_SHORT[d.getDay()]}, ${MONTHS[d.getMonth()].slice(0, 3)}</span></div><div class="cal-agenda-list">${list.map(calChip).join("")}</div></div>`;
+      }
+      if (!any) html = `<div class="cal-empty">Aavta 60 divas ma koi event nathi.</div>`;
+    }
+    body.innerHTML = html;
+  }
+
+  async function renderCalendarView() {
+    try {
+      const res = await Api.getCalendar();
+      CAL.events = res.events || [];
+    } catch (err) {
+      showToast("Calendar load na thayu: " + err.message, "error");
+    }
+    drawCalendar();
+  }
+
+  function openCalEventModal(ev = null, dateStr = "") {
+    CAL.editingId = ev ? ev.id : null;
+    $("#calEventModalTitle").textContent = ev ? "Edit Event" : "Add Event";
+    $("#calTitleInput").value = ev ? ev.title : "";
+    $("#calDateInput").value = ev ? ev.date : (dateStr || calFmt(CAL.cursor));
+    $("#calAllDayInput").checked = ev ? !!ev.allDay : true;
+    $("#calStartInput").value = ev ? ev.startTime || "" : "";
+    $("#calEndInput").value = ev ? ev.endTime || "" : "";
+    $("#calNotesInput").value = ev ? ev.notes || "" : "";
+    $("#calEventDeleteBtn").hidden = !ev;
+    syncCalAllDay();
+    $("#calEventOverlay").hidden = false;
+    $("#calTitleInput").focus();
+  }
+  function closeCalEventModal() { $("#calEventOverlay").hidden = true; CAL.editingId = null; }
+  function syncCalAllDay() {
+    const allDay = $("#calAllDayInput").checked;
+    $("#calStartWrap").style.display = allDay ? "none" : "";
+    $("#calEndWrap").style.display = allDay ? "none" : "";
+  }
+
+  function openCalDetail(ev) {
+    $("#calDetailTitle").textContent = ev.title;
+    const rows = [
+      ["Type", CAL_TYPE_LABEL[ev.type] || ev.type],
+      ["Date", ev.date],
+      ev.clientName ? ["Client", ev.clientName + (ev.clientId ? ` (${ev.clientId})` : "")] : null,
+      ev.notes ? ["Notes", ev.notes] : null
+    ].filter(Boolean);
+    $("#calDetailBody").innerHTML =
+      rows.map(([k, v]) => `<div class="cal-detail-row"><b>${k}</b><span>${escapeHtml(v)}</span></div>`).join("") +
+      `<div class="modal-footer"><button type="button" class="btn btn-primary" id="calDetailOpen">Open ${CAL_LINK_LABEL[ev.link] || ""}</button></div>`;
+    $("#calDetailOpen").onclick = () => {
+      $("#calDetailOverlay").hidden = true;
+      window.location.hash = ev.link;
+      setActiveView(ev.link);
+    };
+    $("#calDetailOverlay").hidden = false;
+  }
+
+  function initCalendar() {
+    $("#calAddBtn")?.addEventListener("click", () => openCalEventModal(null));
+    $("#calTodayBtn")?.addEventListener("click", () => { CAL.cursor = new Date(); drawCalendar(); });
+    const step = (dir) => {
+      const c = new Date(CAL.cursor);
+      if (CAL.view === "month") c.setMonth(c.getMonth() + dir, 1);
+      else if (CAL.view === "week") c.setDate(c.getDate() + 7 * dir);
+      else if (CAL.view === "day") c.setDate(c.getDate() + dir);
+      else c.setDate(c.getDate() + 30 * dir);
+      CAL.cursor = c;
+      drawCalendar();
+    };
+    $("#calPrevBtn")?.addEventListener("click", () => step(-1));
+    $("#calNextBtn")?.addEventListener("click", () => step(1));
+    $$("#calViews button").forEach((b) => b.addEventListener("click", () => { CAL.view = b.dataset.calview; drawCalendar(); }));
+    $$("#calLegend .cal-leg").forEach((b) => b.addEventListener("click", () => {
+      const t = b.dataset.type;
+      CAL.hidden.has(t) ? CAL.hidden.delete(t) : CAL.hidden.add(t);
+      b.classList.toggle("on", !CAL.hidden.has(t));
+      drawCalendar();
+    }));
+
+    $("#calBody")?.addEventListener("click", (e) => {
+      const chip = e.target.closest("[data-evid]");
+      if (chip) {
+        const ev = CAL.events.find((x) => x.id === chip.dataset.evid);
+        if (!ev) return;
+        ev.source === "manual" ? openCalEventModal(ev) : openCalDetail(ev);
+        return;
+      }
+      const more = e.target.closest("[data-gotoday]");
+      if (more) { CAL.cursor = calParse(more.dataset.gotoday); CAL.view = "day"; drawCalendar(); return; }
+      if (e.target.id === "calEmptyAdd") { e.preventDefault(); openCalEventModal(null, calFmt(CAL.cursor)); return; }
+      const cell = e.target.closest("[data-date]");
+      if (cell) openCalEventModal(null, cell.dataset.date);
+    });
+
+    $("#calAllDayInput")?.addEventListener("change", syncCalAllDay);
+    $("#calEventClose")?.addEventListener("click", closeCalEventModal);
+    $("#calEventCancelBtn")?.addEventListener("click", closeCalEventModal);
+    $("#calDetailClose")?.addEventListener("click", () => { $("#calDetailOverlay").hidden = true; });
+
+    $("#calEventForm")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = {
+        title: $("#calTitleInput").value.trim(),
+        date: $("#calDateInput").value,
+        allDay: $("#calAllDayInput").checked,
+        startTime: $("#calStartInput").value,
+        endTime: $("#calEndInput").value,
+        notes: $("#calNotesInput").value.trim()
+      };
+      try {
+        if (CAL.editingId) await Api.updateCalendarEvent(CAL.editingId, payload);
+        else await Api.createCalendarEvent(payload);
+        closeCalEventModal();
+        showToast("Event saved", "success");
+        await renderCalendarView();
+      } catch (err) {
+        showToast("Save na thayu: " + err.message, "error");
+      }
+    });
+
+    $("#calEventDeleteBtn")?.addEventListener("click", () => {
+      const id = CAL.editingId;
+      if (!id) return;
+      openConfirm("Delete this event?", "Aa event kayam mate delete thai jase.", async () => {
+        try {
+          await Api.deleteCalendarEvent(id);
+          closeCalEventModal();
+          showToast("Event deleted", "success");
+          await renderCalendarView();
+        } catch (err) {
+          showToast("Delete na thayu: " + err.message, "error");
+        }
+      });
     });
   }
 
@@ -3030,6 +3250,7 @@
     initExpensesToolbar();
     initExportButtons();
     initBackupRestore();
+    initCalendar();
     initSettingsView();
     initGlobalSearch();
     initProfileAndLogout();

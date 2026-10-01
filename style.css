@@ -1071,3 +1071,40 @@ select:focus { border-color: var(--accent); }
 .user-meta { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
 .user-meta strong { font-size: 12.5px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .user-meta span { font-size: 11px; color: var(--teal-300); }
+
+/* ---- Agency Calendar ---- */
+.cal-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.cal-nav { display: flex; align-items: center; gap: 8px; }
+.cal-nav h2 { font-size: 18px; margin: 0 0 0 8px; }
+.cal-views { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--card); }
+.cal-views button { border: 0; background: transparent; padding: 7px 14px; font-size: 13px; cursor: pointer; color: var(--text-muted); }
+.cal-views button.active { background: var(--accent); color: #fff; }
+.cal-legend { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.cal-leg { border: 1px solid var(--border); background: var(--card); color: var(--text-muted); padding: 4px 10px; border-radius: 999px; font-size: 12px; cursor: pointer; opacity: .55; }
+.cal-leg.on { opacity: 1; color: var(--text); border-left-width: 4px; }
+.cal-body { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 10px; overflow-x: auto; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(110px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; min-width: 770px; }
+.cal-dow { background: var(--card-alt); text-align: center; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); padding: 8px 4px; }
+.cal-cell { background: var(--card); min-height: 104px; padding: 4px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.cal-cell.week { min-height: 320px; }
+.cal-cell.other { background: var(--card-alt); }
+.cal-cell.other .cal-daynum { color: var(--text-faint); }
+.cal-daynum { font-size: 12px; font-weight: 600; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 50%; margin-bottom: 2px; }
+.cal-cell.today .cal-daynum { background: var(--accent); color: #fff; }
+.cal-chip { font-size: 11.5px; padding: 2px 6px; border-radius: 5px; border-left: 3px solid var(--accent); background: var(--accent-light); color: var(--text); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-chip.overdue { font-weight: 700; }
+.cal-more { font-size: 11px; color: var(--text-muted); padding: 1px 6px; cursor: pointer; }
+.cal-payment { border-left-color: var(--danger) !important; } .cal-chip.cal-payment { background: var(--danger-bg); }
+.cal-lead { border-left-color: var(--blue) !important; } .cal-chip.cal-lead { background: var(--blue-bg); }
+.cal-job { border-left-color: var(--violet) !important; } .cal-chip.cal-job { background: var(--violet-bg); }
+.cal-package { border-left-color: var(--teal-400) !important; } .cal-chip.cal-package { background: var(--accent-light); }
+.cal-manual { border-left-color: var(--warning) !important; } .cal-chip.cal-manual { background: var(--warning-bg); }
+.cal-agenda-day { display: flex; gap: 14px; padding: 10px 6px; border-bottom: 1px solid var(--border); }
+.cal-agenda-date { width: 70px; flex-shrink: 0; text-align: center; }
+.cal-agenda-date b { display: block; font-size: 22px; line-height: 1; }
+.cal-agenda-date span { font-size: 11px; color: var(--text-muted); text-transform: uppercase; }
+.cal-agenda-list { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.cal-agenda-list .cal-chip { font-size: 13px; padding: 6px 10px; white-space: normal; }
+.cal-empty { text-align: center; color: var(--text-muted); padding: 40px 10px; }
+.cal-detail-row { display: flex; gap: 8px; padding: 6px 0; font-size: 14px; }
+.cal-detail-row b { width: 90px; color: var(--text-muted); font-weight: 600; flex-shrink: 0; }

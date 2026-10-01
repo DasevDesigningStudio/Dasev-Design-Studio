@@ -182,6 +182,7 @@ const DEFAULT_DATA = {
   oneTimeJobs: [],
   packages: [],
   clientProfiles: {},        // keyed by mobile (or clientName fallback) -> { location, folderPath }
+  calendarEvents: [],        // manual calendar events
   clientIds: {},             // keyed by mobile (or clientName fallback) -> permanent ID, e.g. "CLI-000124"
   platformOptions: ["Instagram", "Facebook", "YouTube", "LinkedIn", "Twitter/X", "Pinterest", "Other"]
 };
@@ -206,6 +207,7 @@ async function loadData() {
     packages: Array.isArray(raw.packages) ? raw.packages : [],
     clientProfiles: raw.clientProfiles && typeof raw.clientProfiles === "object" ? raw.clientProfiles : {},
     clientIds: raw.clientIds && typeof raw.clientIds === "object" ? raw.clientIds : {},
+    calendarEvents: Array.isArray(raw.calendarEvents) ? raw.calendarEvents : [],
     platformOptions: Array.isArray(raw.platformOptions) ? raw.platformOptions : [...DEFAULT_DATA.platformOptions]
   };
 
@@ -1280,6 +1282,123 @@ app.post("/api/lead-sources", async (req, res) => {
 /* Client Profiles (location + PC/Drive folder path)                      */
 /* ---------------------------------------------------------------------- */
 
+/* ---------------------------------------------------------------------- */
+/* Agency Calendar                                                        */
+/* Automatic events come from existing data (one event per record, so     */
+/* they can never be duplicated). Manual events are stored separately.    */
+/* ---------------------------------------------------------------------- */
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^\d{2}:\d{2}$/;
+
+function buildCalendarEvents(data) {
+  const events = [];
+  const auto = (type, ref, date, title, extra = {}) => {
+    if (!DATE_RE.test(date || "")) return;
+    events.push({ id: `auto:${type}:${ref}`, source: "auto", type, date, allDay: true, title, ...extra });
+  };
+
+  (data.payments || []).forEach((p) => {
+    if (p.sourceType) return; // mirrored from a job/package, shown there instead
+    if (!(Number(p.pendingAmount) > 0)) return;
+    auto("payment", p.id, p.dueDate, `${p.clientName} · ₹${Number(p.pendingAmount).toLocaleString("en-IN")} due`, {
+      clientId: p.clientId || "", clientName: p.clientName, notes: p.workDetails || p.notes || "", link: "payments"
+    });
+  });
+  (data.leads || []).forEach((l) => {
+    if (l.status === "Converted" || l.status === "Lost") return;
+    auto("lead", l.id, l.nextFollowupDate, `Follow-up: ${l.name}`, {
+      clientName: l.name, notes: l.notes || "", link: "leads"
+    });
+  });
+  (data.oneTimeJobs || []).forEach((j) => {
+    if (j.status === "Completed") return;
+    auto("job", j.id, j.dueDate, `Job due: ${j.name}`, {
+      clientId: j.clientId || "", clientName: j.clientName, notes: j.notes || "", link: "clients"
+    });
+  });
+  (data.packages || []).forEach((k) => {
+    if (k.status === "Completed") return;
+    auto("package", k.id, k.endDate, `Package ends: ${k.name}`, {
+      clientId: k.clientId || "", clientName: k.clientName, notes: k.notes || "", link: "clients"
+    });
+  });
+
+  (data.calendarEvents || []).forEach((e) => events.push({ ...e, source: "manual", type: "manual" }));
+  return events;
+}
+
+function normalizeCalendarEvent(input, existing = {}) {
+  const title = (input.title ?? existing.title ?? "").toString().trim();
+  const date = (input.date ?? existing.date ?? "").toString().trim();
+  if (!title) throw new Error("Title is required");
+  if (!DATE_RE.test(date)) throw new Error("Valid date is required");
+  const allDay = input.allDay !== undefined ? !!input.allDay : (existing.allDay ?? true);
+  const startTime = allDay ? "" : (input.startTime ?? existing.startTime ?? "").toString().trim();
+  const endTime = allDay ? "" : (input.endTime ?? existing.endTime ?? "").toString().trim();
+  if (startTime && !TIME_RE.test(startTime)) throw new Error("Invalid start time");
+  if (endTime && !TIME_RE.test(endTime)) throw new Error("Invalid end time");
+  return {
+    id: existing.id,
+    title,
+    date,
+    allDay,
+    startTime,
+    endTime,
+    notes: (input.notes ?? existing.notes ?? "").toString().trim(),
+    clientId: (input.clientId ?? existing.clientId ?? "").toString().trim(),
+    createdAt: existing.createdAt || new Date().toISOString()
+  };
+}
+
+app.get("/api/calendar", async (req, res) => {
+  try {
+    const data = await loadData();
+    res.json({ events: buildCalendarEvents(data) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/calendar-events", async (req, res) => {
+  try {
+    const data = await loadData();
+    const ev = normalizeCalendarEvent(req.body);
+    ev.id = "EVT-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    data.calendarEvents.push(ev);
+    await saveData(data);
+    res.status(201).json(ev);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put("/api/calendar-events/:id", async (req, res) => {
+  try {
+    const data = await loadData();
+    const idx = data.calendarEvents.findIndex((e) => e.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Event not found" });
+    const ev = normalizeCalendarEvent(req.body, data.calendarEvents[idx]);
+    data.calendarEvents[idx] = ev;
+    await saveData(data);
+    res.json(ev);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/calendar-events/:id", async (req, res) => {
+  try {
+    const data = await loadData();
+    const before = data.calendarEvents.length;
+    data.calendarEvents = data.calendarEvents.filter((e) => e.id !== req.params.id);
+    if (data.calendarEvents.length === before) return res.status(404).json({ error: "Event not found" });
+    await saveData(data);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Edit a client's contact details everywhere at once. The Client ID stays the same.
 app.put("/api/clients/:clientId/details", async (req, res) => {
   try {
@@ -1862,6 +1981,7 @@ app.post("/api/restore", upload.single("backupFile"), async (req, res) => {
       packages: Array.isArray(parsed.packages) ? parsed.packages : [],
       clientProfiles: parsed.clientProfiles && typeof parsed.clientProfiles === "object" ? parsed.clientProfiles : {},
       clientIds: parsed.clientIds && typeof parsed.clientIds === "object" ? parsed.clientIds : {},
+      calendarEvents: Array.isArray(parsed.calendarEvents) ? parsed.calendarEvents : [],
       platformOptions: Array.isArray(parsed.platformOptions) ? parsed.platformOptions : [...DEFAULT_DATA.platformOptions]
     };
     await saveData(restored);
