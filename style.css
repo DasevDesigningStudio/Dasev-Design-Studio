@@ -759,10 +759,8 @@ select:focus { border-color: var(--accent); }
 .muted { color: var(--text-muted); font-size: 12.5px; }
 
 .badge.Active { color: var(--blue); }
-.badge.On.Hold, .badge["On Hold"] { color: var(--warning); }
 .badge.Completed { color: var(--success); }
 .badge.Cancelled { color: var(--danger); }
-.badge.In.Progress, .badge["In Progress"] { color: var(--blue); }
 .badge.Review { color: var(--violet); }
 .badge.Advance { color: var(--blue); }
 .badge.Final { color: var(--success); }

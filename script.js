@@ -293,7 +293,7 @@
     if (view === "reports") runReport();
     if (view === "categories") renderCategoriesView();
     if (view === "expenses") renderExpensesView();
-    if (view === "export") populateInvoiceSelect();
+    if (view === "export") { populateInvoiceSelect(); populatePdfMonthSelect(); }
     if (view === "settings") renderSettingsForm();
     if (view === "packages") renderPackagesView();
     if (view === "calendar") renderCalendarView();
@@ -2077,6 +2077,139 @@
     });
   }
 
+  /* ============ Separate PDF reports: Expenses / Pending / Received ============ */
+  function populatePdfMonthSelect() {
+    const sel = $("#pdfMonthSelect");
+    if (!sel) return;
+    const keep = sel.value || "all";
+    const months = new Set();
+    state.payments.forEach((p) => p.date && months.add(String(p.date).slice(0, 7)));
+    state.expenses.forEach((e) => e.date && months.add(String(e.date).slice(0, 7)));
+    const sorted = [...months].filter(Boolean).sort().reverse();
+    sel.innerHTML = `<option value="all">All Time</option>` +
+      sorted.map((k) => `<option value="${k}">${escapeHtml(monthLabel(k))}</option>`).join("");
+    sel.value = [...sel.options].some((o) => o.value === keep) ? keep : "all";
+  }
+
+  function makeReportPdf({ title, monthKey, head, body, foot, color, footColor, filename, summary, onCell }) {
+    if (typeof window.jspdf === "undefined") { showToast("PDF library load nathi thayi", "error"); return; }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const company = state.settings.companyName || "PayFlow";
+    doc.setFontSize(16);
+    doc.setTextColor(20);
+    doc.text(`${company} — ${title}`, 14, 16);
+    doc.setFontSize(9);
+    doc.setTextColor(120);
+    doc.text(`${monthKey === "all" ? "All Time" : monthLabel(monthKey).replace(" (Current)", "")}  •  ${body.length} records  •  Generated ${new Date().toLocaleString("en-IN")}`, 14, 22);
+    doc.setTextColor(20);
+
+    let y = 28;
+    if (summary && summary.length) {
+      doc.setFontSize(10);
+      summary.forEach(([k, v], i) => {
+        doc.setTextColor(110);
+        doc.text(k, 14 + i * 62, y + 2);
+        doc.setTextColor(20);
+        doc.setFont(undefined, "bold");
+        doc.text(v, 14 + i * 62, y + 8);
+        doc.setFont(undefined, "normal");
+      });
+      y += 16;
+    }
+
+    doc.autoTable({
+      head: [head],
+      body,
+      foot: [foot],
+      startY: y,
+      styles: { fontSize: 8.5, cellPadding: 3.5, overflow: "linebreak" },
+      headStyles: { fillColor: color, textColor: 255, fontStyle: "bold" },
+      footStyles: { fillColor: footColor, textColor: 20, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [248, 250, 250] },
+      margin: { left: 14, right: 14 },
+      didParseCell: onCell,
+      didDrawPage: () => {
+        doc.setFontSize(8);
+        doc.setTextColor(150);
+        doc.text(`Page ${doc.internal.getCurrentPageInfo().pageNumber}`, 14, doc.internal.pageSize.height - 8);
+      }
+    });
+    doc.save(filename);
+    showToast("PDF downloaded", "success");
+  }
+
+  function initPdfReports() {
+    const pdfMoney = (n) => "Rs. " + (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+    const monthKey = () => $("#pdfMonthSelect")?.value || "all";
+    const inMonth = (d, key) => key === "all" || String(d || "").slice(0, 7) === key;
+    const sum = (arr, f) => arr.reduce((t, x) => t + (Number(f(x)) || 0), 0);
+    const fileSuffix = (key) => (key === "all" ? "all-time" : key);
+
+    $("#pdfExpensesBtn")?.addEventListener("click", () => {
+      const key = monthKey();
+      const rows = state.expenses.filter((e) => inMonth(e.date, key)).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+      if (!rows.length) { showToast("Aa mahina ma koi expense nathi", "error"); return; }
+      const total = sum(rows, (e) => e.amount);
+      const byCat = {};
+      rows.forEach((e) => { byCat[e.category || "Other"] = (byCat[e.category || "Other"] || 0) + (Number(e.amount) || 0); });
+      const top = Object.entries(byCat).sort((a, b) => b[1] - a[1])[0];
+      makeReportPdf({
+        title: "Expenses", monthKey: key,
+        head: ["Date", "Category", "Amount", "Notes"],
+        body: rows.map((e) => [fmtDate(e.date), e.category || "—", pdfMoney(e.amount), e.notes || "—"]),
+        foot: ["", "Total", pdfMoney(total), ""],
+        color: [200, 70, 80], footColor: [250, 232, 233],
+        summary: [["Total Expenses", pdfMoney(total)], ["Entries", String(rows.length)], ["Top Category", top ? `${top[0]} (${pdfMoney(top[1])})` : "—"]],
+        filename: `expenses-${fileSuffix(key)}.pdf`
+      });
+    });
+
+    $("#pdfPendingBtn")?.addEventListener("click", () => {
+      const key = monthKey();
+      const today = new Date().toISOString().slice(0, 10);
+      const rows = state.payments
+        .filter((p) => (Number(p.pendingAmount) || 0) > 0 && inMonth(p.date, key))
+        .sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate || "9999"));
+      if (!rows.length) { showToast("Koi pending payment nathi", "error"); return; }
+      const overdue = rows.filter((p) => p.dueDate && p.dueDate < today);
+      makeReportPdf({
+        title: "Pending Payments", monthKey: key,
+        head: ["Client", "Mobile", "Work", "Total", "Paid", "Pending", "Due Date"],
+        body: rows.map((p) => [p.clientName || "—", p.mobile || "—", p.category || p.workDetails || "—", pdfMoney(p.totalAmount), pdfMoney(p.paidAmount), pdfMoney(p.pendingAmount), p.dueDate ? fmtDate(p.dueDate) : "—"]),
+        foot: ["", "", "Total", pdfMoney(sum(rows, (p) => p.totalAmount)), pdfMoney(sum(rows, (p) => p.paidAmount)), pdfMoney(sum(rows, (p) => p.pendingAmount)), ""],
+        color: [221, 154, 46], footColor: [253, 243, 226],
+        summary: [["Total Pending", pdfMoney(sum(rows, (p) => p.pendingAmount))], ["Clients / Entries", String(rows.length)], ["Overdue", `${overdue.length} (${pdfMoney(sum(overdue, (p) => p.pendingAmount))})`]],
+        filename: `pending-payments-${fileSuffix(key)}.pdf`,
+        onCell: (hd) => {
+          if (hd.section !== "body") return;
+          const p = rows[hd.row.index];
+          if (p && p.dueDate && p.dueDate < today && (hd.column.index === 6 || hd.column.index === 5)) {
+            hd.cell.styles.textColor = [200, 60, 60];
+            hd.cell.styles.fontStyle = "bold";
+          }
+        }
+      });
+    });
+
+    $("#pdfReceivedBtn")?.addEventListener("click", () => {
+      const key = monthKey();
+      const rows = state.payments
+        .filter((p) => (Number(p.paidAmount) || 0) > 0 && inMonth(p.date, key))
+        .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+      if (!rows.length) { showToast("Koi received payment nathi", "error"); return; }
+      makeReportPdf({
+        title: "Received Payments", monthKey: key,
+        head: ["Date", "Client", "Business", "Work", "Total", "Received", "Status"],
+        body: rows.map((p) => [fmtDate(p.date), p.clientName || "—", p.businessName || "—", p.category || p.workDetails || "—", pdfMoney(p.totalAmount), pdfMoney(p.paidAmount), p.status || "—"]),
+        foot: ["", "", "", "Total", pdfMoney(sum(rows, (p) => p.totalAmount)), pdfMoney(sum(rows, (p) => p.paidAmount)), ""],
+        color: [18, 117, 108], footColor: [230, 240, 239],
+        summary: [["Total Received", pdfMoney(sum(rows, (p) => p.paidAmount))], ["Entries", String(rows.length)], ["Still Pending", pdfMoney(sum(rows, (p) => p.pendingAmount))]],
+        filename: `received-payments-${fileSuffix(key)}.pdf`
+      });
+    });
+  }
+
   function initExportButtons() {
     $("#exportExcelBtn").addEventListener("click", () => {
       if (typeof XLSX === "undefined") { showToast("Excel library not loaded", "error"); return; }
@@ -3251,6 +3384,7 @@
     initExportButtons();
     initBackupRestore();
     initCalendar();
+    initPdfReports();
     initSettingsView();
     initGlobalSearch();
     initProfileAndLogout();

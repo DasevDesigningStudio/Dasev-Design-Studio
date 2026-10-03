@@ -14,7 +14,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
 <!-- Styles -->
-<link rel="stylesheet" href="style.css?v=5" />
+<link rel="stylesheet" href="style.css?v=6" />
 </head>
 <body>
 
@@ -692,6 +692,17 @@
           <h3>PDF Export</h3>
           <p>Download a printable PDF with Payments, Expenses and Profit — for every month.</p>
           <button class="btn btn-outline" id="exportPdfBtn">Export PDF</button>
+        </div>
+        <div class="card export-card">
+          <div class="export-icon red"><i class="fa-solid fa-file-pdf"></i></div>
+          <h3>PDF Reports</h3>
+          <p>Alag alag PDF: Expenses, Pending Payments ane Received Payments. Mahino pasand karo.</p>
+          <select id="pdfMonthSelect" class="select-block"></select>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn btn-outline" id="pdfExpensesBtn">Expenses PDF</button>
+            <button class="btn btn-outline" id="pdfPendingBtn">Pending PDF</button>
+            <button class="btn btn-outline" id="pdfReceivedBtn">Received PDF</button>
+          </div>
         </div>
         <div class="card export-card">
           <div class="export-icon teal"><i class="fa-solid fa-print"></i></div>
@@ -1429,6 +1440,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js"></script>
-<script src="script.js?v=5"></script>
+<script src="script.js?v=6"></script>
 </body>
 </html>
