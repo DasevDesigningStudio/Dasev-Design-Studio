@@ -16,22 +16,129 @@ app.use(express.json());
 
 // Static files (index.html, style.css, script.js, etc.)
 /* ---------------------------------------------------------------------- */
-/* Password protection (single user)                                      */
-/* Set APP_PASSWORD in Render -> Environment. Without it, the app stays   */
-/* locked (safer than leaving your data open).                            */
+/* Users, login, roles                                                    */
+/* - Darek member no potano login (email + password), hash thai ne store  */
+/* - Roles ni access table (deny by default) neeche ACCESS ma che         */
+/* - APP_PASSWORD have fakt pehli vaar "Owner account" banava mate        */
 /* ---------------------------------------------------------------------- */
 
 const crypto = require("crypto");
+const { promisify } = require("util");
+const { AsyncLocalStorage } = require("async_hooks");
+const scryptAsync = promisify(crypto.scrypt);
+
 app.set("trust proxy", 1);
 app.use(express.urlencoded({ extended: false }));
 
 const APP_PASSWORD = process.env.APP_PASSWORD || "";
-const SESSION_SECRET = process.env.SESSION_SECRET || APP_PASSWORD;
+// SESSION_SECRET Render ma alag set karvu best che. Na hoy to fallback vaparay che.
+const SESSION_SECRET =
+  process.env.SESSION_SECRET ||
+  APP_PASSWORD ||
+  crypto.createHash("sha256").update("aos:" + (process.env.DATABASE_URL || "dev")).digest("hex");
 const COOKIE_NAME = "aos_session";
 const SESSION_DAYS = 30;
+const MIN_PASSWORD = 8;
 
-if (!APP_PASSWORD) {
-  console.error("APP_PASSWORD is not set — the app will stay locked until you add it.");
+if (!process.env.SESSION_SECRET) {
+  console.warn("SESSION_SECRET set nathi — Render Environment ma ek lambo random SESSION_SECRET umero.");
+}
+
+/* ---------- Roles & access (deny by default) -------------------------- */
+const F = "full";
+const V = "view";
+const CREATIVE = { calendar: F, clients: V }; // Editor / Designer / Shooter / SM
+
+const ACCESS = {
+  owner:    { dashboard: F, calendar: F, clients: F, payments: F, leads: F, expenses: F, reports: F, backup: F, settings: F, team: F, activity: F },
+  manager:  { dashboard: F, calendar: F, clients: F, payments: F, leads: F, expenses: F, reports: F, activity: V },
+  sales:    { calendar: F, clients: F, leads: F },
+  finance:  { dashboard: F, calendar: V, clients: V, payments: F, expenses: F, reports: F },
+  editor:   { ...CREATIVE },
+  designer: { ...CREATIVE },
+  shooter:  { ...CREATIVE },
+  sm:       { ...CREATIVE },
+  viewer:   { dashboard: V, calendar: V, clients: V, leads: V }
+};
+const ROLES = Object.keys(ACCESS);
+
+function accessLevel(role, module) {
+  return (ACCESS[role] && ACCESS[role][module]) || null;
+}
+function canMoney(role) {
+  return !!accessLevel(role, "payments");
+}
+
+const AUTH = "__auth__"; // koi pan logged-in user (read-only reference data)
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const getOr = (module) => (req) => (SAFE_METHODS.has(req.method) ? AUTH : module);
+const getOrElse = (readModule, writeModule) => (req) => (SAFE_METHODS.has(req.method) ? readModule : writeModule);
+
+// Je route aa list ma nathi e BAND (403).
+const ROUTE_RULES = [
+  [/^\/me$/, () => AUTH],
+  [/^\/settings$/, getOr("settings")],
+  [/^\/categories(\/|$)/, getOr("payments")],
+  [/^\/platform-options$/, getOr("settings")],
+  [/^\/lead-sources$/, getOr("leads")],
+  [/^\/expense-categories$/, getOr("expenses")],
+  [/^\/payments(\/|$)/, () => "payments"],
+  [/^\/expenses(\/|$)/, () => "expenses"],
+  [/^\/dashboard$/, () => "dashboard"],
+  [/^\/overview$/, () => "dashboard"],
+  [/^\/calendar(-events)?(\/|$)/, () => "calendar"],
+  [/^\/clients(\/|$)/, () => "clients"],
+  [/^\/client-profiles(\/|$)/, () => "clients"],
+  [/^\/(one-time-jobs|packages)(\/|$)/, getOrElse("clients", "payments")],
+  [/^\/leads(\/|$)/, () => "leads"],
+  [/^\/reports(\/|$)/, () => "reports"],
+  [/^\/export\//, () => "reports"],
+  [/^\/(backup|restore)$/, () => "backup"],
+  [/^\/activity$/, () => "activity"]
+];
+
+function resolveModule(req) {
+  for (const [re, fn] of ROUTE_RULES) if (re.test(req.path)) return fn(req);
+  return null;
+}
+
+/* ---------- Money hide (jene paisa na jova joie) ----------------------- */
+const MONEY_KEYS = new Set([
+  "totalBusiness", "totalReceived", "totalPending", "payments",
+  "totalAmount", "paidAmount", "pendingAmount", "paymentHistory", "paymentStatus"
+]);
+function stripKeys(v) {
+  if (Array.isArray(v)) return v.map(stripKeys);
+  if (v && typeof v === "object") {
+    const o = {};
+    for (const [k, x] of Object.entries(v)) if (!MONEY_KEYS.has(k)) o[k] = stripKeys(x);
+    return o;
+  }
+  return v;
+}
+function stripMoney(path, body) {
+  if (path.startsWith("/calendar") && body && Array.isArray(body.events)) {
+    body = { ...body, events: body.events.filter((e) => e.type !== "payment") };
+  }
+  return stripKeys(body);
+}
+
+/* ---------- Passwords & sessions -------------------------------------- */
+async function hashPassword(pw) {
+  const salt = crypto.randomBytes(16);
+  const key = await scryptAsync(pw, salt, 64);
+  return `scrypt$${salt.toString("hex")}$${key.toString("hex")}`;
+}
+async function verifyPassword(pw, stored) {
+  const [alg, saltHex, hashHex] = String(stored || "").split("$");
+  if (alg !== "scrypt" || !saltHex || !hashHex) return false;
+  const key = await scryptAsync(pw, Buffer.from(saltHex, "hex"), 64);
+  const expected = Buffer.from(hashHex, "hex");
+  return key.length === expected.length && crypto.timingSafeEqual(key, expected);
+}
+let _dummyHash = null;
+async function dummyHash() {
+  return _dummyHash || (_dummyHash = await hashPassword("dummy-password-for-timing"));
 }
 
 function sign(value) {
@@ -42,16 +149,6 @@ function safeEqual(a, b) {
   const bb = Buffer.from(String(b));
   return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
 }
-function makeToken() {
-  const exp = String(Date.now() + SESSION_DAYS * 86400000);
-  return exp + "." + sign(exp);
-}
-function isValidToken(token) {
-  if (!APP_PASSWORD || !token) return false;
-  const [exp, sig] = String(token).split(".");
-  if (!exp || !sig || !safeEqual(sig, sign(exp))) return false;
-  return Number(exp) > Date.now();
-}
 function getCookie(req, name) {
   const raw = req.headers.cookie || "";
   for (const part of raw.split(";")) {
@@ -60,61 +157,230 @@ function getCookie(req, name) {
   }
   return null;
 }
-
-// Simple brute-force limit: 5 wrong attempts per IP per 15 minutes
-const failedLogins = new Map();
-function tooManyAttempts(ip) {
-  const rec = failedLogins.get(ip);
-  if (!rec) return false;
-  if (Date.now() - rec.first > 15 * 60000) { failedLogins.delete(ip); return false; }
-  return rec.count >= 5;
+function setSession(req, res, user) {
+  const exp = Date.now() + SESSION_DAYS * 86400000;
+  const payload = `${user.id}.${user.session_version}.${exp}`;
+  const token = payload + "." + sign(payload);
+  const secure = req.secure ? "; Secure" : "";
+  res.setHeader(
+    "Set-Cookie",
+    `${COOKIE_NAME}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_DAYS * 86400}${secure}`
+  );
 }
-function recordFail(ip) {
-  const rec = failedLogins.get(ip);
-  if (!rec || Date.now() - rec.first > 15 * 60000) failedLogins.set(ip, { count: 1, first: Date.now() });
-  else rec.count++;
+async function userFromRequest(req) {
+  const token = getCookie(req, COOKIE_NAME);
+  if (!token) return null;
+  const parts = String(token).split(".");
+  if (parts.length !== 4) return null;
+  const [id, sv, exp, sig] = parts;
+  if (!safeEqual(sig, sign(`${id}.${sv}.${exp}`)) || Number(exp) <= Date.now()) return null;
+  const uid = Number(id);
+  if (!Number.isInteger(uid)) return null;
+  const { rows } = await pool.query(
+    "SELECT id, email, name, role, active, must_change_password, session_version FROM users WHERE id = $1",
+    [uid]
+  );
+  const u = rows[0];
+  if (!u || !u.active || u.session_version !== Number(sv)) return null;
+  return u;
 }
 
-function loginPage(message) {
+// Brute-force limit (15 minute window)
+const attempts = new Map();
+function isBlocked(key, max) {
+  const r = attempts.get(key);
+  if (!r) return false;
+  if (Date.now() - r.first > 15 * 60000) { attempts.delete(key); return false; }
+  return r.count >= max;
+}
+function noteFail(key) {
+  const r = attempts.get(key);
+  if (!r || Date.now() - r.first > 15 * 60000) attempts.set(key, { count: 1, first: Date.now() });
+  else r.count++;
+}
+
+/* ---------- Activity log ---------------------------------------------- */
+async function logActivity(dbc, user, action, entity, entityId, summary, details) {
+  try {
+    await dbc.query(
+      "INSERT INTO activity_log (user_id, user_name, action, entity, entity_id, summary, details) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+      [user ? user.id : null, user ? user.name : null, action, entity || null, entityId || null, summary || null, details ? JSON.stringify(details) : null]
+    );
+  } catch (err) {
+    console.error("Activity log failed:", err.message);
+  }
+}
+
+/* ---------- Small HTML pages (login / setup / change password) -------- */
+const esc = (s) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function authPage({ title, subtitle, fields, button, action, message, footer }) {
+  const inputs = fields
+    .map((f) => `<input type="${f.type || "text"}" name="${f.name}" placeholder="${esc(f.placeholder)}" autocomplete="${f.auto || "off"}" ${f.value ? `value="${esc(f.value)}"` : ""} ${f.autofocus ? "autofocus" : ""} required>`)
+    .join("\n  ");
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Login</title>
+<title>${esc(title)}</title>
 <style>
   body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f172a;font-family:system-ui,sans-serif}
-  form{background:#fff;padding:32px;border-radius:14px;width:min(340px,88vw);box-shadow:0 10px 40px rgba(0,0,0,.35)}
+  form{background:#fff;padding:32px;border-radius:14px;width:min(360px,90vw);box-shadow:0 10px 40px rgba(0,0,0,.35)}
   h1{margin:0 0 6px;font-size:22px;color:#0f172a} p{margin:0 0 18px;color:#64748b;font-size:14px}
   input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #cbd5e1;border-radius:8px;font-size:16px;margin-bottom:12px}
   button{width:100%;padding:12px;border:0;border-radius:8px;background:#0d9488;color:#fff;font-size:16px;font-weight:600;cursor:pointer}
   .err{color:#dc2626;font-size:14px;margin-bottom:12px}
+  .foot{margin-top:14px;text-align:center;font-size:13px}.foot a{color:#0d9488}
 </style></head><body>
-<form method="POST" action="/login">
-  <h1>Agency OS</h1><p>Password nakho</p>
-  ${message ? `<div class="err">${message}</div>` : ""}
-  <input type="password" name="password" placeholder="Password" autofocus required>
-  <button type="submit">Login</button>
+<form method="POST" action="${action}">
+  <h1>${esc(title)}</h1><p>${esc(subtitle)}</p>
+  ${message ? `<div class="err">${esc(message)}</div>` : ""}
+  ${inputs}
+  <button type="submit">${esc(button)}</button>
+  ${footer ? `<div class="foot">${footer}</div>` : ""}
 </form></body></html>`;
 }
 
-app.get("/login", (req, res) => {
-  res.send(loginPage(APP_PASSWORD ? "" : "APP_PASSWORD Render ma set nathi."));
+const loginPage = (message) =>
+  authPage({
+    title: "Agency OS", subtitle: "Tamaro email ane password nakho", action: "/login", button: "Login", message,
+    fields: [
+      { name: "email", type: "email", placeholder: "Email", auto: "username", autofocus: true },
+      { name: "password", type: "password", placeholder: "Password", auto: "current-password" }
+    ]
+  });
+
+const setupPage = (message, v = {}) =>
+  authPage({
+    title: "Owner account banavo",
+    subtitle: "Pehli vaar setup. Atyar no APP_PASSWORD nakho, pachi tamaro Owner account banavo.",
+    action: "/setup", button: "Owner banavo", message,
+    fields: [
+      { name: "appPassword", type: "password", placeholder: "Atyar no APP_PASSWORD (Render ma che)", autofocus: true },
+      { name: "name", placeholder: "Tamaru naam", auto: "name", value: v.name },
+      { name: "email", type: "email", placeholder: "Email", auto: "username", value: v.email },
+      { name: "password", type: "password", placeholder: `Navo password (min ${MIN_PASSWORD} akshar)`, auto: "new-password" },
+      { name: "confirm", type: "password", placeholder: "Password pharithi", auto: "new-password" }
+    ]
+  });
+
+const changePasswordPage = (message, forced) =>
+  authPage({
+    title: "Password badlo",
+    subtitle: forced ? "Aagal vadhva pehla navo password set karo." : "Tamaro potano password badlo.",
+    action: "/change-password", button: "Password badlo", message,
+    footer: forced ? "" : '<a href="/">Pachu</a>',
+    fields: [
+      { name: "current", type: "password", placeholder: "Atyar no password", auto: "current-password", autofocus: true },
+      { name: "password", type: "password", placeholder: `Navo password (min ${MIN_PASSWORD} akshar)`, auto: "new-password" },
+      { name: "confirm", type: "password", placeholder: "Navo password pharithi", auto: "new-password" }
+    ]
+  });
+
+const dbDownPage = () =>
+  authPage({ title: "Agency OS", subtitle: "Database connect thai rahyo che. Thodi vaar pachi refresh karo.", fields: [], button: "Refresh", action: "/login", message: "" });
+
+async function userCount() {
+  const { rows } = await pool.query("SELECT count(*)::int AS n FROM users");
+  return rows[0].n;
+}
+const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+
+/* ---------- Login / Setup / Logout / Change password ------------------ */
+app.get("/login", async (req, res) => {
+  try {
+    if (!dbReady) return res.status(503).send(dbDownPage());
+    if ((await userCount()) === 0) return res.redirect("/setup");
+    res.send(loginPage(""));
+  } catch (err) {
+    res.status(500).send(loginPage("Server error. Pharithi try karo."));
+  }
 });
 
-app.post("/login", (req, res) => {
-  const ip = req.ip;
-  if (!APP_PASSWORD) return res.status(503).send(loginPage("APP_PASSWORD Render ma set nathi."));
-  if (tooManyAttempts(ip)) return res.status(429).send(loginPage("Ghana vadhare prayatno. 15 minute pachi try karo."));
-  if (!safeEqual(req.body.password || "", APP_PASSWORD)) {
-    recordFail(ip);
-    return res.status(401).send(loginPage("Khotu password."));
+app.post("/login", async (req, res) => {
+  try {
+    if (!dbReady) return res.status(503).send(dbDownPage());
+    const email = String(req.body.email || "").trim().toLowerCase();
+    const password = String(req.body.password || "");
+    const ipKey = "ip:" + req.ip;
+    const emKey = "em:" + email;
+    if (isBlocked(ipKey, 20) || isBlocked(emKey, 5)) {
+      return res.status(429).send(loginPage("Ghana vadhare prayatno. 15 minute pachi try karo."));
+    }
+    const { rows } = await pool.query("SELECT * FROM users WHERE lower(email) = $1", [email]);
+    const u = rows[0];
+    const ok = await verifyPassword(password, u ? u.password_hash : await dummyHash());
+    if (!u || !ok) {
+      noteFail(ipKey); noteFail(emKey);
+      return res.status(401).send(loginPage("Email ke password khotu che."));
+    }
+    if (!u.active) return res.status(403).send(loginPage("Aa account band che. Owner no sampark karo."));
+    attempts.delete(emKey);
+    await pool.query("UPDATE users SET last_login_at = now() WHERE id = $1", [u.id]);
+    await logActivity(pool, u, "login", "user", String(u.id), `${u.name} logged in`);
+    setSession(req, res, u);
+    res.redirect(u.must_change_password ? "/change-password" : "/");
+  } catch (err) {
+    console.error("Login error:", err);
+    res.status(500).send(loginPage("Server error. Pharithi try karo."));
   }
-  failedLogins.delete(ip);
-  const secure = req.secure ? "; Secure" : "";
-  res.setHeader(
-    "Set-Cookie",
-    `${COOKIE_NAME}=${encodeURIComponent(makeToken())}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_DAYS * 86400}${secure}`
-  );
-  res.redirect("/");
+});
+
+app.get("/setup", async (req, res) => {
+  try {
+    if (!dbReady) return res.status(503).send(dbDownPage());
+    if ((await userCount()) > 0) return res.redirect("/login");
+    res.send(setupPage(APP_PASSWORD ? "" : "APP_PASSWORD Render ma set nathi — setup mate e jaruri che."));
+  } catch (err) {
+    res.status(500).send(setupPage("Server error."));
+  }
+});
+
+app.post("/setup", async (req, res) => {
+  const body = req.body || {};
+  const keep = { name: body.name, email: body.email };
+  if (!dbReady) return res.status(503).send(dbDownPage());
+  let c;
+  try {
+    c = await pool.connect();
+    const ipKey = "setup:" + req.ip;
+    if (isBlocked(ipKey, 5)) return res.status(429).send(setupPage("Ghana vadhare prayatno. 15 minute pachi try karo.", keep));
+    if (!APP_PASSWORD) return res.status(503).send(setupPage("APP_PASSWORD Render ma set nathi.", keep));
+    if (!safeEqual(body.appPassword || "", APP_PASSWORD)) {
+      noteFail(ipKey);
+      return res.status(401).send(setupPage("APP_PASSWORD khotu che.", keep));
+    }
+    const name = String(body.name || "").trim();
+    const email = String(body.email || "").trim().toLowerCase();
+    const password = String(body.password || "");
+    if (!name) return res.status(400).send(setupPage("Naam jaruri che.", keep));
+    if (!validEmail(email)) return res.status(400).send(setupPage("Sacho email nakho.", keep));
+    if (password.length < MIN_PASSWORD) return res.status(400).send(setupPage(`Password kam ma kam ${MIN_PASSWORD} akshar no hovo joie.`, keep));
+    if (password !== body.confirm) return res.status(400).send(setupPage("Banne password match nathi thata.", keep));
+
+    const hash = await hashPassword(password);
+    await c.query("BEGIN");
+    await c.query("SELECT pg_advisory_xact_lock(727001)");
+    const n = (await c.query("SELECT count(*)::int AS n FROM users")).rows[0].n;
+    if (n > 0) {
+      await c.query("ROLLBACK");
+      return res.redirect("/login");
+    }
+    const { rows } = await c.query(
+      "INSERT INTO users (email, name, role, password_hash) VALUES ($1,$2,'owner',$3) RETURNING id, email, name, role, session_version",
+      [email, name, hash]
+    );
+    await logActivity(c, rows[0], "setup", "user", String(rows[0].id), `${name} created the Owner account`);
+    await c.query("COMMIT");
+    setSession(req, res, rows[0]);
+    res.redirect("/");
+  } catch (err) {
+    try { if (c) await c.query("ROLLBACK"); } catch (_) {}
+    console.error("Setup error:", err);
+    res.status(500).send(setupPage("Server error: " + err.message, keep));
+  } finally {
+    if (c) c.release();
+  }
 });
 
 app.get("/logout", (req, res) => {
@@ -122,12 +388,72 @@ app.get("/logout", (req, res) => {
   res.redirect("/login");
 });
 
-// Health check stays public (Render uses it); everything else needs login.
-app.use((req, res, next) => {
-  if (req.path === "/healthz" || req.path === "/login" || req.path === "/logout") return next();
-  if (isValidToken(getCookie(req, COOKIE_NAME))) return next();
-  if (req.path.startsWith("/api")) return res.status(401).json({ error: "Login required" });
-  return res.redirect("/login");
+// Everything below needs a logged-in, active user.
+app.use(async (req, res, next) => {
+  if (req.path === "/healthz") return next();
+  const isApi = req.path.startsWith("/api");
+  try {
+    if (!dbReady) {
+      return isApi ? res.status(503).json({ error: "Database is not connected yet. Try again shortly." }) : res.status(503).send(dbDownPage());
+    }
+    const user = await userFromRequest(req);
+    if (!user) {
+      if (isApi) return res.status(401).json({ error: "Login required" });
+      return res.redirect((await userCount()) === 0 ? "/setup" : "/login");
+    }
+    req.user = user;
+    if (user.must_change_password && req.path !== "/change-password") {
+      if (isApi) return res.status(403).json({ error: "Pehla navo password set karo.", code: "MUST_CHANGE_PASSWORD" });
+      return res.redirect("/change-password");
+    }
+    next();
+  } catch (err) {
+    console.error("Auth error:", err);
+    isApi ? res.status(500).json({ error: "Auth error" }) : res.status(500).send("Server error");
+  }
+});
+
+app.get("/change-password", (req, res) => {
+  res.send(changePasswordPage("", req.user.must_change_password));
+});
+
+app.post("/change-password", async (req, res) => {
+  const forced = req.user.must_change_password;
+  try {
+    const { current = "", password = "", confirm = "" } = req.body || {};
+    const { rows } = await pool.query("SELECT password_hash FROM users WHERE id = $1", [req.user.id]);
+    if (!rows[0] || !(await verifyPassword(String(current), rows[0].password_hash))) {
+      return res.status(401).send(changePasswordPage("Atyar nu password khotu che.", forced));
+    }
+    if (password.length < MIN_PASSWORD) return res.status(400).send(changePasswordPage(`Navo password kam ma kam ${MIN_PASSWORD} akshar no hovo joie.`, forced));
+    if (password !== confirm) return res.status(400).send(changePasswordPage("Banne password match nathi thata.", forced));
+    if (password === current) return res.status(400).send(changePasswordPage("Navo password juna thi alag hovo joie.", forced));
+    const hash = await hashPassword(password);
+    const upd = await pool.query(
+      "UPDATE users SET password_hash = $1, must_change_password = FALSE, session_version = session_version + 1 WHERE id = $2 RETURNING id, session_version",
+      [hash, req.user.id]
+    );
+    await logActivity(pool, req.user, "password_changed", "user", String(req.user.id), `${req.user.name} changed their password`);
+    setSession(req, res, upd.rows[0]); // aa device logged-in rahe, bija badha device logout
+    res.redirect("/");
+  } catch (err) {
+    console.error("Change password error:", err);
+    res.status(500).send(changePasswordPage("Server error.", forced));
+  }
+});
+
+// Simple activity page (Owner + Manager)
+app.get("/activity", async (req, res) => {
+  if (!accessLevel(req.user.role, "activity")) return res.status(403).send("Aa page mate permission nathi.");
+  const { rows } = await pool.query("SELECT * FROM activity_log ORDER BY id DESC LIMIT 300");
+  const tr = rows
+    .map((r) => `<tr><td>${esc(new Date(r.at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }))}</td><td>${esc(r.user_name || "-")}</td><td>${esc(r.action)}</td><td>${esc(r.summary || "")}</td></tr>`)
+    .join("");
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Activity</title>
+<style>body{font-family:system-ui,sans-serif;margin:0;padding:20px;background:#f8fafc;color:#0f172a}h1{font-size:20px}a{color:#0d9488}
+table{border-collapse:collapse;width:100%;background:#fff;font-size:14px}th,td{padding:8px 10px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}th{background:#f1f5f9}
+.w{overflow-x:auto}</style></head><body><h1>Activity log <small><a href="/">← App</a></small></h1><div class="w"><table>
+<tr><th>Kyare (IST)</th><th>Kon</th><th>Shu</th><th>Vigat</th></tr>${tr || '<tr><td colspan="4">Haju kai nathi.</td></tr>'}</table></div></body></html>`);
 });
 
 // Only serve the real front-end files (NOT server.js, data.json, .env, etc.)
@@ -141,9 +467,10 @@ app.use((req, res, next) => {
 /* survives restarts / free-tier spin-downs.                              */
 /* ---------------------------------------------------------------------- */
 
+const LOCAL_DB = /@(localhost|127\.0\.0\.1)[:/]/.test(process.env.DATABASE_URL || "");
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: LOCAL_DB ? false : { rejectUnauthorized: false }
 });
 
 const ROW_ID = "main";
@@ -159,6 +486,71 @@ async function initDb() {
   if (rows.length === 0) {
     await pool.query("INSERT INTO app_data (id, data) VALUES ($1, $2)", [ROW_ID, DEFAULT_DATA]);
   }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      email TEXT NOT NULL,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
+      session_version INT NOT NULL DEFAULT 1,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_login_at TIMESTAMPTZ
+    )
+  `);
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower ON users (lower(email))");
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS activity_log (
+      id BIGSERIAL PRIMARY KEY,
+      at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      user_id INT,
+      user_name TEXT,
+      action TEXT NOT NULL,
+      entity TEXT,
+      entity_id TEXT,
+      summary TEXT,
+      details JSONB
+    )
+  `);
+  await pool.query("CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT)");
+  await applyOwnerReset();
+}
+
+// Emergency: Owner password bhulay to Render ma OWNER_RESET_PASSWORD set karo
+// (optional OWNER_RESET_EMAIL). Server restart par ek vaar j apply thase, ane
+// Owner e pehli login par navo password set karvo padse. Pachi variable kadhi nakho.
+async function applyOwnerReset() {
+  const pw = process.env.OWNER_RESET_PASSWORD || "";
+  if (!pw) return;
+  if (pw.length < MIN_PASSWORD) {
+    console.error(`OWNER_RESET_PASSWORD kam ma kam ${MIN_PASSWORD} akshar nu hovu joie.`);
+    return;
+  }
+  const fp = crypto.createHash("sha256").update("owner-reset:" + pw).digest("hex");
+  const m = await pool.query("SELECT value FROM app_meta WHERE key = 'owner_reset_fp'");
+  if (m.rows[0] && m.rows[0].value === fp) return;
+  const email = (process.env.OWNER_RESET_EMAIL || "").trim().toLowerCase();
+  const q = email
+    ? await pool.query("SELECT id, name FROM users WHERE role = 'owner' AND lower(email) = $1", [email])
+    : await pool.query("SELECT id, name FROM users WHERE role = 'owner' ORDER BY id LIMIT 1");
+  if (!q.rows[0]) {
+    console.error("OWNER_RESET_PASSWORD set che pan Owner user nathi (haju setup nathi thayu?).");
+    return;
+  }
+  const hash = await hashPassword(pw);
+  await pool.query(
+    "UPDATE users SET password_hash = $1, must_change_password = TRUE, active = TRUE, session_version = session_version + 1 WHERE id = $2",
+    [hash, q.rows[0].id]
+  );
+  await pool.query(
+    "INSERT INTO app_meta (key, value) VALUES ('owner_reset_fp', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+    [fp]
+  );
+  await logActivity(pool, null, "owner_reset", "user", String(q.rows[0].id), `Owner password was reset via OWNER_RESET_PASSWORD (${q.rows[0].name})`);
+  console.warn("Owner password reset applied. OWNER_RESET_PASSWORD Render mathi kadhi nakho.");
 }
 
 /* ---------------------------------------------------------------------- */
@@ -187,8 +579,10 @@ const DEFAULT_DATA = {
   platformOptions: ["Instagram", "Facebook", "YouTube", "LinkedIn", "Twitter/X", "Pinterest", "Other"]
 };
 
+const dbq = () => (dbContext.getStore() || {}).client || pool;
+
 async function loadData() {
-  const { rows } = await pool.query("SELECT data FROM app_data WHERE id = $1", [ROW_ID]);
+  const { rows } = await dbq().query("SELECT data FROM app_data WHERE id = $1", [ROW_ID]);
   const raw = rows[0] ? rows[0].data : {};
 
   // Normalize shape / fill in defaults defensively
@@ -215,12 +609,12 @@ async function loadData() {
   // data that was created before it was added to the defaults.
   if (!data.expenseCategories.some((c) => c.toLowerCase() === "nasto")) {
     data.expenseCategories.push("Nasto");
-    await saveData(data);
+    if (dbContext.getStore()) await saveData(data);
   }
 
   // Permanent Client IDs: give every client that has none yet an ID.
   // Existing IDs are never changed or reused.
-  if (reconcileClients(data)) {
+  if (reconcileClients(data) && dbContext.getStore()) {
     await saveData(data);
   }
 
@@ -229,7 +623,7 @@ async function loadData() {
 
 async function saveData(data) {
   reconcileClients(data);
-  await pool.query("UPDATE app_data SET data = $1 WHERE id = $2", [data, ROW_ID]);
+  await dbq().query("UPDATE app_data SET data = $1 WHERE id = $2", [data, ROW_ID]);
 }
 
 function nextPaymentId(payments) {
@@ -1066,6 +1460,187 @@ app.use("/api", (req, res, next) => {
     return res.status(503).json({ error: "Database is not connected yet. Try again shortly." });
   }
   next();
+});
+
+/* ---------------------------------------------------------------------- */
+/* API guard: role check (server par) -> row lock -> activity log         */
+/* ---------------------------------------------------------------------- */
+
+app.get("/api/me", (req, res) => {
+  const u = req.user;
+  res.json({ id: u.id, name: u.name, email: u.email, role: u.role, access: ACCESS[u.role] || {} });
+});
+
+// 1) Role check — je list ma nathi e 403.
+app.use("/api", (req, res, next) => {
+  const need = resolveModule(req);
+  const role = req.user.role;
+  let allowed = false;
+  if (need === AUTH) allowed = true;
+  else if (need) {
+    const level = accessLevel(role, need);
+    allowed = level === F || (level === V && SAFE_METHODS.has(req.method));
+  }
+  if (!allowed) {
+    return res.status(403).json({ error: "Aa kaam mate tamari pase permission nathi." });
+  }
+  // Jene paisa no access nathi, tena response maanthi paisa na fields kadhi nakho.
+  if (!canMoney(role) && /^\/(clients|packages|one-time-jobs|calendar)/.test(req.path)) {
+    const orig = res.json.bind(res);
+    res.json = (body) => orig(stripMoney(req.path, body));
+  }
+  next();
+});
+
+// 2) Row lock — darek save (POST/PUT/DELETE) ek pachi ek thay, overwrite na thai.
+const dbContext = new AsyncLocalStorage();
+const reenterDb = (req, res, next) => dbContext.run({ client: req.dbClient }, next);
+
+const ENTITY_LABEL = {
+  payments: "payment", expenses: "expense", leads: "lead", "one-time-jobs": "one-time job",
+  packages: "package", "calendar-events": "calendar event", categories: "category",
+  "lead-sources": "lead source", "expense-categories": "expense category",
+  clients: "client", "client-profiles": "client profile", settings: "settings", restore: "backup"
+};
+const LIST_OF = {
+  payments: "payments", expenses: "expenses", leads: "leads", "one-time-jobs": "oneTimeJobs",
+  packages: "packages", "calendar-events": "calendarEvents"
+};
+const inr = (n) => "₹" + Number(n || 0).toLocaleString("en-IN");
+
+function describeEntity(key, o) {
+  if (!o) return "";
+  switch (key) {
+    case "payments": return `${o.clientName || ""} · ${inr(o.totalAmount)}`;
+    case "expenses": return `${o.category || ""} · ${inr(o.amount)}`;
+    case "leads": return o.name || "";
+    case "one-time-jobs":
+    case "packages": return `${o.name || ""}${o.clientName ? " (" + o.clientName + ")" : ""}`;
+    case "calendar-events": return o.title || "";
+    default: return "";
+  }
+}
+
+const SKIP_DIFF = new Set(["createdAt", "paymentHistory", "platforms", "progress"]);
+function diffObjects(before, after) {
+  const out = {};
+  if (!before || !after || typeof after !== "object") return out;
+  for (const k of Object.keys(after)) {
+    if (SKIP_DIFF.has(k)) continue;
+    const a = JSON.stringify(before[k]);
+    const b = JSON.stringify(after[k]);
+    if (a !== b && typeof after[k] !== "object") out[k] = [before[k] ?? null, after[k]];
+  }
+  return out;
+}
+
+function buildActivity(req, res, before, relPath) {
+  const segs = relPath.split("/").filter(Boolean);
+  const key = segs[0];
+  const id = segs[1] ? decodeURIComponent(segs[1]) : null;
+  const sub = segs[2];
+  const body = res.locals.body;
+  const label = ENTITY_LABEL[key] || key;
+
+  let action, entityId = id, shown = before;
+  if (key === "restore") return { action: "restore", entity: "backup", entityId: null, summary: "restored a backup file", details: null };
+  if (key === "settings") return { action: "update", entity: "settings", entityId: null, summary: "updated settings", details: { changes: diffObjects(before, body) } };
+  if (sub === "duplicate") { action = "duplicate"; entityId = body && body.id || id; shown = body; }
+  else if (sub === "convert") { action = "convert"; shown = body && body.lead; entityId = id; }
+  else if (sub === "payments") { action = req.method === "DELETE" ? "remove payment entry" : "add payment entry"; shown = body || before; }
+  else if (req.method === "POST") { action = "create"; entityId = (body && body.id) || id; shown = body; }
+  else if (req.method === "PUT") { action = "update"; shown = body || before; }
+  else if (req.method === "DELETE") { action = "delete"; shown = before; }
+  else action = req.method.toLowerCase();
+
+  const desc = describeEntity(key, shown) || (!id && body && body.name) || (segs[1] ? "" : (req.body && req.body.name) || "");
+  const idText = entityId && typeof entityId === "string" ? ` ${entityId}` : "";
+  const summary = `${action} ${label}${idText}${desc ? " (" + desc + ")" : ""}`.trim();
+  const changes = action === "update" ? diffObjects(before, body) : null;
+  return { action, entity: label, entityId: entityId || null, summary, details: changes && Object.keys(changes).length ? { changes } : null };
+}
+
+app.use("/api", async (req, res, next) => {
+  if (SAFE_METHODS.has(req.method)) return next();
+
+  const relPath = req.path; // handler pachi Express req.path ma /api pacho umere che, etle atyare j save
+  let client;
+  let done = false;
+  const finish = async (commit) => {
+    if (done) return;
+    done = true;
+    try { await client.query(commit ? "COMMIT" : "ROLLBACK"); } catch (e) { console.error("TX end failed:", e.message); }
+    client.release();
+  };
+
+  let before = null;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '15s'");
+    await client.query("SET LOCAL idle_in_transaction_session_timeout = '60s'");
+    await client.query("SELECT 1 FROM app_data WHERE id = $1 FOR UPDATE", [ROW_ID]);
+
+    // Delete/update ni pehla nu record yaad rakho (activity log mate)
+    const seg = relPath.split("/").filter(Boolean);
+    const list = LIST_OF[seg[0]];
+    if (list && seg[1]) {
+      const raw = (await client.query("SELECT data FROM app_data WHERE id = $1", [ROW_ID])).rows[0];
+      const arr = raw && raw.data && raw.data[list];
+      before = Array.isArray(arr) ? arr.find((x) => x.id === decodeURIComponent(seg[1])) || null : null;
+    } else if (seg[0] === "settings") {
+      const raw = (await client.query("SELECT data FROM app_data WHERE id = $1", [ROW_ID])).rows[0];
+      before = raw && raw.data ? raw.data.settings : null;
+    }
+  } catch (err) {
+    if (client) await finish(false);
+    const busy = /lock timeout/i.test(err.message);
+    return res.status(503).json({ error: busy ? "Bijo user save kari rahyo che, thodi vaar pachi try karo." : "Database error: " + err.message });
+  }
+
+  req.dbClient = client;
+
+  const origJson = res.json.bind(res);
+  res.json = (body) => { res.locals.body = body; return origJson(body); };
+
+  // Response jata pehla commit karo, jethi turant pachi no GET navo data j joe.
+  const origEnd = res.end.bind(res);
+  res.end = function (...args) {
+    if (done || res.locals._ending) return origEnd(...args);
+    res.locals._ending = true;
+    (async () => {
+      try {
+        if (res.statusCode < 400) {
+          const a = buildActivity(req, res, before, relPath);
+          await logActivity(client, req.user, a.action, a.entity, a.entityId, `${req.user.name}: ${a.summary}`, a.details);
+          await finish(true);
+        } else {
+          await finish(false);
+        }
+        origEnd(...args);
+      } catch (err) {
+        console.error("Commit failed:", err);
+        await finish(false);
+        const msg = JSON.stringify({ error: "Save na thayu. Pharithi try karo." });
+        res.statusCode = 500;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.setHeader("Content-Length", Buffer.byteLength(msg));
+        origEnd(msg);
+      }
+    })();
+    return res;
+  };
+
+  dbContext.run({ client }, next);
+});
+
+app.get("/api/activity", async (req, res) => {
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 500);
+  const before = parseInt(req.query.before, 10);
+  const { rows } = before
+    ? await pool.query("SELECT * FROM activity_log WHERE id < $1 ORDER BY id DESC LIMIT $2", [before, limit])
+    : await pool.query("SELECT * FROM activity_log ORDER BY id DESC LIMIT $1", [limit]);
+  res.json(rows);
 });
 
 /* ---------------------------------------------------------------------- */
@@ -1974,7 +2549,7 @@ app.get("/api/backup", async (req, res) => {
   res.send(JSON.stringify(data, null, 2));
 });
 
-app.post("/api/restore", upload.single("backupFile"), async (req, res) => {
+app.post("/api/restore", upload.single("backupFile"), reenterDb, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No backup file provided" });

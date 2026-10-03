@@ -62,6 +62,10 @@
       headers: { "Content-Type": "application/json" },
       ...options
     });
+    if (res.status === 401) {
+      window.location.href = "/login";
+      throw new Error("Session purou thayu — pharithi login karo.");
+    }
     if (!res.ok) {
       let msg = "Request failed";
       try {
@@ -2803,7 +2807,7 @@
   /* ------------------------------------------------------------------ */
   function initProfileAndLogout() {
     $("#logoutBtn").addEventListener("click", () => {
-      showToast("Logged out (demo only — no auth backend).", "info");
+      window.location.href = "/logout";
     });
   }
 
