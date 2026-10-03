@@ -21,9 +21,10 @@
     overviewMonth: currentMonthKey(),
     clients: [],
     leads: [],
-    paymentsFilterMonth: "all",
-    clientsFilterMonth: "all",
-    expensesFilterMonth: "all",
+    paymentsFilterMonth: currentMonthKey(),   // default: current month (pick "All Months" to see everything)
+    clientsFilterMonth: currentMonthKey(),
+    expensesFilterMonth: currentMonthKey(),
+    pickerClients: [],                        // ALL clients, used by the client picker
     editingPaymentId: null,
     editingExpenseId: null,
     editingLeadId: null,
@@ -180,9 +181,12 @@
 
   function populateMonthSelect(sel, months, currentValue) {
     if (!sel) return;
+    // Always offer the current month, even if it has no records yet.
+    const cur = currentMonthKey();
+    const list = [...new Set([cur, ...months])].sort().reverse();
     sel.innerHTML = `<option value="all">All Months</option>` +
-      months.map((key) => `<option value="${key}">${monthShortLabel(key)}</option>`).join("");
-    sel.value = months.includes(currentValue) || currentValue === "all" ? currentValue : "all";
+      list.map((key) => `<option value="${key}">${monthShortLabel(key)}${key === cur ? " (Current)" : ""}</option>`).join("");
+    sel.value = list.includes(currentValue) || currentValue === "all" ? currentValue : cur;
   }
 
   // Mirrors server-side buildClients() so we can group the already-loaded
@@ -3000,7 +3004,7 @@
   function renderClientPickerList(filter = "") {
     const list = $("#clientPickerList");
     const search = filter.toLowerCase();
-    const clients = state.clients.filter((c) =>
+    const clients = state.pickerClients.filter((c) =>
       !search || [c.clientName, c.mobile, c.businessName].some((f) => (f || "").toLowerCase().includes(search))
     );
     if (!clients.length) {
@@ -3040,8 +3044,10 @@
     $("#clientPickerSearch").value = "";
     $("#clientPickerNewName").value = "";
     $("#clientPickerNewMobile").value = "";
-    if (!state.clients.length) {
-      try { state.clients = await Api.getClients(state.clientsFilterMonth || "all"); } catch (err) { /* fall back to empty list */ }
+    try {
+      state.pickerClients = await Api.getClients("all");
+    } catch (err) {
+      state.pickerClients = buildClientsFromPayments(state.payments);
     }
     renderClientPickerList("");
     $("#clientPickerOverlay").hidden = false;
