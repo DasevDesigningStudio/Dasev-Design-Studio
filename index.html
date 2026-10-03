@@ -14,7 +14,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
 <!-- Styles -->
-<link rel="stylesheet" href="style.css?v=6" />
+<link rel="stylesheet" href="style.css?v=8" />
 </head>
 <body>
 
@@ -510,6 +510,11 @@
 
       <div class="toolbar card">
         <div class="toolbar-filters wrap">
+          <select id="reportPeriod" title="Period"></select>
+          <span id="reportCustomRange" style="display:none; gap:8px; align-items:center;">
+            <input type="date" id="reportFrom" title="From" />
+            <input type="date" id="reportTo" title="To" />
+          </span>
           <select id="reportType">
             <option value="daily">Daily</option>
             <option value="weekly">Weekly</option>
@@ -696,8 +701,12 @@
         <div class="card export-card">
           <div class="export-icon red"><i class="fa-solid fa-file-pdf"></i></div>
           <h3>PDF Reports</h3>
-          <p>Alag alag PDF: Expenses, Pending Payments ane Received Payments. Mahino pasand karo.</p>
+          <p>Alag alag PDF: Expenses, Pending Payments ane Received Payments. Period pasand karo: mahino ke custom date.</p>
           <select id="pdfMonthSelect" class="select-block"></select>
+          <div id="pdfCustomRange" style="display:none; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
+            <label style="font-size:12px; color:var(--text-muted);">From <input type="date" id="pdfFrom" /></label>
+            <label style="font-size:12px; color:var(--text-muted);">To <input type="date" id="pdfTo" /></label>
+          </div>
           <div style="display:flex; gap:10px; flex-wrap:wrap;">
             <button class="btn btn-outline" id="pdfExpensesBtn">Expenses PDF</button>
             <button class="btn btn-outline" id="pdfPendingBtn">Pending PDF</button>
@@ -1440,6 +1449,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js"></script>
-<script src="script.js?v=6"></script>
+<script src="script.js?v=8"></script>
 </body>
 </html>

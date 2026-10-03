@@ -1900,16 +1900,30 @@ app.get("/api/overview", async (req, res) => {
 /* Reports                                                                */
 /* ---------------------------------------------------------------------- */
 
+// Optional date range (YYYY-MM-DD) on the payment date, used by Reports.
+function filterPaymentsByRange(payments, from, to) {
+  const ok = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || "");
+  from = ok(from) ? from : "";
+  to = ok(to) ? to : "";
+  if (!from && !to) return payments;
+  return payments.filter((p) => {
+    const d = String(p.date || "").slice(0, 10);
+    return d && (!from || d >= from) && (!to || d <= to);
+  });
+}
+
 app.get("/api/reports", async (req, res) => {
   const data = await loadData();
   const type = req.query.type || "monthly";
   const status = req.query.status || "";
-  res.json(buildReport(data.payments, type, status));
+  const payments = filterPaymentsByRange(data.payments, req.query.from, req.query.to);
+  res.json(buildReport(payments, type, status));
 });
 
 app.get("/api/reports/top-clients", async (req, res) => {
   const data = await loadData();
-  const clients = buildClients(data.payments, data.clientIds)
+  const payments = filterPaymentsByRange(data.payments, req.query.from, req.query.to);
+  const clients = buildClients(payments, data.clientIds)
     .sort((a, b) => b.totalBusiness - a.totalBusiness)
     .slice(0, 10)
     .map((c) => ({

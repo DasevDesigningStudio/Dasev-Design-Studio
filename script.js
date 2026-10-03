@@ -134,8 +134,8 @@
     getDashboard: (month) => api(`/api/dashboard?month=${encodeURIComponent(month || "all")}`),
     getOverview: (month) => api(`/api/overview?month=${encodeURIComponent(month || "all")}`),
 
-    getReport: (type, status) => api(`/api/reports?type=${encodeURIComponent(type)}&status=${encodeURIComponent(status || "")}`),
-    getTopClients: () => api("/api/reports/top-clients")
+    getReport: (type, status, from = "", to = "") => api(`/api/reports?type=${encodeURIComponent(type)}&status=${encodeURIComponent(status || "")}&from=${from}&to=${to}`),
+    getTopClients: (from = "", to = "") => api(`/api/reports/top-clients?from=${from}&to=${to}`)
   };
 
   /* ------------------------------------------------------------------ */
@@ -294,7 +294,7 @@
     if (view === "payments") renderPaymentsView();
     if (view === "clients") renderClientsView();
     if (view === "leads") renderLeadsView();
-    if (view === "reports") runReport();
+    if (view === "reports") { populatePeriodSelect($("#reportPeriod"), "this-month"); runReport(); }
     if (view === "categories") renderCategoriesView();
     if (view === "expenses") renderExpensesView();
     if (view === "export") { populateInvoiceSelect(); populatePdfMonthSelect(); }
@@ -1961,8 +1961,10 @@
   async function runReport() {
     const type = $("#reportType").value;
     const status = $("#reportStatus").value;
+    const period = readPeriod($("#reportPeriod"), $("#reportFrom"), $("#reportTo"));
+    if (!period) return;
     try {
-      const [report, topClients] = await Promise.all([Api.getReport(type, status), Api.getTopClients()]);
+      const [report, topClients] = await Promise.all([Api.getReport(type, status, period.from, period.to), Api.getTopClients(period.from, period.to)]);
       renderReportTable(report, type);
       renderReportSummary(report);
       renderTopClientsTable(topClients);
@@ -2048,6 +2050,10 @@
 
   function initReportsToolbar() {
     $("#runReportBtn").addEventListener("click", runReport);
+    // Reports now refresh by themselves whenever a filter changes.
+    $("#reportType").addEventListener("change", runReport);
+    $("#reportStatus").addEventListener("change", runReport);
+    wirePeriodSelect($("#reportPeriod"), $("#reportCustomRange"), $("#reportFrom"), $("#reportTo"), runReport);
   }
 
   /* ------------------------------------------------------------------ */
@@ -2084,39 +2090,42 @@
   /* ============ Separate PDF reports: Expenses / Pending / Received ============ */
   const isoLocal = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-  function populatePdfMonthSelect() {
-    const sel = $("#pdfMonthSelect");
+  // ---- Shared period picker (used by Reports and PDF Reports) ----
+  function populatePeriodSelect(sel, defaultValue) {
     if (!sel) return;
-    const keep = sel.value || "all";
+    const keep = sel.value || defaultValue;
+    const now = new Date();
+    const curKey = currentMonthKey();
+    const prevKey = isoLocal(new Date(now.getFullYear(), now.getMonth() - 1, 1)).slice(0, 7);
+    const nice = (key) => monthLabel(key).replace(" (Current)", "");
     const months = new Set();
     state.payments.forEach((p) => p.date && months.add(String(p.date).slice(0, 7)));
     state.expenses.forEach((e) => e.date && months.add(String(e.date).slice(0, 7)));
-    const sorted = [...months].filter(Boolean).sort().reverse();
+    // Current and last month already have their own entries, so don't repeat them below.
+    const others = [...months].filter((k) => k && k !== curKey && k !== prevKey).sort().reverse();
     sel.innerHTML =
       `<option value="all">All Time</option>` +
-      `<option value="this-month">This Month</option>` +
-      `<option value="last-month">Last Month</option>` +
+      `<option value="this-month">This Month (${escapeHtml(nice(curKey))})</option>` +
+      `<option value="last-month">Last Month (${escapeHtml(nice(prevKey))})</option>` +
       `<option value="last-90">Last 3 Months</option>` +
       `<option value="this-fy">This Financial Year (Apr–Mar)</option>` +
       `<option value="this-year">This Calendar Year</option>` +
-      `<optgroup label="Specific month">` +
-      sorted.map((k) => `<option value="m:${k}">${escapeHtml(monthLabel(k).replace(" (Current)", ""))}</option>`).join("") +
-      `</optgroup>` +
+      (others.length ? `<optgroup label="Other months">${others.map((k) => `<option value="m:${k}">${escapeHtml(nice(k))}</option>`).join("")}</optgroup>` : "") +
       `<option value="custom">Custom Range (From – To)…</option>`;
-    sel.value = [...sel.options].some((o) => o.value === keep) ? keep : "all";
-    $("#pdfCustomRange").style.display = sel.value === "custom" ? "flex" : "none";
+    sel.value = [...sel.options].some((o) => o.value === keep) ? keep : defaultValue;
   }
 
-  // Returns { from, to, label } (from/to are YYYY-MM-DD or "" for open-ended), or null if invalid.
-  function getPdfRange() {
-    const v = $("#pdfMonthSelect")?.value || "all";
+  // Returns { from, to, label } ("" = open-ended) or null when the custom range is invalid.
+  function readPeriod(sel, fromEl, toEl) {
+    const v = sel?.value || "all";
     const now = new Date();
     const y = now.getFullYear(), m = now.getMonth();
+    const nice = (key) => monthLabel(key).replace(" (Current)", "");
     const mk = (from, to, label) => ({ from, to, label: label || `${fmtDate(from)} – ${fmtDate(to)}` });
 
     if (v === "all") return { from: "", to: "", label: "All Time" };
-    if (v === "this-month") return mk(isoLocal(new Date(y, m, 1)), isoLocal(new Date(y, m + 1, 0)));
-    if (v === "last-month") return mk(isoLocal(new Date(y, m - 1, 1)), isoLocal(new Date(y, m, 0)));
+    if (v === "this-month") return mk(isoLocal(new Date(y, m, 1)), isoLocal(new Date(y, m + 1, 0)), nice(currentMonthKey()));
+    if (v === "last-month") return mk(isoLocal(new Date(y, m - 1, 1)), isoLocal(new Date(y, m, 0)), nice(isoLocal(new Date(y, m - 1, 1)).slice(0, 7)));
     if (v === "last-90") return mk(isoLocal(new Date(y, m - 2, 1)), isoLocal(new Date(y, m + 1, 0)));
     if (v === "this-year") return mk(`${y}-01-01`, `${y}-12-31`);
     if (v === "this-fy") {
@@ -2125,13 +2134,35 @@
     }
     if (v.startsWith("m:")) {
       const [yy, mm] = v.slice(2).split("-").map(Number);
-      return mk(isoLocal(new Date(yy, mm - 1, 1)), isoLocal(new Date(yy, mm, 0)), monthLabel(v.slice(2)).replace(" (Current)", ""));
+      return mk(isoLocal(new Date(yy, mm - 1, 1)), isoLocal(new Date(yy, mm, 0)), nice(v.slice(2)));
     }
-    // custom
-    const from = $("#pdfFrom").value, to = $("#pdfTo").value;
+    const from = fromEl?.value || "", to = toEl?.value || "";
     if (!from && !to) { showToast("From ane To date pasand karo", "error"); return null; }
     if (from && to && from > to) { showToast("From date, To date karta moti na hovi joie", "error"); return null; }
     return { from, to, label: `${from ? fmtDate(from) : "Start"} – ${to ? fmtDate(to) : "Today"}` };
+  }
+
+  // Show/hide the From/To boxes when "Custom Range" is chosen; fill sensible defaults.
+  function wirePeriodSelect(sel, rangeBox, fromEl, toEl, onChange) {
+    sel?.addEventListener("change", () => {
+      const custom = sel.value === "custom";
+      rangeBox.style.display = custom ? "flex" : "none";
+      if (custom && !fromEl.value && !toEl.value) {
+        const now = new Date();
+        fromEl.value = isoLocal(new Date(now.getFullYear(), now.getMonth(), 1));
+        toEl.value = isoLocal(now);
+      }
+      if (onChange) onChange();
+    });
+    [fromEl, toEl].forEach((el) => el?.addEventListener("change", () => { if (sel.value === "custom" && onChange) onChange(); }));
+  }
+
+  function populatePdfMonthSelect() {
+    populatePeriodSelect($("#pdfMonthSelect"), "this-month");
+    $("#pdfCustomRange").style.display = $("#pdfMonthSelect").value === "custom" ? "flex" : "none";
+  }
+  function getPdfRange() {
+    return readPeriod($("#pdfMonthSelect"), $("#pdfFrom"), $("#pdfTo"));
   }
 
   function makeReportPdf({ title, range, head, body, foot, color, footColor, filename, summary, onCell, landscape, columnStyles }) {
@@ -2193,16 +2224,7 @@
     const sum = (arr, f) => arr.reduce((t, x) => t + (Number(f(x)) || 0), 0);
     const fileSuffix = (r) => (!r.from && !r.to ? "all-time" : `${r.from || "start"}_to_${r.to || "today"}`);
 
-    const sel = $("#pdfMonthSelect");
-    sel?.addEventListener("change", () => {
-      const custom = sel.value === "custom";
-      $("#pdfCustomRange").style.display = custom ? "flex" : "none";
-      if (custom && !$("#pdfFrom").value && !$("#pdfTo").value) {
-        const now = new Date();
-        $("#pdfFrom").value = isoLocal(new Date(now.getFullYear(), now.getMonth(), 1));
-        $("#pdfTo").value = isoLocal(now);
-      }
-    });
+    wirePeriodSelect($("#pdfMonthSelect"), $("#pdfCustomRange"), $("#pdfFrom"), $("#pdfTo"));
 
     $("#pdfExpensesBtn")?.addEventListener("click", () => {
       const range = getPdfRange();
