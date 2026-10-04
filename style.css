@@ -968,7 +968,7 @@ select:focus { border-color: var(--accent); }
 .drawer-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
 .chip-filters { display: flex; gap: 6px; flex-wrap: wrap; }
 .chip {
-  padding: 6px 13px; border-radius: 999px; border: 1px solid var(--border); background: var(--card);
+  padding: 6px 13px; border-radius: 9px; border: 1px solid var(--border); background: var(--card);
   color: var(--text-muted); font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s ease;
 }
 .chip:hover { border-color: var(--accent); color: var(--accent-dark); }
@@ -1034,7 +1034,7 @@ select:focus { border-color: var(--accent); }
 /* Platform chips (Management package) */
 .platform-chip-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .platform-chip {
-  padding: 7px 14px; border-radius: 999px; border: 1.5px solid var(--border); background: var(--card);
+  padding: 7px 14px; border-radius: 9px; border: 1.5px solid var(--border); background: var(--card);
   color: var(--text-muted); font-size: 12.5px; font-weight: 600; cursor: pointer; transition: all 0.15s ease;
 }
 .platform-chip:hover { border-color: var(--accent); }
@@ -1046,7 +1046,7 @@ select:focus { border-color: var(--accent); }
 }
 
 /* Permanent client ID badge */
-.client-card-head .client-id { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .4px; color: var(--accent); background: rgba(13,148,136,.10); padding: 2px 8px; border-radius: 999px; margin: 2px 0 3px; }
+.client-card-head .client-id { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .4px; color: var(--accent); background: rgba(13,148,136,.10); padding: 2px 8px; border-radius: 6px; margin: 2px 0 3px; }
 
 /* ---- Grouped sidebar ---- */
 .brand-name { font-size: 15px; line-height: 1.15; }
@@ -1078,7 +1078,7 @@ select:focus { border-color: var(--accent); }
 .cal-views button { border: 0; background: transparent; padding: 7px 14px; font-size: 13px; cursor: pointer; color: var(--text-muted); }
 .cal-views button.active { background: var(--accent); color: #fff; }
 .cal-legend { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-.cal-leg { border: 1px solid var(--border); background: var(--card); color: var(--text-muted); padding: 4px 10px; border-radius: 999px; font-size: 12px; cursor: pointer; opacity: .55; }
+.cal-leg { border: 1px solid var(--border); background: var(--card); color: var(--text-muted); padding: 4px 10px; border-radius: 8px; font-size: 12px; cursor: pointer; opacity: .55; }
 .cal-leg.on { opacity: 1; color: var(--text); border-left-width: 4px; }
 .cal-body { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 10px; overflow-x: auto; }
 .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(110px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; min-width: 770px; }
@@ -1135,7 +1135,7 @@ body.dark-mode .chip:hover { color: var(--accent); }
 .pk-prog span { font-size: 12.5px; font-weight: 700; min-width: 34px; }
 
 .pk-status, .pk-work {
-  display: inline-block; padding: 3px 10px; border-radius: 999px;
+  display: inline-block; padding: 3px 10px; border-radius: 7px;
   font-size: 11.5px; font-weight: 700; letter-spacing: .02em; white-space: nowrap;
   background: var(--card-alt); color: var(--text-muted); border: 1px solid var(--border);
 }
