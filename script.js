@@ -4228,3 +4228,207 @@
     }
   });
 })();
+
+/* ====================================================================== */
+/* Custom dropdowns: every <select> gets a styled, searchable popup.      */
+/* The real <select> stays in the DOM (hidden), so all existing code that */
+/* reads/sets .value, .options or listens to "change" keeps working.      */
+/* Opt out with data-native on a <select>.                                */
+/* ====================================================================== */
+(function () {
+  "use strict";
+  const valueDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
+  const indexDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "selectedIndex");
+  let open = null; // { sel, btn, pop, items, hl }
+
+  const labelOf = (sel) => {
+    const o = sel.options[sel.selectedIndex];
+    return o ? o.textContent.trim() : "";
+  };
+
+  function closeList() {
+    if (!open) return;
+    open.pop.remove();
+    open.btn.classList.remove("open");
+    open.btn.setAttribute("aria-expanded", "false");
+    open = null;
+  }
+
+  function choose(sel, btn, index) {
+    const opt = sel.options[index];
+    if (!opt || opt.disabled) return;
+    const changed = sel.selectedIndex !== index;
+    sel.selectedIndex = index; // our override refreshes the label
+    closeList();
+    btn.focus();
+    if (changed) {
+      sel.dispatchEvent(new Event("input", { bubbles: true }));
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+
+  function highlight(i, scroll) {
+    if (!open) return;
+    open.items.forEach((it, n) => it.el.classList.toggle("hl", n === i));
+    open.hl = i;
+    if (scroll && open.items[i]) open.items[i].el.scrollIntoView({ block: "nearest" });
+  }
+
+  function visibleItems() {
+    return open.items.map((it, n) => ({ it, n })).filter((x) => !x.it.el.hidden && !x.it.disabled);
+  }
+
+  function openList(sel, btn) {
+    closeList();
+    if (!sel.isConnected || sel.disabled) return;
+    const pop = document.createElement("div");
+    pop.className = "cs-pop";
+    pop.setAttribute("role", "listbox");
+    const list = document.createElement("div");
+    list.className = "cs-list";
+    const items = [];
+    const addOption = (opt, index) => {
+      const el = document.createElement("div");
+      el.className = "cs-opt" + (index === sel.selectedIndex ? " sel" : "") + (opt.disabled ? " dis" : "");
+      el.textContent = opt.textContent.trim() || "\u00A0";
+      el.setAttribute("role", "option");
+      el.addEventListener("mousedown", (e) => e.preventDefault());
+      el.addEventListener("click", () => choose(sel, btn, index));
+      list.appendChild(el);
+      items.push({ el, index, disabled: opt.disabled, text: el.textContent.toLowerCase() });
+    };
+    let idx = 0;
+    [...sel.children].forEach((child) => {
+      if (child.tagName === "OPTGROUP") {
+        const g = document.createElement("div");
+        g.className = "cs-group";
+        g.textContent = child.label;
+        list.appendChild(g);
+        [...child.children].forEach((o) => addOption(o, idx++));
+      } else if (child.tagName === "OPTION") addOption(child, idx++);
+    });
+    let search = null;
+    if (items.length >= 8) {
+      search = document.createElement("input");
+      search.type = "text";
+      search.className = "cs-search";
+      search.placeholder = "Search…";
+      search.autocomplete = "off";
+      search.addEventListener("input", () => {
+        const q = search.value.trim().toLowerCase();
+        items.forEach((it) => { it.el.hidden = !!q && !it.text.includes(q); });
+        const first = visibleItems()[0];
+        highlight(first ? first.n : -1, true);
+      });
+      pop.appendChild(search);
+    }
+    pop.appendChild(list);
+    document.body.appendChild(pop);
+    btn.classList.add("open");
+    btn.setAttribute("aria-expanded", "true");
+    open = { sel, btn, pop, items, hl: -1 };
+
+    // position (fixed, flips upward when there is no room below)
+    const r = btn.getBoundingClientRect();
+    pop.style.minWidth = Math.max(r.width, 160) + "px";
+    pop.style.maxHeight = Math.min(320, Math.floor(window.innerHeight * 0.55)) + "px";
+    const ph = pop.offsetHeight;
+    let top = r.bottom + 6;
+    if (top + ph > window.innerHeight - 8 && r.top > ph + 14) top = r.top - ph - 6;
+    let left = r.left;
+    if (left + pop.offsetWidth > window.innerWidth - 8) left = Math.max(8, window.innerWidth - pop.offsetWidth - 8);
+    pop.style.top = Math.max(8, top) + "px";
+    pop.style.left = left + "px";
+
+    const cur = items.findIndex((it) => it.index === sel.selectedIndex);
+    highlight(cur, true);
+    if (search) search.focus();
+  }
+
+  function enhance(sel) {
+    if (sel.dataset.cs || sel.multiple || sel.size > 1 || sel.hasAttribute("data-native")) return;
+    sel.dataset.cs = "1";
+
+    const wrap = document.createElement("span");
+    wrap.className = "cs-wrap";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.setAttribute("aria-haspopup", "listbox");
+    btn.setAttribute("aria-expanded", "false");
+    const label = document.createElement("span");
+    label.className = "cs-label";
+    const caret = document.createElement("span");
+    caret.className = "cs-caret";
+    caret.innerHTML = '<svg width="10" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    btn.append(label, caret);
+
+    sel.parentNode.insertBefore(wrap, sel);
+    wrap.append(btn, sel);
+    sel.classList.add("cs-native");
+    sel.tabIndex = -1;
+
+    const refresh = () => { label.textContent = labelOf(sel) || "\u00A0"; };
+    const syncAttrs = () => {
+      const cls = [...sel.classList].filter((c) => c !== "cs-native").join(" ");
+      btn.className = "cs-btn " + cls + (open && open.btn === btn ? " open" : "") + (btn.classList.contains("cs-invalid") ? " cs-invalid" : "");
+      btn.disabled = sel.disabled;
+      btn.title = sel.title || "";
+      btn.style.display = sel.hidden || sel.style.display === "none" ? "none" : "";
+    };
+
+    // keep working when code sets sel.value / sel.selectedIndex directly
+    Object.defineProperty(sel, "value", {
+      configurable: true,
+      get() { return valueDesc.get.call(sel); },
+      set(v) { valueDesc.set.call(sel, v); refresh(); }
+    });
+    Object.defineProperty(sel, "selectedIndex", {
+      configurable: true,
+      get() { return indexDesc.get.call(sel); },
+      set(v) { indexDesc.set.call(sel, v); refresh(); }
+    });
+
+    new MutationObserver(refresh).observe(sel, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["selected", "label", "value"] });
+    new MutationObserver(syncAttrs).observe(sel, { attributes: true, attributeFilter: ["class", "disabled", "hidden", "style", "title"] });
+    sel.addEventListener("change", () => { btn.classList.remove("cs-invalid"); refresh(); });
+    sel.addEventListener("invalid", () => { btn.classList.add("cs-invalid"); btn.focus(); });
+    if (sel.form) sel.form.addEventListener("reset", () => setTimeout(refresh, 0));
+
+    btn.addEventListener("click", () => { open && open.btn === btn ? closeList() : openList(sel, btn); });
+    btn.addEventListener("keydown", (e) => {
+      if (!open && ["ArrowDown", "ArrowUp", "Enter", " "].includes(e.key)) { e.preventDefault(); openList(sel, btn); }
+    });
+
+    refresh();
+    syncAttrs();
+  }
+
+  // keyboard control while the list is open
+  document.addEventListener("keydown", (e) => {
+    if (!open) return;
+    const vis = visibleItems();
+    const pos = vis.findIndex((x) => x.n === open.hl);
+    if (e.key === "Escape") { e.preventDefault(); const b = open.btn; closeList(); b.focus(); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); const nx = vis[Math.min(pos + 1, vis.length - 1)]; if (nx) highlight(nx.n, true); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); const pv = vis[Math.max(pos - 1, 0)]; if (pv) highlight(pv.n, true); }
+    else if (e.key === "Enter") { e.preventDefault(); const it = open.items[open.hl]; if (it) choose(open.sel, open.btn, it.index); }
+    else if (e.key === "Tab") closeList();
+  }, true);
+  document.addEventListener("mousedown", (e) => {
+    if (open && !open.pop.contains(e.target) && !open.btn.contains(e.target)) closeList();
+  }, true);
+  window.addEventListener("scroll", (e) => { if (open && !open.pop.contains(e.target)) closeList(); }, true);
+  window.addEventListener("resize", closeList);
+
+  const scan = (root) => {
+    if (root.matches && root.matches("select")) enhance(root);
+    if (root.querySelectorAll) root.querySelectorAll("select").forEach(enhance);
+  };
+  const start = () => {
+    scan(document);
+    new MutationObserver((muts) => muts.forEach((m) => m.addedNodes.forEach((n) => { if (n.nodeType === 1) scan(n); })))
+      .observe(document.body, { childList: true, subtree: true });
+  };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
+})();
