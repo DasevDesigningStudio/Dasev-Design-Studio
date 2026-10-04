@@ -1109,3 +1109,18 @@ select:focus { border-color: var(--accent); }
 
 /* Roles without money access: hide money blocks */
 body.no-money .client-stats { display: none; }
+/* =========================================================================
+   Dark-mode readability fixes
+   (dropdown list, month selector, profile name, active tabs/chips)
+   ========================================================================= */
+body.dark-mode { color-scheme: dark; }
+body.dark-mode select,
+body.dark-mode input,
+body.dark-mode textarea { color: var(--text); color-scheme: dark; }
+body.dark-mode select option,
+body.dark-mode select optgroup { background-color: var(--card); color: var(--text); }
+body.dark-mode .profile-name { color: var(--text); }
+body.dark-mode .dash-month-select { color: var(--text); }
+body.dark-mode .dash-month-select.is-current { color: var(--text); }
+body.dark-mode .tab-btn.active,
+body.dark-mode .chip:hover { color: var(--accent); }
