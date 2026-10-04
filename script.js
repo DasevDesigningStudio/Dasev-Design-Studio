@@ -132,6 +132,10 @@
     deletePackage: (id) => api(`/api/packages/${id}`, { method: "DELETE" }),
     addPackagePayment: (id, data) => api(`/api/packages/${id}/payments`, { method: "POST", body: JSON.stringify(data) }),
     deletePackagePayment: (id, entryId) => api(`/api/packages/${id}/payments/${entryId}`, { method: "DELETE" }),
+    addPackageWork: (id, data) => api(`/api/packages/${id}/works`, { method: "POST", body: JSON.stringify(data) }),
+    updatePackageWork: (id, workId, data) => api(`/api/packages/${id}/works/${workId}`, { method: "PUT", body: JSON.stringify(data) }),
+    deletePackageWork: (id, workId) => api(`/api/packages/${id}/works/${workId}`, { method: "DELETE" }),
+    getPackageActivity: (id) => api(`/api/packages/${id}/activity`),
 
     getPlatformOptions: () => api("/api/platform-options"),
     getClientOverview: (key) => api(`/api/clients/${encodeURIComponent(key)}/overview`),
@@ -290,7 +294,12 @@
   /* ------------------------------------------------------------------ */
   /* Sidebar / navigation                                               */
   /* ------------------------------------------------------------------ */
-  function setActiveView(view) {
+  function parseHash() {
+    const [view, arg] = (window.location.hash || "#dashboard").slice(1).split("/");
+    return { view, arg: arg ? decodeURIComponent(arg) : "" };
+  }
+
+  function setActiveView(view, arg) {
     if (state.me && !viewAllowed(view)) view = firstAllowedView();
     $$(".view").forEach((v) => v.classList.remove("active"));
     const target = $(`#view-${view}`);
@@ -309,7 +318,7 @@
     if (view === "expenses") renderExpensesView();
     if (view === "export") { populateInvoiceSelect(); populatePdfMonthSelect(); }
     if (view === "settings") { renderSettingsForm(); renderTeamCard(); }
-    if (view === "packages") renderPackagesView();
+    if (view === "packages") renderPackagesView(arg);
     if (view === "calendar") renderCalendarView();
 
     closeSidebarMobile();
@@ -353,8 +362,8 @@
     });
 
     window.addEventListener("hashchange", () => {
-      const view = (window.location.hash || "#dashboard").slice(1);
-      setActiveView(view);
+      const { view, arg } = parseHash();
+      setActiveView(view, arg);
     });
   }
 
@@ -3430,10 +3439,577 @@
     });
   }
 
+  /* ================================================================== */
+  /* Packages → Design & Reel                                           */
+  /* Page 1: package list.  Page 2: package detail with 6 tabs.         */
+  /* Package = what the client bought. Work = what the team produces.   */
+  /* ================================================================== */
+  const PK_STATUSES = ["Upcoming", "Active", "On Hold", "Completed", "Expired", "Cancelled"];
+  const PK_CYCLES = ["Monthly", "Quarterly", "Half-Yearly", "Yearly", "One-time"];
+  const PK_PER = { Monthly: "Month", Quarterly: "Quarter", "Half-Yearly": "6 Months", Yearly: "Year", "One-time": "" };
+  const PK_DELIV_CYCLES = ["Month", "Week", "Quarter", "Year", "Total"];
+  const PK_WORK_STATUSES = ["Pending", "In Progress", "Completed"];
+  const PK_KINDS = {
+    post: { key: "posts", label: "Post", plural: "Posts", assignLabel: "Assigned To", dateKey: "plannedDate", dateLabel: "Planned Date" },
+    reel: { key: "reels", label: "Reel", plural: "Reels", assignLabel: "Assigned Editor", dateKey: "shootDate", dateLabel: "Shoot Date" },
+    story: { key: "stories", label: "Story", plural: "Stories", assignLabel: "Assigned To", dateKey: null, dateLabel: "" }
+  };
+  const PK_ACTION_LABEL = {
+    create: "Created", update: "Updated", delete: "Deleted",
+    work_post: "Work added", work_put: "Work updated", work_delete: "Work removed",
+    payment_added: "Payment", payment_removed: "Payment"
+  };
+
+  const PK = {
+    list: [], clients: [], current: null, tab: "overview",
+    filters: { q: "", client: "", status: "", type: "", manager: "", from: "", to: "" },
+    editingId: null, workKind: "post", editingWorkId: null
+  };
+
+  const canFull = (m) => !!(state.me && state.me.access && state.me.access[m] === "full");
+  const pkStatusClass = (s) => "pk-st-" + String(s || "").toLowerCase().replace(/\s+/g, "-");
+  const pkTodayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  const pkAmountLabel = (p) => {
+    if (!can("payments")) return "—";
+    const per = PK_PER[p.billingCycle || "Monthly"];
+    return fmtMoney(p.totalAmount) + (per ? ` / ${per}` : "");
+  };
+  const pkOpts = (list, selected, blank) =>
+    (blank !== undefined ? `<option value="">${escapeHtml(blank)}</option>` : "") +
+    list.map((v) => `<option value="${escapeHtml(v)}" ${v === selected ? "selected" : ""}>${escapeHtml(v)}</option>`).join("");
+
+  async function renderPackagesView(arg) {
+    const listPage = $("#pkListPage");
+    const detail = $("#pkDetailPage");
+    if (!listPage || !detail) return;
+    try {
+      PK.list = (await Api.getPackages()).filter((p) => p.type !== "Management");
+    } catch (err) {
+      PK.list = [];
+      showToast("Packages load na thaya: " + err.message, "error");
+    }
+    if (arg) {
+      const pkg = PK.list.find((p) => p.id === arg);
+      if (!pkg) {
+        showToast("Package malyu nahi", "error");
+        window.location.hash = "packages";
+        return;
+      }
+      PK.current = pkg;
+      listPage.hidden = true;
+      detail.hidden = false;
+      renderPkDetail();
+      return;
+    }
+    PK.current = null;
+    detail.hidden = true;
+    listPage.hidden = false;
+    $("#pkAddBtn").style.display = canFull("payments") ? "" : "none";
+    if (can("clients")) {
+      try { PK.clients = await Api.getClients("all"); } catch (_) { PK.clients = []; }
+    }
+    renderPkFilters();
+    renderPkList();
+  }
+
+  /* ------------------------- Page 1: list -------------------------- */
+  function pkFiltered() {
+    const f = PK.filters;
+    const q = f.q.trim().toLowerCase();
+    return PK.list.filter((p) => {
+      if (q && ![p.clientName, p.clientId, p.name, p.id].some((v) => (v || "").toLowerCase().includes(q))) return false;
+      if (f.client && (p.clientId || p.clientName) !== f.client) return false;
+      if (f.status && p.status !== f.status) return false;
+      if (f.type && (p.billingCycle || "Monthly") !== f.type) return false;
+      if (f.manager && (p.accountManager || "") !== f.manager) return false;
+      if (f.from && (p.startDate || "") < f.from) return false;
+      if (f.to && (p.startDate || "") > f.to) return false;
+      return true;
+    });
+  }
+
+  function renderPkFilters() {
+    const f = PK.filters;
+    const clients = new Map();
+    PK.list.forEach((p) => clients.set(p.clientId || p.clientName, p.clientName));
+    $("#pkFilterClient").innerHTML = `<option value="">All Clients</option>` +
+      [...clients.entries()].map(([k, n]) => `<option value="${escapeHtml(k)}" ${k === f.client ? "selected" : ""}>${escapeHtml(n)}</option>`).join("");
+    $("#pkFilterStatus").innerHTML = pkOpts(PK_STATUSES, f.status, "All Statuses");
+    $("#pkFilterType").innerHTML = pkOpts(PK_CYCLES, f.type, "All Types");
+    const managers = [...new Set(PK.list.map((p) => p.accountManager).filter(Boolean))];
+    $("#pkFilterManager").innerHTML = pkOpts(managers, f.manager, "All Managers");
+    $("#pkSearch").value = f.q;
+    $("#pkFilterFrom").value = f.from;
+    $("#pkFilterTo").value = f.to;
+  }
+
+  function renderPkList() {
+    const rows = pkFiltered();
+    $("#pkEmpty").hidden = rows.length > 0;
+    $("#pkTableBody").innerHTML = rows.map((p) => {
+      const pr = p.progress || { percent: 0 };
+      return `<tr>
+        <td><b>${escapeHtml(p.clientName)}</b><div class="pk-sub">${escapeHtml(p.clientId || "")}</div></td>
+        <td><b>${escapeHtml(p.name)}</b><div class="pk-sub">${escapeHtml(p.id)}</div></td>
+        <td><div class="pk-deliv-list">
+          <span>${(p.posts && p.posts.total) || 0} Posts</span>
+          <span>${(p.reels && p.reels.total) || 0} Reels</span>
+          <span>${(p.stories && p.stories.total) || 0} Stories</span></div></td>
+        <td><div>${escapeHtml(fmtDate(p.startDate))}</div><div class="pk-sub">${p.endDate ? escapeHtml(fmtDate(p.endDate)) : "No end date"}</div></td>
+        <td class="cell-amount">${escapeHtml(pkAmountLabel(p))}</td>
+        <td><div class="pk-prog"><div class="progress-bar"><div class="progress-fill" style="width:${pr.percent}%"></div></div><span>${pr.percent}%</span></div></td>
+        <td><span class="pk-status ${pkStatusClass(p.status)}">${escapeHtml(p.status)}</span></td>
+        <td><button class="btn btn-outline btn-sm" data-pk-view="${escapeHtml(p.id)}">View</button></td>
+      </tr>`;
+    }).join("");
+  }
+
+  /* ------------------------ Page 2: detail ------------------------- */
+  function pkPkgTabs() {
+    const tabs = [["overview", "Overview"], ["posts", "Posts"], ["reels", "Reels"], ["stories", "Stories"]];
+    if (can("payments")) tabs.push(["finance", "Finance"]);
+    if (can("activity")) tabs.push(["activity", "Activity"]);
+    return tabs;
+  }
+
+  function renderPkDetail() {
+    const p = PK.current;
+    const tabs = pkPkgTabs();
+    if (!tabs.some((t) => t[0] === PK.tab)) PK.tab = "overview";
+    const editable = canFull("payments");
+    $("#pkDetailPage").innerHTML = `
+      <a href="#packages" class="pk-back"><i class="fa-solid fa-arrow-left"></i> Design &amp; Reel Packages</a>
+      <div class="view-header pk-detail-head">
+        <div>
+          <h1>Design &amp; Reel Package</h1>
+          <p class="view-subtitle"><b>${escapeHtml(p.clientName)}</b></p>
+          <div class="pk-meta">
+            <span class="pk-id">${escapeHtml(p.id)}</span>
+            <span class="pk-status ${pkStatusClass(p.status)}">${escapeHtml(p.status)}</span>
+            <span class="pk-sub">Package Type: ${escapeHtml(p.billingCycle || "Monthly")}</span>
+          </div>
+        </div>
+        ${editable ? `<div class="pk-actions">
+          <button class="btn btn-primary" data-pk-act="edit"><i class="fa-solid fa-pen"></i> Edit Package</button>
+          <details class="pk-more"><summary class="btn btn-ghost">More <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="pk-more-menu"><button type="button" data-pk-act="delete-pkg"><i class="fa-solid fa-trash"></i> Delete Package</button></div>
+          </details></div>` : ""}
+      </div>
+      <div class="tabs pk-tabs">
+        ${tabs.map(([k, l]) => `<button class="tab-btn ${k === PK.tab ? "active" : ""}" data-pk-tab="${k}">${l}</button>`).join("")}
+      </div>
+      <div id="pkTabBody"></div>`;
+    renderPkTab();
+  }
+
+  function renderPkTab() {
+    const body = $("#pkTabBody");
+    if (!body) return;
+    $$("#pkDetailPage [data-pk-tab]").forEach((b) => b.classList.toggle("active", b.dataset.pkTab === PK.tab));
+    const p = PK.current;
+    if (PK.tab === "overview") body.innerHTML = pkOverviewHtml(p);
+    else if (PK.tab === "finance") body.innerHTML = pkFinanceHtml(p);
+    else if (PK.tab === "activity") { body.innerHTML = `<p class="muted">Loading…</p>`; pkLoadActivity(p); }
+    else body.innerHTML = pkWorkTabHtml(p, PK.tab === "posts" ? "post" : PK.tab === "reels" ? "reel" : "story");
+  }
+
+  function pkDl(rows) {
+    return `<dl class="pk-dl">${rows.map(([k, v]) => `<div><dt>${escapeHtml(k)}</dt><dd>${v === "" || v == null ? "—" : v}</dd></div>`).join("")}</dl>`;
+  }
+
+  function pkOverviewHtml(p) {
+    const pr = p.progress || { total: 0, done: 0, pending: 0, percent: 0 };
+    const info = [
+      ["Package Name", escapeHtml(p.name)],
+      ["Client", escapeHtml(p.clientName)],
+      ["Client ID", escapeHtml(p.clientId)],
+      ["Package ID", escapeHtml(p.id)],
+      ["Start Date", escapeHtml(fmtDate(p.startDate))],
+      ["End Date", p.endDate ? escapeHtml(fmtDate(p.endDate)) : ""],
+      ["Billing Cycle", escapeHtml(p.billingCycle || "Monthly")]
+    ];
+    if (can("payments")) info.push(["Package Amount", escapeHtml(pkAmountLabel(p))]);
+    info.push(["Status", `<span class="pk-status ${pkStatusClass(p.status)}">${escapeHtml(p.status)}</span>`],
+      ["Account Manager", escapeHtml(p.accountManager)], ["Notes", escapeHtml(p.notes)]);
+
+    const cards = ["post", "reel", "story"].map((k) => {
+      const kk = PK_KINDS[k];
+      const c = (pr[kk.key]) || { total: 0, done: 0, pending: 0, percent: 0 };
+      return `<div class="card pk-deliv-card">
+        <span class="pk-deliv-title">${kk.plural.toUpperCase()}</span>
+        <b class="pk-deliv-total">${c.total} Total</b>
+        <div class="pk-deliv-line"><span>${c.done} Done</span><span>${c.pending} Pending</span></div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${c.percent}%"></div></div>
+        <span class="pk-sub">${c.percent}% Complete</span>
+      </div>`;
+    }).join("");
+
+    return `<div class="pk-grid">
+        <div class="card pk-card"><h3>Package Information</h3>${pkDl(info)}</div>
+        <div class="card pk-card"><h3>Progress Overview</h3>
+          <div class="pk-big">${pr.percent}%</div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${pr.percent}%"></div></div>
+          <div class="pk-trio">
+            <div><b>${pr.done}</b><span>Completed</span></div>
+            <div><b>${pr.pending}</b><span>Pending</span></div>
+            <div><b>${pr.total}</b><span>Total</span></div>
+          </div>
+        </div>
+      </div>
+      <h3 class="pk-sec">Deliverables Overview</h3>
+      <div class="pk-deliv">${cards}</div>`;
+  }
+
+  function pkWorkTabHtml(p, kind) {
+    const kk = PK_KINDS[kind];
+    const c = (p.progress && p.progress[kk.key]) || { total: 0, done: 0, pending: 0 };
+    const works = (p.works || []).filter((w) => w.kind === kind);
+    const editable = canFull("calendar");
+    const cols = [`${kk.label} Name`, kk.assignLabel, "Status"];
+    if (kk.dateKey) cols.push(kk.dateLabel);
+    cols.push("Due Date", "Completed Date");
+    if (editable) cols.push("");
+    const rows = works.map((w) => `<tr>
+      <td><b>${escapeHtml(w.name)}</b></td>
+      <td>${escapeHtml(w.assignedTo) || "—"}</td>
+      <td><span class="pk-work ${pkStatusClass(w.status)}">${escapeHtml(w.status)}</span></td>
+      ${kk.dateKey ? `<td>${escapeHtml(fmtDate(w[kk.dateKey]))}</td>` : ""}
+      <td>${escapeHtml(fmtDate(w.dueDate))}</td>
+      <td>${escapeHtml(fmtDate(w.completedDate))}</td>
+      ${editable ? `<td class="pk-row-actions">
+        ${w.status !== "Completed" ? `<button class="icon-btn-sm" title="Mark completed" data-pk-act="complete-work" data-id="${escapeHtml(w.id)}"><i class="fa-solid fa-check"></i></button>` : ""}
+        <button class="icon-btn-sm" title="Edit" data-pk-act="edit-work" data-id="${escapeHtml(w.id)}"><i class="fa-solid fa-pen"></i></button>
+        <button class="icon-btn-sm" title="Delete" data-pk-act="delete-work" data-id="${escapeHtml(w.id)}"><i class="fa-solid fa-trash"></i></button>
+      </td>` : ""}
+    </tr>`).join("");
+    return `<div class="card table-card">
+      <div class="pk-tab-head">
+        <div><h3>${kk.plural}</h3>
+          <div class="pk-summary"><span>Total: <b>${c.total}</b></span><span>Completed: <b>${c.done}</b></span><span>Pending: <b>${c.pending}</b></span></div>
+        </div>
+        ${editable ? `<button class="btn btn-primary btn-sm" data-pk-act="add-work" data-kind="${kind}"><i class="fa-solid fa-plus"></i> Add ${kk.label}</button>` : ""}
+      </div>
+      <div class="table-scroll"><table class="data-table"><thead><tr>${cols.map((h) => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead>
+        <tbody>${rows}</tbody></table></div>
+      ${works.length ? "" : `<p class="muted" style="padding:16px 0 2px;">No ${kk.plural.toLowerCase()} added yet. Add each ${kk.label.toLowerCase()} here to track progress.</p>`}
+      ${(c.total && works.length < c.total) ? `<p class="muted pk-hint">${works.length} of ${c.total} ${kk.plural.toLowerCase()} are listed in the tracker.</p>` : ""}
+    </div>`;
+  }
+
+  function pkFinanceHtml(p) {
+    const today = pkTodayStr();
+    const overdue = p.pendingAmount > 0 && p.endDate && p.endDate < today && p.status !== "Cancelled";
+    const hist = (p.paymentHistory || []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    const rows = hist.map((h) => `<tr>
+      <td>${escapeHtml(fmtDate(h.date))}</td>
+      <td class="cell-amount amount-paid">${escapeHtml(fmtMoney(h.amount))}</td>
+      <td>${escapeHtml(h.method) || "—"}</td>
+      <td>${escapeHtml(h.reference) || "—"}</td>
+      <td>${escapeHtml(h.addedBy) || "—"}</td>
+      <td><span class="pk-work pk-st-completed">Received</span></td>
+      ${canFull("payments") ? `<td class="pk-row-actions"><button class="icon-btn-sm" title="Delete" data-pk-act="delete-payment" data-id="${escapeHtml(h.id)}"><i class="fa-solid fa-trash"></i></button></td>` : ""}
+    </tr>`).join("");
+    return `<div class="pk-fin">
+        <div class="card pk-fin-card"><span>Package Amount</span><b>${escapeHtml(pkAmountLabel(p))}</b></div>
+        <div class="card pk-fin-card"><span>Paid</span><b class="pk-green">${escapeHtml(fmtMoney(p.paidAmount))}</b></div>
+        <div class="card pk-fin-card"><span>Pending</span><b class="pk-red">${escapeHtml(fmtMoney(p.pendingAmount))}</b></div>
+        <div class="card pk-fin-card"><span>Payment Status</span><b><span class="badge ${escapeHtml(p.paymentStatus)}">${escapeHtml(p.paymentStatus)}</span></b>
+          ${overdue ? `<em class="pk-overdue"><i class="fa-solid fa-triangle-exclamation"></i> Overdue since ${escapeHtml(fmtDate(p.endDate))}</em>` : ""}</div>
+      </div>
+      <div class="card table-card">
+        <div class="pk-tab-head"><h3>Payment Transactions</h3>
+          ${canFull("payments") ? `<button class="btn btn-primary btn-sm" data-pk-act="add-payment"><i class="fa-solid fa-plus"></i> Add Payment</button>` : ""}
+        </div>
+        <div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Reference</th><th>Added By</th><th>Status</th>${canFull("payments") ? "<th></th>" : ""}</tr></thead>
+          <tbody>${rows}</tbody></table></div>
+        ${hist.length ? "" : `<p class="muted" style="padding:16px 0 2px;">No payments recorded yet.</p>`}
+      </div>`;
+  }
+
+  function pkActivityText(a) {
+    let text = a.summary || "";
+    if (a.user_name && text.startsWith(a.user_name + ": ")) text = text.slice(a.user_name.length + 2);
+    const ch = a.details && a.details.changes;
+    const extra = ch ? Object.entries(ch).map(([k, [o, n]]) =>
+      `<div class="pk-sub">${escapeHtml(k)}: ${escapeHtml(o == null || o === "" ? "—" : o)} → ${escapeHtml(n == null || n === "" ? "—" : n)}</div>`).join("") : "";
+    return `${escapeHtml(text)}${extra}`;
+  }
+
+  async function pkLoadActivity(p) {
+    const body = $("#pkTabBody");
+    try {
+      const rows = await Api.getPackageActivity(p.id);
+      if (PK.tab !== "activity" || !PK.current || PK.current.id !== p.id) return;
+      body.innerHTML = `<div class="card table-card"><div class="pk-tab-head"><h3>Activity</h3></div>
+        <div class="table-scroll"><table class="data-table"><thead><tr><th>Activity</th><th>User</th><th>Date / Time</th><th>Action</th></tr></thead><tbody>
+        ${rows.map((a) => `<tr><td>${pkActivityText(a)}</td><td>${escapeHtml(a.user_name || "—")}</td>
+          <td>${escapeHtml(new Date(a.at).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }))}</td>
+          <td>${escapeHtml(PK_ACTION_LABEL[a.action] || a.action)}</td></tr>`).join("")}
+        </tbody></table></div>
+        ${rows.length ? "" : `<p class="muted" style="padding:16px 0 2px;">No activity recorded for this package yet.</p>`}</div>`;
+    } catch (err) {
+      body.innerHTML = `<p class="muted">Activity load na thayu: ${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  function pkApply(updated) {
+    const i = PK.list.findIndex((x) => x.id === updated.id);
+    if (i > -1) PK.list[i] = updated;
+    PK.current = updated;
+    renderPkDetail();
+  }
+
+  /* ----------------------- Add / Edit package ---------------------- */
+  function openPkModal(pkg = null) {
+    PK.editingId = pkg ? pkg.id : null;
+    $("#pkModalTitle").textContent = pkg ? "Edit Package" : "Add Package";
+    $("#pkModalSaveText").textContent = pkg ? "Save Changes" : "Create Package";
+    $("#pkfId").value = pkg ? pkg.id : "Auto-generated";
+    const sel = $("#pkfClient");
+    const clients = PK.clients.length ? PK.clients : [];
+    if (pkg) {
+      sel.innerHTML = `<option value="existing">${escapeHtml(pkg.clientName)}</option>`;
+      sel.disabled = true;
+      $("#pkfClientId").value = pkg.clientId || "";
+    } else {
+      sel.disabled = false;
+      sel.innerHTML = `<option value="">Select client…</option>` +
+        clients.map((c, i) => `<option value="${i}">${escapeHtml(c.clientName)}${c.clientId ? ` (${escapeHtml(c.clientId)})` : ""}</option>`).join("") +
+        `<option value="__new__">＋ New client…</option>`;
+      $("#pkfClientId").value = "";
+    }
+    $("#pkfNewClientName").hidden = true;
+    $("#pkfNewClientMobile").hidden = true;
+    $("#pkfNewName").value = ""; $("#pkfNewMobile").value = "";
+    $("#pkfName").value = pkg ? pkg.name : "";
+    $("#pkfCycle").innerHTML = pkOpts(PK_CYCLES, pkg ? pkg.billingCycle : "Monthly");
+    $("#pkfAmount").value = pkg ? pkg.totalAmount : "";
+    $("#pkfAmount").disabled = !can("payments");
+    $("#pkfStart").value = pkg ? pkg.startDate : pkTodayStr();
+    $("#pkfEnd").value = pkg ? pkg.endDate : "";
+    $("#pkfManager").value = pkg ? (pkg.accountManager || "") : "";
+    $("#pkfStatus").innerHTML = pkOpts(PK_STATUSES, pkg ? pkg.status : "Active");
+    $("#pkfNotes").value = pkg ? pkg.notes : "";
+    [["Posts", "posts"], ["Reels", "reels"], ["Stories", "stories"]].forEach(([id, key]) => {
+      const d = (pkg && pkg[key]) || { total: 0, cycle: "Month" };
+      $(`#pkf${id}`).value = d.total || 0;
+      $(`#pkf${id}Cycle`).innerHTML = pkOpts(PK_DELIV_CYCLES, d.cycle || "Month");
+    });
+    $("#pkModalOverlay").hidden = false;
+  }
+  const closePkModal = () => { $("#pkModalOverlay").hidden = true; PK.editingId = null; };
+
+  async function submitPkForm(e) {
+    e.preventDefault();
+    const editing = PK.editingId ? (PK.list.find((p) => p.id === PK.editingId) || PK.current) : null;
+    const payload = {
+      type: "PostReel",
+      name: $("#pkfName").value.trim(),
+      billingCycle: $("#pkfCycle").value,
+      startDate: $("#pkfStart").value,
+      endDate: $("#pkfEnd").value,
+      accountManager: $("#pkfManager").value.trim(),
+      status: $("#pkfStatus").value,
+      notes: $("#pkfNotes").value.trim(),
+      posts: { total: Number($("#pkfPosts").value) || 0, cycle: $("#pkfPostsCycle").value },
+      reels: { total: Number($("#pkfReels").value) || 0, cycle: $("#pkfReelsCycle").value },
+      stories: { total: Number($("#pkfStories").value) || 0, cycle: $("#pkfStoriesCycle").value }
+    };
+    if (can("payments")) payload.totalAmount = Number($("#pkfAmount").value) || 0;
+
+    if (editing) {
+      payload.clientId = editing.clientId;
+      payload.clientName = editing.clientName;
+      payload.clientMobile = editing.clientMobile;
+    } else {
+      const v = $("#pkfClient").value;
+      if (v === "__new__") {
+        payload.clientName = $("#pkfNewName").value.trim();
+        payload.clientMobile = $("#pkfNewMobile").value.trim();
+        if (!payload.clientName || !payload.clientMobile) { showToast("New client nu naam ane mobile jaruri che", "error"); return; }
+      } else if (v === "") {
+        showToast("Client pasand karo", "error"); return;
+      } else {
+        const c = PK.clients[Number(v)];
+        payload.clientId = c.clientId || "";
+        payload.clientName = c.clientName;
+        payload.clientMobile = c.mobile || "";
+      }
+    }
+    try {
+      if (editing) {
+        const updated = await Api.updatePackage(editing.id, payload);
+        showToast("Package updated", "success");
+        closePkModal();
+        pkApply(updated);
+      } else {
+        await Api.createPackage(payload);
+        showToast("Package created", "success");
+        closePkModal();
+        await renderPackagesView();
+      }
+      if (can("payments")) state.payments = await Api.getPayments();
+    } catch (err) {
+      showToast("Package save na thayu: " + err.message, "error");
+    }
+  }
+
+  /* ------------------------ Work add / edit ------------------------ */
+  function openPkWorkModal(kind, work = null) {
+    const kk = PK_KINDS[kind];
+    PK.workKind = kind;
+    PK.editingWorkId = work ? work.id : null;
+    $("#pkWorkTitle").textContent = `${work ? "Edit" : "Add"} ${kk.label}`;
+    $("#pkwNameLabel").textContent = `${kk.label} Name *`;
+    $("#pkwAssignedLabel").textContent = kk.assignLabel;
+    $("#pkwName").value = work ? work.name : "";
+    $("#pkwAssigned").value = work ? work.assignedTo : "";
+    $("#pkwStatus").innerHTML = pkOpts(PK_WORK_STATUSES, work ? work.status : "Pending");
+    $("#pkwPlannedGroup").hidden = !kk.dateKey;
+    $("#pkwPlannedLabel").textContent = kk.dateLabel;
+    $("#pkwPlanned").value = work && kk.dateKey ? (work[kk.dateKey] || "") : "";
+    $("#pkwDue").value = work ? work.dueDate : "";
+    $("#pkWorkOverlay").hidden = false;
+  }
+  const closePkWorkModal = () => { $("#pkWorkOverlay").hidden = true; PK.editingWorkId = null; };
+
+  async function submitPkWork(e) {
+    e.preventDefault();
+    const kind = PK.workKind;
+    const kk = PK_KINDS[kind];
+    const payload = {
+      kind,
+      name: $("#pkwName").value.trim(),
+      assignedTo: $("#pkwAssigned").value.trim(),
+      status: $("#pkwStatus").value,
+      dueDate: $("#pkwDue").value
+    };
+    if (kk.dateKey) payload[kk.dateKey] = $("#pkwPlanned").value;
+    try {
+      const updated = PK.editingWorkId
+        ? await Api.updatePackageWork(PK.current.id, PK.editingWorkId, payload)
+        : await Api.addPackageWork(PK.current.id, payload);
+      showToast(`${kk.label} saved`, "success");
+      closePkWorkModal();
+      pkApply(updated);
+    } catch (err) {
+      showToast("Save na thayu: " + err.message, "error");
+    }
+  }
+
+  /* --------------------------- Init / events ------------------------ */
+  function initPackagesModule() {
+    if (!$("#view-packages")) return;
+    const f = PK.filters;
+    const bind = (sel, key, ev = "input") => $(sel).addEventListener(ev, (e) => { f[key] = e.target.value; renderPkList(); });
+    bind("#pkSearch", "q");
+    bind("#pkFilterClient", "client", "change");
+    bind("#pkFilterStatus", "status", "change");
+    bind("#pkFilterType", "type", "change");
+    bind("#pkFilterManager", "manager", "change");
+    bind("#pkFilterFrom", "from", "change");
+    bind("#pkFilterTo", "to", "change");
+    $("#pkFilterReset").addEventListener("click", () => {
+      Object.keys(f).forEach((k) => { f[k] = ""; });
+      renderPkFilters();
+      renderPkList();
+    });
+    $("#pkAddBtn").addEventListener("click", () => openPkModal());
+    $("#pkTableBody").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-pk-view]");
+      if (b) { PK.tab = "overview"; window.location.hash = "packages/" + b.dataset.pkView; }
+    });
+
+    // package modal
+    $("#pkModalClose").addEventListener("click", closePkModal);
+    $("#pkModalCancel").addEventListener("click", closePkModal);
+    $("#pkForm").addEventListener("submit", submitPkForm);
+    $("#pkfClient").addEventListener("change", (e) => {
+      const v = e.target.value;
+      const isNew = v === "__new__";
+      $("#pkfNewClientName").hidden = !isNew;
+      $("#pkfNewClientMobile").hidden = !isNew;
+      $("#pkfClientId").value = !isNew && v !== "" && PK.clients[Number(v)] ? (PK.clients[Number(v)].clientId || "") : "";
+      $("#pkfClientId").placeholder = isNew ? "Assigned automatically" : "Select a client";
+    });
+
+    // work + payment modals
+    $("#pkWorkClose").addEventListener("click", closePkWorkModal);
+    $("#pkWorkCancel").addEventListener("click", closePkWorkModal);
+    $("#pkWorkForm").addEventListener("submit", submitPkWork);
+    const closePay = () => { $("#pkPayOverlay").hidden = true; };
+    $("#pkPayClose").addEventListener("click", closePay);
+    $("#pkPayCancel").addEventListener("click", closePay);
+    $("#pkPayForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        const updated = await Api.addPackagePayment(PK.current.id, {
+          date: $("#pkpDate").value,
+          amount: Number($("#pkpAmount").value) || 0,
+          method: $("#pkpMethod").value,
+          reference: $("#pkpRef").value.trim(),
+          note: $("#pkpNote").value.trim(),
+          type: "Payment"
+        });
+        closePay();
+        showToast("Payment added", "success");
+        pkApply(updated);
+        state.payments = await Api.getPayments();
+      } catch (err) {
+        showToast("Payment add na thayu: " + err.message, "error");
+      }
+    });
+
+    // detail page (event delegation)
+    $("#pkDetailPage").addEventListener("click", async (e) => {
+      const tab = e.target.closest("[data-pk-tab]");
+      if (tab) { PK.tab = tab.dataset.pkTab; renderPkTab(); return; }
+      const btn = e.target.closest("[data-pk-act]");
+      if (!btn || !PK.current) return;
+      const p = PK.current;
+      const act = btn.dataset.pkAct;
+      const workOf = () => (p.works || []).find((w) => w.id === btn.dataset.id);
+      if (act === "edit") openPkModal(p);
+      else if (act === "add-work") openPkWorkModal(btn.dataset.kind);
+      else if (act === "edit-work") { const w = workOf(); if (w) openPkWorkModal(w.kind, w); }
+      else if (act === "complete-work") {
+        try { pkApply(await Api.updatePackageWork(p.id, btn.dataset.id, { status: "Completed" })); showToast("Marked completed", "success"); }
+        catch (err) { showToast("Update na thayu: " + err.message, "error"); }
+      } else if (act === "delete-work") {
+        const w = workOf();
+        openConfirm("Delete " + (w ? PK_KINDS[w.kind].label : "item"), "Aa record delete karvo che?", async () => {
+          try { pkApply(await Api.deletePackageWork(p.id, btn.dataset.id)); showToast("Deleted", "success"); }
+          catch (err) { showToast("Delete na thayu: " + err.message, "error"); }
+        });
+      } else if (act === "add-payment") {
+        $("#pkPayForm").reset();
+        $("#pkpDate").value = pkTodayStr();
+        $("#pkPayOverlay").hidden = false;
+      } else if (act === "delete-payment") {
+        openConfirm("Delete Payment", "Aa payment entry delete karvi che?", async () => {
+          try {
+            pkApply(await Api.deletePackagePayment(p.id, btn.dataset.id));
+            state.payments = await Api.getPayments();
+            showToast("Payment deleted", "success");
+          } catch (err) { showToast("Delete na thayu: " + err.message, "error"); }
+        });
+      } else if (act === "delete-pkg") {
+        openConfirm("Delete Package", "Aa package ane tena badha records delete karvu che?", async () => {
+          try {
+            await Api.deletePackage(p.id);
+            showToast("Package deleted", "success");
+            if (can("payments")) state.payments = await Api.getPayments();
+            window.location.hash = "packages";
+          } catch (err) { showToast("Delete na thayu: " + err.message, "error"); }
+        });
+      }
+    });
+  }
+
   /* ---- Roles: what this logged-in user may see ---- */
   const ROLE_LABEL = { owner: "Owner", manager: "Manager", sales: "Sales", finance: "Finance", editor: "Editor", designer: "Designer", shooter: "Shooter", sm: "Social media", viewer: "Viewer" };
   const TEAM_ROLES = ["manager", "sales", "finance", "editor", "designer", "shooter", "sm", "viewer"];
-  const VIEW_MODULE = { dashboard: "dashboard", calendar: "calendar", clients: "clients", leads: "leads", payments: "payments", expenses: "expenses", reports: "reports", categories: "payments", export: "reports", backup: "backup", settings: "settings" };
+  const VIEW_MODULE = { dashboard: "dashboard", calendar: "calendar", clients: "clients", leads: "leads", payments: "payments", expenses: "expenses", reports: "reports", categories: "payments", export: "reports", backup: "backup", settings: "settings", packages: "clients" };
   const can = (m) => !!(state.me && state.me.access && state.me.access[m]);
   const viewAllowed = (v) => !VIEW_MODULE[v] || can(VIEW_MODULE[v]);
   const firstAllowedView = () => ["dashboard", "calendar", "clients", "leads", "payments", "expenses", "reports"].find(viewAllowed) || "calendar";
@@ -3493,9 +4069,9 @@
     populateCategorySelects();
 
     if (can("dashboard")) await loadDashboard();
-    let view = (window.location.hash || "#dashboard").slice(1);
-    if (!document.getElementById("view-" + view) || !viewAllowed(view)) view = firstAllowedView();
-    setActiveView(view);
+    let { view, arg } = parseHash();
+    if (!document.getElementById("view-" + view) || !viewAllowed(view)) { view = firstAllowedView(); arg = ""; }
+    setActiveView(view, arg);
   }
 
   /* ---- Team management (Owner only, inside Settings) ---- */
@@ -3598,6 +4174,7 @@
     initManagementPackageModal();
     initAddTypePicker();
     initClientPickerModal();
+    initPackagesModule();
 
     try {
       await loadInitialData();

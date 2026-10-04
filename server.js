@@ -89,6 +89,9 @@ const ROUTE_RULES = [
   [/^\/calendar(-events)?(\/|$)/, () => "calendar"],
   [/^\/clients(\/|$)/, () => "clients"],
   [/^\/client-profiles(\/|$)/, () => "clients"],
+  [/^\/packages\/[^/]+\/activity$/, () => "activity"],
+  // Posts/Reels/Stories work records: creative team + sales + manager can edit (no money access needed)
+  [/^\/packages\/[^/]+\/works(\/|$)/, getOrElse("clients", "calendar")],
   [/^\/(one-time-jobs|packages)(\/|$)/, getOrElse("clients", "payments")],
   [/^\/leads(\/|$)/, () => "leads"],
   [/^\/reports(\/|$)/, () => "reports"],
@@ -740,7 +743,11 @@ function normalizeLead(input, existing = {}) {
 
 const JOB_STATUSES = ["Active", "In Progress", "On Hold", "Completed"];
 const JOB_PRIORITIES = ["Low", "Medium", "High"];
-const PACKAGE_STATUSES = ["Active", "On Hold", "Completed"];
+const PACKAGE_STATUSES = ["Upcoming", "Active", "On Hold", "Completed", "Expired", "Cancelled"];
+const BILLING_CYCLES = ["Monthly", "Quarterly", "Half-Yearly", "Yearly", "One-time"];
+const DELIVERABLE_CYCLES = ["Month", "Week", "Quarter", "Year", "Total"];
+const WORK_KINDS = ["post", "reel", "story"];
+const WORK_STATUSES = ["Pending", "In Progress", "Completed"];
 const PACKAGE_TYPES = ["PostReel", "Management"];
 
 function nextId(list, prefix) {
@@ -848,7 +855,10 @@ function normalizePaymentHistoryEntry(input, existing = {}) {
     date: input.date ?? existing.date ?? new Date().toISOString().slice(0, 10),
     amount: Number(input.amount ?? existing.amount ?? 0) || 0,
     type: (input.type ?? existing.type ?? "Advance").toString().trim() || "Advance",
-    note: (input.note ?? existing.note ?? "").toString().trim()
+    note: (input.note ?? existing.note ?? "").toString().trim(),
+    method: (input.method ?? existing.method ?? "").toString().trim(),
+    reference: (input.reference ?? existing.reference ?? "").toString().trim(),
+    addedBy: (input.addedBy ?? existing.addedBy ?? "").toString().trim()
   };
 }
 
@@ -901,6 +911,31 @@ function normalizeCounterPair(input) {
   };
 }
 
+// A single piece of delivered work (post / reel / story) inside a Post & Reel package.
+function normalizeWork(input, existing = {}) {
+  const str = (v) => (v ?? "").toString().trim();
+  const kind = WORK_KINDS.includes(input.kind) ? input.kind : (existing.kind || "post");
+  const status = WORK_STATUSES.includes(input.status) ? input.status : (existing.status || "Pending");
+  let completedDate = str(input.completedDate ?? existing.completedDate);
+  if (status === "Completed") {
+    if (!completedDate) completedDate = new Date().toISOString().slice(0, 10);
+  } else {
+    completedDate = "";
+  }
+  return {
+    id: existing.id || input.id || "",
+    kind,
+    name: str(input.name ?? existing.name),
+    assignedTo: str(input.assignedTo ?? existing.assignedTo),
+    status,
+    plannedDate: str(input.plannedDate ?? existing.plannedDate),
+    shootDate: str(input.shootDate ?? existing.shootDate),
+    dueDate: str(input.dueDate ?? existing.dueDate),
+    completedDate,
+    createdAt: existing.createdAt || input.createdAt || new Date().toISOString()
+  };
+}
+
 function normalizePlatformRow(input) {
   return {
     name: (input.name || "").toString().trim() || "Other",
@@ -940,6 +975,8 @@ function normalizePackage(input, existing = {}) {
     pendingAmount,
     paymentStatus,
     notes: (input.notes ?? existing.notes ?? "").toString().trim(),
+    billingCycle: BILLING_CYCLES.includes(input.billingCycle) ? input.billingCycle : (existing.billingCycle || "Monthly"),
+    accountManager: (input.accountManager ?? existing.accountManager ?? "").toString().trim(),
     createdAt: existing.createdAt || new Date().toISOString()
   };
 
@@ -950,12 +987,39 @@ function normalizePackage(input, existing = {}) {
     return { ...base, platforms };
   }
 
-  // PostReel type
+  // PostReel type. "done" is derived from the real work records
+  // (completed works + any older manually-entered count kept as legacyDone).
+  const works = Array.isArray(input.works)
+    ? input.works.map((w) => normalizeWork(w))
+    : (Array.isArray(existing.works) ? existing.works : []);
+  const prevWorks = Array.isArray(existing.works) ? existing.works : [];
+  const completedOf = (list, kind) => list.filter((w) => w.kind === kind && w.status === "Completed").length;
+
+  const deliverable = (key, kind) => {
+    const inp = input[key] || {};
+    const ex = existing[key] || {};
+    const completed = completedOf(works, kind);
+    let legacy = Number(ex.legacyDone);
+    if (!Number.isFinite(legacy)) legacy = Math.max((Number(ex.done) || 0) - completedOf(prevWorks, kind), 0);
+    // The old edit form sends a typed "done" number: keep the difference as legacy.
+    if (inp.done !== undefined && Number(inp.done) !== (Number(ex.done) || 0)) {
+      legacy = Math.max((Number(inp.done) || 0) - completed, 0);
+    }
+    const cycleIn = inp.cycle ?? ex.cycle;
+    return {
+      total: Number(inp.total ?? ex.total) || 0,
+      done: completed + legacy,
+      legacyDone: legacy,
+      cycle: DELIVERABLE_CYCLES.includes(cycleIn) ? cycleIn : "Month"
+    };
+  };
+
   return {
     ...base,
-    posts: normalizeCounterPair(input.posts ?? existing.posts),
-    reels: normalizeCounterPair(input.reels ?? existing.reels),
-    stories: normalizeCounterPair(input.stories ?? existing.stories)
+    posts: deliverable("posts", "post"),
+    reels: deliverable("reels", "reel"),
+    stories: deliverable("stories", "story"),
+    works
   };
 }
 
@@ -970,13 +1034,18 @@ function computePackageProgress(pkg) {
     }, { posts: 0, reels: 0, stories: 0 });
     return { type: "Management", ...totals, totalUploaded: totals.posts + totals.reels + totals.stories };
   }
-  const posts = pkg.posts || { total: 0, done: 0 };
-  const reels = pkg.reels || { total: 0, done: 0 };
-  const stories = pkg.stories || { total: 0, done: 0 };
+  const kind = (c) => {
+    const total = Number(c && c.total) || 0;
+    const done = Math.min(Number(c && c.done) || 0, total);
+    return { total, done, pending: total - done, percent: total > 0 ? Math.floor((done / total) * 100) : 0 };
+  };
+  const posts = kind(pkg.posts);
+  const reels = kind(pkg.reels);
+  const stories = kind(pkg.stories);
   const total = posts.total + reels.total + stories.total;
   const done = posts.done + reels.done + stories.done;
-  const percent = total > 0 ? Math.round((done / total) * 100) : 0;
-  return { type: "PostReel", total, done, pending: Math.max(total - done, 0), percent };
+  const percent = total > 0 ? Math.floor((done / total) * 100) : 0;
+  return { type: "PostReel", total, done, pending: total - done, percent, posts, reels, stories };
 }
 
 function enrichPackage(pkg) {
@@ -1611,6 +1680,40 @@ function buildActivity(req, res, before, relPath) {
   const sub = segs[2];
   const body = res.locals.body;
   const label = ENTITY_LABEL[key] || key;
+
+  if (key === "packages") {
+    const pkgBody = body && typeof body === "object" ? body : null;
+    const KIND = { post: "Post", reel: "Reel", story: "Story" };
+    if (sub === "works") {
+      const workId = segs[3] ? decodeURIComponent(segs[3]) : null;
+      const wBefore = ((before && before.works) || []).find((w) => w.id === workId);
+      const list = (pkgBody && pkgBody.works) || [];
+      const wAfter = workId ? list.find((w) => w.id === workId) : list[list.length - 1];
+      const w = wAfter || wBefore || {};
+      const k = KIND[w.kind] || "Work";
+      let text;
+      if (req.method === "POST") text = `${k} added: ${w.name}`;
+      else if (req.method === "DELETE") text = `${k} removed: ${w.name}`;
+      else if (wBefore && wAfter && wBefore.status !== wAfter.status) text = wAfter.status === "Completed" ? `${k} completed: ${w.name}` : `${k} marked ${wAfter.status}: ${w.name}`;
+      else text = `${k} updated: ${w.name}`;
+      return { action: "work_" + req.method.toLowerCase(), entity: "package", entityId: id, summary: text, details: { work: w.name, kind: w.kind, status: w.status } };
+    }
+    if (sub === "payments") {
+      const last = pkgBody && (pkgBody.paymentHistory || []).slice(-1)[0];
+      return { action: req.method === "DELETE" ? "payment_removed" : "payment_added", entity: "package", entityId: id, summary: req.method === "DELETE" ? "Payment removed" : `Payment added: ${inr(last && last.amount)}`, details: null };
+    }
+    if (req.method === "POST") return { action: "create", entity: "package", entityId: (pkgBody && pkgBody.id) || id, summary: `Package created: ${(pkgBody && pkgBody.name) || ""}`, details: null };
+    if (req.method === "DELETE") return { action: "delete", entity: "package", entityId: id, summary: `Package deleted: ${(before && before.name) || ""}`, details: null };
+    if (req.method === "PUT") {
+      const ch = diffObjects(before, pkgBody);
+      ["posts", "reels", "stories"].forEach((k) => {
+        const a = before && before[k] && before[k].total;
+        const b = pkgBody && pkgBody[k] && pkgBody[k].total;
+        if (a !== b) ch[k + " quantity"] = [a ?? null, b ?? null];
+      });
+      return { action: "update", entity: "package", entityId: id, summary: "Package updated", details: Object.keys(ch).length ? { changes: ch } : null };
+    }
+  }
 
   let action, entityId = id, shown = before;
   if (key === "restore") return { action: "restore", entity: "backup", entityId: null, summary: "restored a backup file", details: null };
@@ -2318,12 +2421,82 @@ app.delete("/api/packages/:id", async (req, res) => {
   }
 });
 
+// Package-level history (who did what) — Owner / Manager only.
+app.get("/api/packages/:id/activity", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT id, at, user_name, action, summary, details FROM activity_log WHERE entity = 'package' AND entity_id = $1 ORDER BY id DESC LIMIT 200",
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Work records (posts / reels / stories) inside a Post & Reel package ----
+app.post("/api/packages/:id/works", async (req, res) => {
+  try {
+    const data = await loadData();
+    const idx = data.packages.findIndex((p) => p.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Package not found" });
+    const pkg = data.packages[idx];
+    if (pkg.type === "Management") return res.status(400).json({ error: "Management package ma Posts/Reels/Stories tracking nathi." });
+    if (!WORK_KINDS.includes(req.body && req.body.kind)) return res.status(400).json({ error: "kind post, reel ke story hovo joie." });
+    const work = normalizeWork(req.body, {});
+    work.id = nextId(data.packages.flatMap((p) => p.works || []), "WRK");
+    if (!work.name) {
+      const n = (pkg.works || []).filter((w) => w.kind === work.kind).length + 1;
+      work.name = `${work.kind[0].toUpperCase()}${work.kind.slice(1)} #${n}`;
+    }
+    data.packages[idx] = normalizePackage({ ...pkg, works: [...(pkg.works || []), work] }, pkg);
+    await saveData(data);
+    res.json(enrichPackage(data.packages[idx]));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/packages/:id/works/:workId", async (req, res) => {
+  try {
+    const data = await loadData();
+    const idx = data.packages.findIndex((p) => p.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Package not found" });
+    const pkg = data.packages[idx];
+    const wIdx = (pkg.works || []).findIndex((w) => w.id === req.params.workId);
+    if (wIdx === -1) return res.status(404).json({ error: "Work not found" });
+    const works = pkg.works.slice();
+    works[wIdx] = normalizeWork({ ...req.body, kind: works[wIdx].kind }, works[wIdx]);
+    if (!works[wIdx].name) works[wIdx].name = pkg.works[wIdx].name;
+    data.packages[idx] = normalizePackage({ ...pkg, works }, pkg);
+    await saveData(data);
+    res.json(enrichPackage(data.packages[idx]));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/packages/:id/works/:workId", async (req, res) => {
+  try {
+    const data = await loadData();
+    const idx = data.packages.findIndex((p) => p.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Package not found" });
+    const pkg = data.packages[idx];
+    if (!(pkg.works || []).some((w) => w.id === req.params.workId)) return res.status(404).json({ error: "Work not found" });
+    data.packages[idx] = normalizePackage({ ...pkg, works: pkg.works.filter((w) => w.id !== req.params.workId) }, pkg);
+    await saveData(data);
+    res.json(enrichPackage(data.packages[idx]));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/api/packages/:id/payments", async (req, res) => {
   try {
     const data = await loadData();
     const idx = data.packages.findIndex((p) => p.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Package not found" });
-    const entry = normalizePaymentHistoryEntry(req.body, {});
+    const entry = normalizePaymentHistoryEntry({ ...req.body, addedBy: (req.user && req.user.name) || "" }, {});
     const pkg = data.packages[idx];
     pkg.paymentHistory = [...(pkg.paymentHistory || []), entry];
     data.packages[idx] = normalizePackage(pkg, pkg);

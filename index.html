@@ -51,7 +51,7 @@
       <span class="nav-item nav-soon" title="Aavnari"><i class="fa-solid fa-share-nodes"></i><span>Social Media Mgmt</span><em>Soon</em></span>
       <a href="#clients" class="nav-item" data-goto="clients" title="Client kholine One-Time Jobs jovo"><i class="fa-solid fa-box"></i><span>One-Time Jobs</span></a>
       <div class="nav-sub-label"><i class="fa-solid fa-cube"></i> Packages</div>
-      <a href="#clients" class="nav-item nav-deep" data-goto="clients"><i class="fa-solid fa-pen-ruler"></i><span>Design &amp; Reel</span></a>
+      <a href="#packages" class="nav-item nav-deep" data-view="packages"><i class="fa-solid fa-pen-ruler"></i><span>Design &amp; Reel</span></a>
       <a href="#clients" class="nav-item nav-deep" data-goto="clients"><i class="fa-solid fa-bars-progress"></i><span>Management</span></a>
       <span class="nav-item nav-deep nav-soon" title="Aavnari"><i class="fa-solid fa-gift"></i><span>64 Festival Posts</span><em>Soon</em></span>
     </div>
@@ -499,6 +499,54 @@
     </section>
 
     <!-- ======================= REPORTS ======================= -->
+    <!-- ================= Packages → Design & Reel ================= -->
+    <section class="view" id="view-packages">
+      <!-- PAGE 1: package list -->
+      <div id="pkListPage">
+        <div class="view-header">
+          <div>
+            <h1>Design &amp; Reel Packages</h1>
+            <p class="view-subtitle">Manage design and reel service packages for clients.</p>
+          </div>
+          <button class="btn btn-primary" id="pkAddBtn"><i class="fa-solid fa-plus"></i> Add Package</button>
+        </div>
+
+        <div class="toolbar card">
+          <div class="toolbar-search">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="pkSearch" placeholder="Search client, client ID, package name or ID…" />
+          </div>
+          <div class="toolbar-filters wrap">
+            <select id="pkFilterClient" title="Client"></select>
+            <select id="pkFilterStatus" title="Package Status"></select>
+            <select id="pkFilterType" title="Package Type"></select>
+            <select id="pkFilterManager" title="Account Manager"></select>
+            <input type="date" id="pkFilterFrom" title="Start date from" />
+            <input type="date" id="pkFilterTo" title="Start date to" />
+            <button type="button" class="btn btn-ghost btn-sm" id="pkFilterReset">Reset</button>
+          </div>
+        </div>
+
+        <div class="card table-card">
+          <div class="table-scroll">
+            <table class="data-table pk-table">
+              <thead>
+                <tr>
+                  <th>Client</th><th>Package Name</th><th>Deliverables</th><th>Duration</th>
+                  <th>Amount</th><th>Progress</th><th>Status</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="pkTableBody"></tbody>
+            </table>
+          </div>
+          <p class="muted" id="pkEmpty" hidden style="padding:18px 0 4px;">No Design &amp; Reel packages found.</p>
+        </div>
+      </div>
+
+      <!-- PAGE 2: package detail (rendered by script.js) -->
+      <div id="pkDetailPage" hidden></div>
+    </section>
+
     <section class="view" id="view-reports">
       <div class="view-header">
         <div>
@@ -1239,6 +1287,166 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" id="cancelOneTimeJobBtn">Cancel</button>
         <button type="submit" class="btn btn-primary" id="saveOneTimeJobBtn"><i class="fa-solid fa-check"></i> Save Job</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Design & Reel: Add / Edit Package -->
+<div class="modal-overlay" id="pkModalOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h2 id="pkModalTitle">Add Package</h2>
+      <button class="icon-btn" type="button" id="pkModalClose"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="pkForm" class="modal-body">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Package ID</label>
+          <input type="text" id="pkfId" readonly />
+        </div>
+        <div class="form-group">
+          <label>Client ID</label>
+          <input type="text" id="pkfClientId" readonly placeholder="Select a client" />
+        </div>
+        <div class="form-group full">
+          <label>Client *</label>
+          <select id="pkfClient" required></select>
+        </div>
+        <div class="form-group" id="pkfNewClientName" hidden>
+          <label>New client name *</label>
+          <input type="text" id="pkfNewName" />
+        </div>
+        <div class="form-group" id="pkfNewClientMobile" hidden>
+          <label>New client mobile *</label>
+          <input type="text" id="pkfNewMobile" />
+        </div>
+        <div class="form-group full">
+          <label>Package Name *</label>
+          <input type="text" id="pkfName" required placeholder="e.g. Standard Package" />
+        </div>
+        <div class="form-group">
+          <label>Package Type / Billing Cycle</label>
+          <select id="pkfCycle"></select>
+        </div>
+        <div class="form-group">
+          <label>Package Amount</label>
+          <input type="number" id="pkfAmount" min="0" step="1" placeholder="0" />
+        </div>
+        <div class="form-group">
+          <label>Start Date *</label>
+          <input type="date" id="pkfStart" required />
+        </div>
+        <div class="form-group">
+          <label>End Date</label>
+          <input type="date" id="pkfEnd" />
+        </div>
+        <div class="form-group">
+          <label>Account Manager</label>
+          <input type="text" id="pkfManager" placeholder="e.g. Jay Kodavla" />
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="pkfStatus"></select>
+        </div>
+        <div class="form-group full">
+          <label>Notes</label>
+          <textarea id="pkfNotes" rows="2"></textarea>
+        </div>
+      </div>
+
+      <h4 class="pk-form-sec">Deliverables</h4>
+      <div class="pk-deliv-form">
+        <div><label>Posts</label><input type="number" id="pkfPosts" min="0" value="0" /></div>
+        <div><select id="pkfPostsCycle"></select></div>
+        <div><label>Reels</label><input type="number" id="pkfReels" min="0" value="0" /></div>
+        <div><select id="pkfReelsCycle"></select></div>
+        <div><label>Stories</label><input type="number" id="pkfStories" min="0" value="0" /></div>
+        <div><select id="pkfStoriesCycle"></select></div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="pkModalCancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="pkModalSave"><i class="fa-solid fa-check"></i> <span id="pkModalSaveText">Create Package</span></button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Design & Reel: Add / Edit Work (post / reel / story) -->
+<div class="modal-overlay" id="pkWorkOverlay" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="pkWorkTitle">Add Post</h2>
+      <button class="icon-btn" type="button" id="pkWorkClose"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="pkWorkForm" class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full">
+          <label id="pkwNameLabel">Post Name *</label>
+          <input type="text" id="pkwName" required />
+        </div>
+        <div class="form-group">
+          <label id="pkwAssignedLabel">Assigned To</label>
+          <input type="text" id="pkwAssigned" />
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="pkwStatus"></select>
+        </div>
+        <div class="form-group" id="pkwPlannedGroup">
+          <label id="pkwPlannedLabel">Planned Date</label>
+          <input type="date" id="pkwPlanned" />
+        </div>
+        <div class="form-group">
+          <label>Due Date</label>
+          <input type="date" id="pkwDue" />
+        </div>
+      </div>
+      <p class="muted" style="margin-top:10px;">Completed date is set automatically when status becomes Completed.</p>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="pkWorkCancel">Cancel</button>
+        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Design & Reel: Add Payment -->
+<div class="modal-overlay" id="pkPayOverlay" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Add Payment</h2>
+      <button class="icon-btn" type="button" id="pkPayClose"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="pkPayForm" class="modal-body">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Date *</label>
+          <input type="date" id="pkpDate" required />
+        </div>
+        <div class="form-group">
+          <label>Amount *</label>
+          <input type="number" id="pkpAmount" min="1" step="1" required />
+        </div>
+        <div class="form-group">
+          <label>Method</label>
+          <select id="pkpMethod">
+            <option>UPI</option><option>Cash</option><option>Bank Transfer</option><option>Cheque</option><option>Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Reference</label>
+          <input type="text" id="pkpRef" placeholder="UTR / receipt no." />
+        </div>
+        <div class="form-group full">
+          <label>Note</label>
+          <input type="text" id="pkpNote" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="pkPayCancel">Cancel</button>
+        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Add Payment</button>
       </div>
     </form>
   </div>
