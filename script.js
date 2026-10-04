@@ -4432,3 +4432,199 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();
 })();
+
+/* ====================================================================== */
+/* Custom date picker: every <input type="date"> gets a styled calendar.  */
+/* The real input stays in the DOM (hidden): .value is still YYYY-MM-DD,  */
+/* and "input"/"change" events still fire. Opt out with data-native.      */
+/* ====================================================================== */
+(function () {
+  "use strict";
+  const valueDesc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+  const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const SHORT = MONTHS.map((m) => m.slice(0, 3));
+  const WEEK = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+  const pad = (n) => String(n).padStart(2, "0");
+  const iso = (y, m, d) => `${y}-${pad(m + 1)}-${pad(d)}`;
+  const parse = (s) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || "");
+    return m ? { y: +m[1], m: +m[2] - 1, d: +m[3] } : null;
+  };
+  const fmt = (s) => { const p = parse(s); return p ? `${pad(p.d)} ${SHORT[p.m]} ${p.y}` : ""; };
+  const todayIso = () => { const t = new Date(); return iso(t.getFullYear(), t.getMonth(), t.getDate()); };
+  const CAL_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>';
+
+  let cur = null; // { inp, btn, pop, view, y, m }
+
+  function closePicker() {
+    if (!cur) return;
+    cur.pop.remove();
+    cur.btn.classList.remove("open");
+    cur = null;
+  }
+
+  function inRange(inp, s) {
+    if (inp.min && s < inp.min) return false;
+    if (inp.max && s > inp.max) return false;
+    return true;
+  }
+
+  function choose(s) {
+    const { inp, btn } = cur;
+    const changed = inp.value !== s;
+    inp.value = s; // our override refreshes the label
+    closePicker();
+    btn.focus();
+    if (changed) {
+      inp.dispatchEvent(new Event("input", { bubbles: true }));
+      inp.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+
+  function render() {
+    const { inp, pop, view, y, m } = cur;
+    const sel = inp.value;
+    const today = todayIso();
+    let html = "";
+    if (view === "days") {
+      html += `<div class="dp-head">
+        <button type="button" class="dp-nav" data-dp="prev" aria-label="Previous month">‹</button>
+        <button type="button" class="dp-title" data-dp="months">${MONTHS[m]} ${y} <span>▾</span></button>
+        <button type="button" class="dp-nav" data-dp="next" aria-label="Next month">›</button></div>`;
+      html += `<div class="dp-week">${WEEK.map((w) => `<span>${w}</span>`).join("")}</div><div class="dp-grid">`;
+      const lead = (new Date(y, m, 1).getDay() + 6) % 7;
+      const start = new Date(y, m, 1 - lead);
+      for (let i = 0; i < 42; i++) {
+        const dt = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+        const s = iso(dt.getFullYear(), dt.getMonth(), dt.getDate());
+        const cls = ["dp-day"];
+        if (dt.getMonth() !== m) cls.push("out");
+        if (s === sel) cls.push("sel");
+        if (s === today) cls.push("today");
+        const ok = inRange(inp, s);
+        if (!ok) cls.push("dis");
+        html += `<button type="button" class="${cls.join(" ")}" data-dp-day="${s}" ${ok ? "" : "disabled"}>${dt.getDate()}</button>`;
+      }
+      html += "</div>";
+    } else {
+      html += `<div class="dp-head">
+        <button type="button" class="dp-nav" data-dp="prev-year" aria-label="Previous year">‹</button>
+        <span class="dp-title static">${y}</span>
+        <button type="button" class="dp-nav" data-dp="next-year" aria-label="Next year">›</button></div><div class="dp-months">`;
+      const sp = parse(sel);
+      html += MONTHS.map((n, i) => `<button type="button" class="dp-mon ${sp && sp.y === y && sp.m === i ? "sel" : ""}" data-dp-month="${i}">${SHORT[i]}</button>`).join("");
+      html += "</div>";
+    }
+    html += `<div class="dp-foot">${inp.required ? "<span></span>" : `<button type="button" class="dp-link" data-dp="clear">Clear</button>`}
+      <button type="button" class="dp-link" data-dp="today" ${inRange(inp, today) ? "" : "disabled"}>Today</button></div>`;
+    pop.innerHTML = html;
+  }
+
+  function openPicker(inp, btn) {
+    closePicker();
+    if (!inp.isConnected || inp.disabled) return;
+    const p = parse(inp.value) || parse(todayIso());
+    const pop = document.createElement("div");
+    pop.className = "dp-pop";
+    pop.addEventListener("mousedown", (e) => e.preventDefault());
+    pop.addEventListener("click", (e) => {
+      const day = e.target.closest("[data-dp-day]");
+      if (day) { choose(day.dataset.dpDay); return; }
+      const mon = e.target.closest("[data-dp-month]");
+      if (mon) { cur.m = +mon.dataset.dpMonth; cur.view = "days"; render(); return; }
+      const a = e.target.closest("[data-dp]");
+      if (!a) return;
+      const act = a.dataset.dp;
+      if (act === "prev") { cur.m--; if (cur.m < 0) { cur.m = 11; cur.y--; } render(); }
+      else if (act === "next") { cur.m++; if (cur.m > 11) { cur.m = 0; cur.y++; } render(); }
+      else if (act === "prev-year") { cur.y--; render(); }
+      else if (act === "next-year") { cur.y++; render(); }
+      else if (act === "months") { cur.view = "months"; render(); }
+      else if (act === "today") choose(todayIso());
+      else if (act === "clear") choose("");
+    });
+    document.body.appendChild(pop);
+    btn.classList.add("open");
+    cur = { inp, btn, pop, view: "days", y: p.y, m: p.m };
+    render();
+
+    const r = btn.getBoundingClientRect();
+    const ph = pop.offsetHeight;
+    let top = r.bottom + 6;
+    if (top + ph > window.innerHeight - 8 && r.top > ph + 14) top = r.top - ph - 6;
+    let left = r.left;
+    if (left + pop.offsetWidth > window.innerWidth - 8) left = Math.max(8, window.innerWidth - pop.offsetWidth - 8);
+    pop.style.top = Math.max(8, top) + "px";
+    pop.style.left = left + "px";
+  }
+
+  function enhance(inp) {
+    if (inp.dataset.dp || inp.type !== "date" || inp.hasAttribute("data-native")) return;
+    inp.dataset.dp = "1";
+    const wrap = document.createElement("span");
+    wrap.className = "cs-wrap";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.setAttribute("aria-haspopup", "dialog");
+    const label = document.createElement("span");
+    label.className = "cs-label";
+    const icon = document.createElement("span");
+    icon.className = "cs-caret dp-icon";
+    icon.innerHTML = CAL_ICON;
+    btn.append(label, icon);
+
+    inp.parentNode.insertBefore(wrap, inp);
+    wrap.append(btn, inp);
+    inp.classList.add("cs-native");
+    inp.tabIndex = -1;
+
+    const refresh = () => {
+      const t = fmt(inp.value);
+      label.textContent = t || inp.getAttribute("placeholder") || "Select date";
+      label.classList.toggle("dp-empty", !t);
+    };
+    const syncAttrs = () => {
+      const cls = [...inp.classList].filter((c) => c !== "cs-native").join(" ");
+      btn.className = "cs-btn dp-btn " + cls + (cur && cur.btn === btn ? " open" : "") + (btn.classList.contains("cs-invalid") ? " cs-invalid" : "");
+      btn.disabled = inp.disabled;
+      btn.title = inp.title || "";
+      btn.style.display = inp.hidden || inp.style.display === "none" ? "none" : "";
+    };
+    Object.defineProperty(inp, "value", {
+      configurable: true,
+      get() { return valueDesc.get.call(inp); },
+      set(v) { valueDesc.set.call(inp, v); refresh(); }
+    });
+    new MutationObserver(syncAttrs).observe(inp, { attributes: true, attributeFilter: ["class", "disabled", "hidden", "style", "title"] });
+    inp.addEventListener("change", () => { btn.classList.remove("cs-invalid"); refresh(); });
+    inp.addEventListener("invalid", () => { btn.classList.add("cs-invalid"); btn.focus(); });
+    if (inp.form) inp.form.addEventListener("reset", () => setTimeout(refresh, 0));
+    btn.addEventListener("click", () => { cur && cur.btn === btn ? closePicker() : openPicker(inp, btn); });
+    btn.addEventListener("keydown", (e) => {
+      if (!cur && ["ArrowDown", "Enter", " "].includes(e.key)) { e.preventDefault(); openPicker(inp, btn); }
+    });
+    refresh();
+    syncAttrs();
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (cur && e.key === "Escape") { e.preventDefault(); const b = cur.btn; closePicker(); b.focus(); }
+  }, true);
+  document.addEventListener("mousedown", (e) => {
+    if (cur && !cur.pop.contains(e.target) && !cur.btn.contains(e.target)) closePicker();
+  }, true);
+  window.addEventListener("scroll", (e) => { if (cur && !cur.pop.contains(e.target)) closePicker(); }, true);
+  window.addEventListener("resize", closePicker);
+
+  const scan = (root) => {
+    if (root.matches && root.matches('input[type="date"]')) enhance(root);
+    if (root.querySelectorAll) root.querySelectorAll('input[type="date"]').forEach(enhance);
+  };
+  const start = () => {
+    scan(document);
+    new MutationObserver((muts) => muts.forEach((m) => m.addedNodes.forEach((n) => { if (n.nodeType === 1) scan(n); })))
+      .observe(document.body, { childList: true, subtree: true });
+  };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
+})();
