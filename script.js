@@ -89,6 +89,11 @@
     getClients: (month) => api(`/api/clients?month=${encodeURIComponent(month || "all")}`),
 
     getLeads: () => api("/api/leads"),
+    getMe: () => api("/api/me"),
+    getUsers: () => api("/api/users"),
+    createUser: (d) => api("/api/users", { method: "POST", body: JSON.stringify(d) }),
+    updateUser: (id, d) => api(`/api/users/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    resetUserPassword: (id) => api(`/api/users/${id}/reset-password`, { method: "POST" }),
     getCalendar: () => api("/api/calendar"),
     createCalendarEvent: (data) => api("/api/calendar-events", { method: "POST", body: JSON.stringify(data) }),
     updateCalendarEvent: (id, data) => api(`/api/calendar-events/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) }),
@@ -286,6 +291,7 @@
   /* Sidebar / navigation                                               */
   /* ------------------------------------------------------------------ */
   function setActiveView(view) {
+    if (state.me && !viewAllowed(view)) view = firstAllowedView();
     $$(".view").forEach((v) => v.classList.remove("active"));
     const target = $(`#view-${view}`);
     if (target) target.classList.add("active");
@@ -302,7 +308,7 @@
     if (view === "categories") renderCategoriesView();
     if (view === "expenses") renderExpensesView();
     if (view === "export") { populateInvoiceSelect(); populatePdfMonthSelect(); }
-    if (view === "settings") renderSettingsForm();
+    if (view === "settings") { renderSettingsForm(); renderTeamCard(); }
     if (view === "packages") renderPackagesView();
     if (view === "calendar") renderCalendarView();
 
@@ -3424,20 +3430,57 @@
     });
   }
 
+  /* ---- Roles: what this logged-in user may see ---- */
+  const ROLE_LABEL = { owner: "Owner", manager: "Manager", sales: "Sales", finance: "Finance", editor: "Editor", designer: "Designer", shooter: "Shooter", sm: "Social media", viewer: "Viewer" };
+  const TEAM_ROLES = ["manager", "sales", "finance", "editor", "designer", "shooter", "sm", "viewer"];
+  const VIEW_MODULE = { dashboard: "dashboard", calendar: "calendar", clients: "clients", leads: "leads", payments: "payments", expenses: "expenses", reports: "reports", categories: "payments", export: "reports", backup: "backup", settings: "settings" };
+  const can = (m) => !!(state.me && state.me.access && state.me.access[m]);
+  const viewAllowed = (v) => !VIEW_MODULE[v] || can(VIEW_MODULE[v]);
+  const firstAllowedView = () => ["dashboard", "calendar", "clients", "leads", "payments", "expenses", "reports"].find(viewAllowed) || "calendar";
+
+  function applyRoleToUI() {
+    const me = state.me;
+    document.body.classList.toggle("no-money", !can("payments"));
+    $$(".nav-item[data-view]").forEach((n) => { n.style.display = viewAllowed(n.dataset.view) ? "" : "none"; });
+    $$(".nav-item[data-goto]").forEach((n) => { n.style.display = can("clients") ? "" : "none"; });
+    $$(".nav-parent[data-toggle]").forEach((n) => {
+      const sub = document.getElementById(n.dataset.toggle);
+      const anyShown = sub && [...sub.querySelectorAll(".nav-item")].some((x) => x.style.display !== "none" && !x.classList.contains("nav-soon"));
+      n.style.display = anyShown ? "" : "none";
+      if (sub && !anyShown) sub.style.display = "none";
+    });
+    const nav = $(".sidebar-nav");
+    if (nav) {
+      let label = null, shown = false;
+      const flush = () => { if (label) label.style.display = shown ? "" : "none"; };
+      [...nav.children].forEach((el) => {
+        if (el.classList.contains("nav-group-label")) { flush(); label = el; shown = false; }
+        else if (el.style.display !== "none" && !el.classList.contains("nav-soon")) shown = true;
+      });
+      flush();
+    }
+    const nm = $("#sidebarAgencyName"); if (nm) nm.textContent = me.name;
+    const rl = $(".user-meta span"); if (rl) rl.textContent = ROLE_LABEL[me.role] || me.role;
+    const pn = $(".profile-name"); if (pn) pn.textContent = me.name;
+  }
+
   async function loadInitialData() {
+    state.me = await Api.getMe();
+    // Load only what this role may read, so one 403 can't break the whole app.
+    const part = (ok, fn, empty) => (ok ? fn().catch(() => empty) : Promise.resolve(empty));
     const [payments, categories, settings, expenses, expenseCategories, leads, platformOptions, clientProfiles] = await Promise.all([
-      Api.getPayments(),
-      Api.getCategories(),
-      Api.getSettings(),
-      Api.getExpenses(),
-      Api.getExpenseCategories(),
-      Api.getLeads(),
-      Api.getPlatformOptions(),
-      Api.getClientProfiles()
+      part(can("payments"), Api.getPayments, []),
+      part(true, Api.getCategories, []),
+      part(true, Api.getSettings, {}),
+      part(can("expenses"), Api.getExpenses, []),
+      part(true, Api.getExpenseCategories, []),
+      part(can("leads"), Api.getLeads, []),
+      part(true, Api.getPlatformOptions, []),
+      part(can("clients"), Api.getClientProfiles, {})
     ]);
     state.payments = payments;
     state.categories = categories;
-    state.settings = settings;
+    state.settings = { ...state.settings, ...settings };
     state.expenses = expenses;
     state.expenseCategories = expenseCategories;
     state.leads = leads;
@@ -3445,13 +3488,80 @@
     state.clientProfiles = clientProfiles;
 
     applySettingsToUI();
+    applyRoleToUI();
     renderGreeting();
     populateCategorySelects();
 
-    await loadDashboard();
+    if (can("dashboard")) await loadDashboard();
     let view = (window.location.hash || "#dashboard").slice(1);
-    if (!document.getElementById("view-" + view)) view = "dashboard"; // e.g. old #overview bookmark
+    if (!document.getElementById("view-" + view) || !viewAllowed(view)) view = firstAllowedView();
     setActiveView(view);
+  }
+
+  /* ---- Team management (Owner only, inside Settings) ---- */
+  async function renderTeamCard() {
+    if (!can("team")) return;
+    let card = $("#teamCard");
+    if (!card) {
+      card = document.createElement("div");
+      card.id = "teamCard";
+      card.className = "card";
+      card.style.margin = "16px 0";
+      card.style.padding = "20px";
+      $("#view-settings").appendChild(card);
+    }
+    let users = [];
+    try { users = await Api.getUsers(); } catch (err) { card.innerHTML = `<h3>Team</h3><p>Load na thayu: ${escapeHtml(err.message)}</p>`; return; }
+    const opts = (sel) => TEAM_ROLES.map((r) => `<option value="${r}" ${r === sel ? "selected" : ""}>${ROLE_LABEL[r]}</option>`).join("");
+    const rows = users.map((u) => {
+      const locked = u.role === "owner" || u.id === state.me.id;
+      return `<tr data-uid="${u.id}">
+        <td><b>${escapeHtml(u.name)}</b><br><small style="color:var(--text-muted)">${escapeHtml(u.email)}</small></td>
+        <td>${locked ? escapeHtml(ROLE_LABEL[u.role] || u.role) : `<select class="team-role">${opts(u.role)}</select>`}</td>
+        <td>${u.active ? "Active" : "<span style='color:var(--danger)'>Disabled</span>"}${u.must_change_password ? "<br><small>Navo password baki</small>" : ""}</td>
+        <td>${locked ? "" : `<button class="btn btn-ghost btn-sm team-toggle">${u.active ? "Disable" : "Enable"}</button> <button class="btn btn-ghost btn-sm team-reset">Reset password</button>`}</td>
+      </tr>`;
+    }).join("");
+    card.innerHTML = `
+      <h3 style="margin:0 0 4px">Team</h3>
+      <p style="margin:0 0 12px;color:var(--text-muted)">Darek member nu potanu login. Role pramane access male che. <a href="/activity" target="_blank">Activity log jovo</a></p>
+      <div id="teamNotice"></div>
+      <table class="data-table" style="width:100%;margin-bottom:16px"><thead><tr><th>Member</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+        <input id="tmName" placeholder="Naam" style="flex:1;min-width:140px" />
+        <input id="tmEmail" type="email" placeholder="Email" style="flex:1;min-width:180px" />
+        <select id="tmRole">${opts("sales")}</select>
+        <button class="btn btn-primary" id="tmAdd"><i class="fa-solid fa-plus"></i> Add member</button>
+      </div>`;
+    const notice = (title, pw) => {
+      $("#teamNotice").innerHTML = `<div style="background:var(--warning-bg);border-radius:10px;padding:12px 14px;margin-bottom:12px">
+        <b>${escapeHtml(title)}</b><br>Temporary password: <code style="font-size:15px;user-select:all">${escapeHtml(pw)}</code><br>
+        <small>Aa fakt ek j vaar dekhase. Member ne aapo; pehli vaar login karse tyare e navo password set karse.</small></div>`;
+    };
+    $("#tmAdd").onclick = async () => {
+      try {
+        const r = await Api.createUser({ name: $("#tmName").value, email: $("#tmEmail").value, role: $("#tmRole").value });
+        await renderTeamCard();
+        notice(`${r.user.name} add thayo`, r.tempPassword);
+      } catch (err) { showToast(err.message, "error"); }
+    };
+    card.onchange = async (e) => {
+      const sel = e.target.closest(".team-role"); if (!sel) return;
+      try { await Api.updateUser(sel.closest("tr").dataset.uid, { role: sel.value }); showToast("Role badlayo", "success"); }
+      catch (err) { showToast(err.message, "error"); await renderTeamCard(); }
+    };
+    card.onclick = async (e) => {
+      const tr = e.target.closest("tr[data-uid]"); if (!tr) return;
+      const uid = tr.dataset.uid, u = users.find((x) => String(x.id) === uid);
+      if (e.target.closest(".team-toggle")) {
+        try { await Api.updateUser(uid, { active: !u.active }); await renderTeamCard(); } catch (err) { showToast(err.message, "error"); }
+      } else if (e.target.closest(".team-reset")) {
+        openConfirm("Password reset karvo?", `${u.name} ne navo temporary password male, ane e badha device par logout thase.`, async () => {
+          try { const r = await Api.resetUserPassword(uid); await renderTeamCard(); notice(`${u.name} no password reset thayo`, r.tempPassword); }
+          catch (err) { showToast(err.message, "error"); }
+        });
+      }
+    };
   }
 
   /* ------------------------------------------------------------------ */

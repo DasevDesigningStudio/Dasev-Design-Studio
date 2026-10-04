@@ -58,7 +58,7 @@ const ACCESS = {
   designer: { ...CREATIVE },
   shooter:  { ...CREATIVE },
   sm:       { ...CREATIVE },
-  viewer:   { dashboard: V, calendar: V, clients: V, leads: V }
+  viewer:   { calendar: V, clients: V, leads: V }
 };
 const ROLES = Object.keys(ACCESS);
 
@@ -94,7 +94,8 @@ const ROUTE_RULES = [
   [/^\/reports(\/|$)/, () => "reports"],
   [/^\/export\//, () => "reports"],
   [/^\/(backup|restore)$/, () => "backup"],
-  [/^\/activity$/, () => "activity"]
+  [/^\/activity$/, () => "activity"],
+  [/^\/users(\/|$)/, () => "team"]
 ];
 
 function resolveModule(req) {
@@ -1490,6 +1491,75 @@ app.use("/api", (req, res, next) => {
     res.json = (body) => orig(stripMoney(req.path, body));
   }
   next();
+});
+
+// ---- Team management (Owner only: module "team") ----------------------
+const TEAM_ROLES = ROLES.filter((r) => r !== "owner");
+function tempPassword() {
+  const a = "abcdefghjkmnpqrstuvwxyzACDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from(crypto.randomBytes(10), (b) => a[b % a.length]).join("");
+}
+const USER_COLS = "id, email, name, role, active, must_change_password, created_at, last_login_at";
+
+app.get("/api/users", async (req, res) => {
+  try {
+    res.json((await pool.query(`SELECT ${USER_COLS} FROM users ORDER BY id`)).rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/users", async (req, res) => {
+  try {
+    const name = String(req.body.name || "").trim();
+    const email = String(req.body.email || "").trim().toLowerCase();
+    const role = String(req.body.role || "");
+    if (!name) return res.status(400).json({ error: "Naam jaruri che." });
+    if (!validEmail(email)) return res.status(400).json({ error: "Sacho email nakho." });
+    if (!TEAM_ROLES.includes(role)) return res.status(400).json({ error: "Role sacho nathi." });
+    const temp = tempPassword();
+    const { rows } = await pool.query(
+      `INSERT INTO users (email, name, role, password_hash, must_change_password) VALUES ($1,$2,$3,$4,TRUE) RETURNING ${USER_COLS}`,
+      [email, name, role, await hashPassword(temp)]
+    );
+    await logActivity(pool, req.user, "user_created", "user", String(rows[0].id), `${req.user.name} added ${name} (${role})`);
+    res.status(201).json({ user: rows[0], tempPassword: temp });
+  } catch (err) {
+    if (err.code === "23505") return res.status(409).json({ error: "Aa email thi member pehla thi che." });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/users/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const t = (await pool.query("SELECT id, name, role, active FROM users WHERE id = $1", [id])).rows[0];
+    if (!t) return res.status(404).json({ error: "Member malyo nahi." });
+    if (t.role === "owner" || id === req.user.id) return res.status(400).json({ error: "Owner (ane potani jaat) ne aahiya thi badli nathi shakatu." });
+    const sets = [], vals = [];
+    if (req.body.role !== undefined) {
+      if (!TEAM_ROLES.includes(req.body.role)) return res.status(400).json({ error: "Role sacho nathi." });
+      vals.push(req.body.role); sets.push(`role = $${vals.length}`);
+    }
+    if (req.body.active !== undefined) { vals.push(!!req.body.active); sets.push(`active = $${vals.length}`); }
+    if (!sets.length) return res.status(400).json({ error: "Kai badalvanu nathi." });
+    sets.push("session_version = session_version + 1");
+    vals.push(id);
+    const { rows } = await pool.query(`UPDATE users SET ${sets.join(", ")} WHERE id = $${vals.length} RETURNING ${USER_COLS}`, vals);
+    await logActivity(pool, req.user, "user_updated", "user", String(id), `${req.user.name} updated ${t.name}: ${Object.entries(req.body).map(([k, v]) => k + "=" + v).join(", ")}`);
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/users/:id/reset-password", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const t = (await pool.query("SELECT id, name, role FROM users WHERE id = $1", [id])).rows[0];
+    if (!t) return res.status(404).json({ error: "Member malyo nahi." });
+    if (t.role === "owner") return res.status(400).json({ error: "Owner no password aahiya thi reset nathi thato." });
+    const temp = tempPassword();
+    await pool.query("UPDATE users SET password_hash = $1, must_change_password = TRUE, session_version = session_version + 1 WHERE id = $2", [await hashPassword(temp), id]);
+    await logActivity(pool, req.user, "password_reset", "user", String(id), `${req.user.name} reset password for ${t.name}`);
+    res.json({ tempPassword: temp });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // 2) Row lock — darek save (POST/PUT/DELETE) ek pachi ek thay, overwrite na thai.

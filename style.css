@@ -1106,3 +1106,6 @@ select:focus { border-color: var(--accent); }
 .cal-empty { text-align: center; color: var(--text-muted); padding: 40px 10px; }
 .cal-detail-row { display: flex; gap: 8px; padding: 6px 0; font-size: 14px; }
 .cal-detail-row b { width: 90px; color: var(--text-muted); font-weight: 600; flex-shrink: 0; }
+
+/* Roles without money access: hide money blocks */
+body.no-money .client-stats { display: none; }
