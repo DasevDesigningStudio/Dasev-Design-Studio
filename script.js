@@ -3534,13 +3534,47 @@
     PK.list.forEach((p) => clients.set(p.clientId || p.clientName, p.clientName));
     $("#pkFilterClient").innerHTML = `<option value="">All Clients</option>` +
       [...clients.entries()].map(([k, n]) => `<option value="${escapeHtml(k)}" ${k === f.client ? "selected" : ""}>${escapeHtml(n)}</option>`).join("");
-    $("#pkFilterStatus").innerHTML = pkOpts(PK_STATUSES, f.status, "All Statuses");
+    $("#pkStatusChips").innerHTML = ["", ...PK_STATUSES].map((st) =>
+      `<button type="button" class="chip ${st === f.status ? "active" : ""}" data-pk-status="${escapeHtml(st)}">${st || "All"}</button>`).join("");
     $("#pkFilterType").innerHTML = pkOpts(PK_CYCLES, f.type, "All Types");
     const managers = [...new Set(PK.list.map((p) => p.accountManager).filter(Boolean))];
     $("#pkFilterManager").innerHTML = pkOpts(managers, f.manager, "All Managers");
     $("#pkSearch").value = f.q;
     $("#pkFilterFrom").value = f.from;
     $("#pkFilterTo").value = f.to;
+  }
+
+  // Per-type progress (Posts / Reels / Stories) + one-click "log 1 done today"
+  function pkMiniBars(p) {
+    const pr = p.progress || {};
+    const quick = canFull("calendar") && p.status !== "Cancelled";
+    return `<div class="pk-mini">${["post", "reel", "story"].map((k) => {
+      const kk = PK_KINDS[k];
+      const c = pr[kk.key] || { total: 0, done: 0, percent: 0 };
+      if (!c.total) return "";
+      return `<div class="pk-mini-row">
+        <span class="pk-mini-label">${kk.plural}</span>
+        <div class="progress-bar"><div class="progress-fill" style="width:${c.percent}%"></div></div>
+        <span class="pk-mini-count">${c.done}/${c.total}</span>
+        ${quick ? `<button type="button" class="pk-log-btn" title="Log 1 ${kk.label.toLowerCase()} done today" data-pk-log="${escapeHtml(p.id)}" data-kind="${k}"><i class="fa-solid fa-plus"></i></button>` : ""}
+      </div>`;
+    }).join("")}</div>`;
+  }
+
+  // One click = 1 completed work item dated today.
+  async function pkQuickLog(pkgId, kind) {
+    const kk = PK_KINDS[kind];
+    try {
+      const updated = await Api.addPackageWork(pkgId, { kind, status: "Completed" });
+      const i = PK.list.findIndex((x) => x.id === updated.id);
+      if (i > -1) PK.list[i] = updated;
+      if (PK.current && PK.current.id === updated.id) PK.current = updated;
+      const c = updated.progress[kk.key];
+      showToast(`${kk.label} logged for ${updated.clientName} — ${c.done}/${c.total}`, "success");
+      if (PK.current) renderPkDetail(); else renderPkList();
+    } catch (err) {
+      showToast("Log na thayu: " + err.message, "error");
+    }
   }
 
   function renderPkList() {
@@ -3551,10 +3585,7 @@
       return `<tr>
         <td><b>${escapeHtml(p.clientName)}</b><div class="pk-sub">${escapeHtml(p.clientId || "")}</div></td>
         <td><b>${escapeHtml(p.name)}</b><div class="pk-sub">${escapeHtml(p.id)}</div></td>
-        <td><div class="pk-deliv-list">
-          <span>${(p.posts && p.posts.total) || 0} Posts</span>
-          <span>${(p.reels && p.reels.total) || 0} Reels</span>
-          <span>${(p.stories && p.stories.total) || 0} Stories</span></div></td>
+        <td>${pkMiniBars(p)}</td>
         <td><div>${escapeHtml(fmtDate(p.startDate))}</div><div class="pk-sub">${p.endDate ? escapeHtml(fmtDate(p.endDate)) : "No end date"}</div></td>
         <td class="cell-amount">${escapeHtml(pkAmountLabel(p))}</td>
         <td><div class="pk-prog"><div class="progress-bar"><div class="progress-fill" style="width:${pr.percent}%"></div></div><span>${pr.percent}%</span></div></td>
@@ -3641,6 +3672,7 @@
         <div class="pk-deliv-line"><span>${c.done} Done</span><span>${c.pending} Pending</span></div>
         <div class="progress-bar"><div class="progress-fill" style="width:${c.percent}%"></div></div>
         <span class="pk-sub">${c.percent}% Complete</span>
+        ${canFull("calendar") ? `<button type="button" class="btn btn-outline btn-sm pk-log-big" data-pk-act="log-done" data-kind="${k}"><i class="fa-solid fa-plus"></i> Log 1 ${kk.label} done today</button>` : ""}
       </div>`;
     }).join("");
 
@@ -3904,7 +3936,14 @@
     const bind = (sel, key, ev = "input") => $(sel).addEventListener(ev, (e) => { f[key] = e.target.value; renderPkList(); });
     bind("#pkSearch", "q");
     bind("#pkFilterClient", "client", "change");
-    bind("#pkFilterStatus", "status", "change");
+    $("#pkStatusChips").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-pk-status]");
+      if (!b) return;
+      f.status = b.dataset.pkStatus;
+      $$("#pkStatusChips .chip").forEach((x) => x.classList.toggle("active", x === b));
+      renderPkList();
+    });
+    $("#pkMoreToggle").addEventListener("click", () => { $("#pkMoreFilters").hidden = !$("#pkMoreFilters").hidden; });
     bind("#pkFilterType", "type", "change");
     bind("#pkFilterManager", "manager", "change");
     bind("#pkFilterFrom", "from", "change");
@@ -3916,6 +3955,8 @@
     });
     $("#pkAddBtn").addEventListener("click", () => openPkModal());
     $("#pkTableBody").addEventListener("click", (e) => {
+      const lg = e.target.closest("[data-pk-log]");
+      if (lg) { pkQuickLog(lg.dataset.pkLog, lg.dataset.kind); return; }
       const b = e.target.closest("[data-pk-view]");
       if (b) { PK.tab = "overview"; window.location.hash = "packages/" + b.dataset.pkView; }
     });
@@ -3970,6 +4011,7 @@
       const act = btn.dataset.pkAct;
       const workOf = () => (p.works || []).find((w) => w.id === btn.dataset.id);
       if (act === "edit") openPkModal(p);
+      else if (act === "log-done") pkQuickLog(p.id, btn.dataset.kind);
       else if (act === "add-work") openPkWorkModal(btn.dataset.kind);
       else if (act === "edit-work") { const w = workOf(); if (w) openPkWorkModal(w.kind, w); }
       else if (act === "complete-work") {

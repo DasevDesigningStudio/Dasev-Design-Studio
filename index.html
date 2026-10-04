@@ -511,19 +511,22 @@
           <button class="btn btn-primary" id="pkAddBtn"><i class="fa-solid fa-plus"></i> Add Package</button>
         </div>
 
-        <div class="toolbar card">
+        <div class="toolbar card pk-toolbar">
           <div class="toolbar-search">
             <i class="fa-solid fa-magnifying-glass"></i>
             <input type="text" id="pkSearch" placeholder="Search client, client ID, package name or ID…" />
           </div>
           <div class="toolbar-filters wrap">
             <select id="pkFilterClient" title="Client"></select>
-            <select id="pkFilterStatus" title="Package Status"></select>
-            <select id="pkFilterType" title="Package Type"></select>
             <select id="pkFilterManager" title="Account Manager"></select>
-            <input type="date" id="pkFilterFrom" title="Start date from" />
-            <input type="date" id="pkFilterTo" title="Start date to" />
+            <button type="button" class="btn btn-ghost btn-sm" id="pkMoreToggle"><i class="fa-solid fa-sliders"></i> More filters</button>
             <button type="button" class="btn btn-ghost btn-sm" id="pkFilterReset">Reset</button>
+          </div>
+          <div class="chip-filters pk-chips" id="pkStatusChips"></div>
+          <div class="pk-more-filters" id="pkMoreFilters" hidden>
+            <label>Package Type<select id="pkFilterType"></select></label>
+            <label>Start from<input type="date" id="pkFilterFrom" /></label>
+            <label>Start to<input type="date" id="pkFilterTo" /></label>
           </div>
         </div>
 
@@ -1355,14 +1358,14 @@
         </div>
       </div>
 
-      <h4 class="pk-form-sec">Deliverables</h4>
-      <div class="pk-deliv-form">
-        <div><label>Posts</label><input type="number" id="pkfPosts" min="0" value="0" /></div>
-        <div><select id="pkfPostsCycle"></select></div>
-        <div><label>Reels</label><input type="number" id="pkfReels" min="0" value="0" /></div>
-        <div><select id="pkfReelsCycle"></select></div>
-        <div><label>Stories</label><input type="number" id="pkfStories" min="0" value="0" /></div>
-        <div><select id="pkfStoriesCycle"></select></div>
+      <h4 class="pk-form-sec">Deliverables <span class="muted">— what the client purchased</span></h4>
+      <div class="form-grid">
+        <div class="form-group"><label>Posts</label><input type="number" id="pkfPosts" min="0" value="0" /></div>
+        <div class="form-group"><label>Posts — per</label><select id="pkfPostsCycle"></select></div>
+        <div class="form-group"><label>Reels</label><input type="number" id="pkfReels" min="0" value="0" /></div>
+        <div class="form-group"><label>Reels — per</label><select id="pkfReelsCycle"></select></div>
+        <div class="form-group"><label>Stories</label><input type="number" id="pkfStories" min="0" value="0" /></div>
+        <div class="form-group"><label>Stories — per</label><select id="pkfStoriesCycle"></select></div>
       </div>
 
       <div class="modal-footer">
