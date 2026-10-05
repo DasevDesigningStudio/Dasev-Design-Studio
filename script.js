@@ -1314,12 +1314,47 @@
     renderClientGrid(state.clients);
   }
 
+  function clientsLayout() {
+    try { return localStorage.getItem("aos_clients_layout") === "list" ? "list" : "card"; } catch (_) { return "card"; }
+  }
+
   function renderClientGrid(clients) {
     const grid = $("#clientGrid");
+    const layout = clientsLayout();
+    grid.classList.toggle("is-list", layout === "list");
+    $$("#clientLayoutToggle button").forEach((b) => b.classList.toggle("active", b.dataset.layout === layout));
     if (!clients.length) {
       grid.innerHTML = `<p style="color:var(--text-muted);">No clients yet.</p>`;
       return;
     }
+
+    if (layout === "list") {
+      grid.innerHTML = `<div class="card table-card"><div class="table-scroll"><table class="data-table client-table">
+        <thead><tr>
+          <th>Client</th><th>Mobile</th><th>Business Name</th>
+          <th class="cl-money">Total Business</th><th class="cl-money">Received</th><th class="cl-money">Pending</th><th class="cl-money">Payments</th><th></th>
+        </tr></thead>
+        <tbody>${clients.map((c, idx) => `
+          <tr class="client-row" data-index="${idx}">
+            <td><div class="client-cell">
+              <div class="client-avatar sm">${initials(c.clientName)}</div>
+              <div><b>${escapeHtml(c.clientName)}</b>${c.clientId ? `<div class="client-id">${escapeHtml(c.clientId)}</div>` : ""}</div>
+            </div></td>
+            <td>${escapeHtml(c.mobile || "—")}</td>
+            <td>${escapeHtml(c.businessName || "—")}</td>
+            <td class="cell-amount cl-money">${fmtMoney(c.totalBusiness)}</td>
+            <td class="cell-amount amount-paid cl-money">${fmtMoney(c.totalReceived)}</td>
+            <td class="cell-amount amount-pending cl-money">${fmtMoney(c.totalPending)}</td>
+            <td class="cl-money">${Number(c.paymentsCount) || 0}</td>
+            <td class="client-row-go"><i class="fa-solid fa-chevron-right"></i></td>
+          </tr>`).join("")}
+        </tbody></table></div></div>`;
+      $$(".client-row").forEach((row) => {
+        row.addEventListener("click", () => openClientDrawer(clients[Number(row.dataset.index)]));
+      });
+      return;
+    }
+
     grid.innerHTML = clients.map((c, idx) => `
       <div class="client-card" data-index="${idx}">
         <div class="client-card-head">
@@ -1352,14 +1387,24 @@
     });
   }
 
+  function currentClientFilter() {
+    const search = ($("#clientSearch").value || "").toLowerCase();
+    return state.clients.filter((c) =>
+      [c.clientId, c.clientName, c.mobile, c.businessName, c.instagram].some((f) => (f || "").toLowerCase().includes(search))
+    );
+  }
+
   function initClientSearch() {
     $("#clientSearch").addEventListener("input", debounce(() => {
-      const search = $("#clientSearch").value.toLowerCase();
-      const filtered = state.clients.filter((c) =>
-        [c.clientId, c.clientName, c.mobile, c.businessName, c.instagram].some((f) => (f || "").toLowerCase().includes(search))
-      );
-      renderClientGrid(filtered);
+      renderClientGrid(currentClientFilter());
     }, 200));
+
+    $("#clientLayoutToggle").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-layout]");
+      if (!b) return;
+      try { localStorage.setItem("aos_clients_layout", b.dataset.layout); } catch (_) {}
+      renderClientGrid(currentClientFilter());
+    });
 
     $("#clientFilterMonth").addEventListener("change", async () => {
       state.clientsFilterMonth = $("#clientFilterMonth").value;
