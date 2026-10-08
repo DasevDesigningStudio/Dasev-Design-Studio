@@ -47,7 +47,7 @@
     <div class="nav-group-label">Work</div>
     <button type="button" class="nav-item nav-parent open" data-toggle="navWork"><i class="fa-regular fa-building"></i><span>Work</span><i class="fa-solid fa-chevron-down nav-caret"></i></button>
     <div class="nav-sub open" id="navWork">
-      <a href="#work/production" class="nav-item" data-view="work"><i class="fa-solid fa-film"></i><span>Content Production</span></a>
+      <a href="#content-production" class="nav-item" data-view="content-production"><i class="fa-solid fa-film"></i><span>Content Production</span></a>
       <a href="#work/social" class="nav-item" data-view="work"><i class="fa-solid fa-share-nodes"></i><span>Social Media Mgmt</span></a>
       <a href="#clients" class="nav-item" data-goto="clients" title="Client kholine One-Time Jobs jovo"><i class="fa-solid fa-box"></i><span>One-Time Jobs</span></a>
       <div class="nav-sub-label"><i class="fa-solid fa-cube"></i> Packages</div>
@@ -588,7 +588,183 @@
         </form>
       </div>
     </div>
-    <section class="view" id="view-reports">
+    <section class="view" id="view-content-production">
+      <div class="view-header">
+        <div>
+          <h1>Content Production</h1>
+          <p class="view-subtitle">Shoot planning, editor assignment, upload and completion — one production pipeline.</p>
+        </div>
+        <button class="btn btn-primary" id="cpAddBtn"><i class="fa-solid fa-plus"></i> Add Content</button>
+      </div>
+
+      <div class="stat-grid cp-stat-grid">
+        <div class="stat-card teal"><div class="stat-icon"><i class="fa-solid fa-film"></i></div><div class="stat-info"><span class="stat-label">Total Content</span><span class="stat-value" id="cpStatTotal">0</span></div></div>
+        <div class="stat-card amber"><div class="stat-icon"><i class="fa-solid fa-camera"></i></div><div class="stat-info"><span class="stat-label">Shoot Planned</span><span class="stat-value" id="cpStatShoot">0</span></div></div>
+        <div class="stat-card blue"><div class="stat-icon"><i class="fa-solid fa-user-pen"></i></div><div class="stat-info"><span class="stat-label">With Editor</span><span class="stat-value" id="cpStatEditor">0</span></div></div>
+        <div class="stat-card green"><div class="stat-icon"><i class="fa-solid fa-circle-check"></i></div><div class="stat-info"><span class="stat-label">Completed</span><span class="stat-value" id="cpStatCompleted">0</span></div></div>
+      </div>
+
+      <div class="card cp-toolbar-card">
+        <div class="cp-toolbar">
+          <div class="cp-search"><i class="fa-solid fa-magnifying-glass"></i><input id="cpSearch" placeholder="Search client, title, editor, ID…" /></div>
+          <select id="cpStageFilter"><option value="all">All Stages</option><option>Shoot Planned</option><option>Assigned to Editor</option><option>Upload</option><option>Completed</option></select>
+          <select id="cpTypeFilter"><option value="all">All Types</option><option>Reel</option><option>Video</option><option>Post</option><option>Story</option><option>Photo</option><option>Other</option></select>
+          <select id="cpPlatformFilter"><option value="all">All Platforms</option><option>Instagram</option><option>Facebook</option><option>YouTube</option><option>LinkedIn</option><option>Twitter/X</option><option>TikTok</option><option>Website</option><option>Other</option></select>
+          <select id="cpPriorityFilter"><option value="all">All Priority</option><option>Urgent</option><option>High</option><option>Normal</option><option>Low</option></select>
+          <button class="btn btn-ghost btn-sm" id="cpRefreshBtn"><i class="fa-solid fa-rotate"></i> Refresh</button>
+        </div>
+      </div>
+
+      <div class="card table-card cp-table-card">
+        <div class="card-head"><h3>Production Queue</h3><span class="muted" id="cpResultCount">0 records</span></div>
+        <div class="table-scroll">
+          <table class="data-table" id="cpTable">
+            <thead><tr><th>ID</th><th>Client</th><th>Content</th><th>Type / Platform</th><th>Stage</th><th>Shoot</th><th>Due</th><th>Editor</th><th>Priority</th><th>Actions</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="cpEmpty" hidden><i class="fa-solid fa-film"></i><p>No content production records found.</p><button class="btn btn-primary btn-sm" id="cpEmptyAdd">Add your first content</button></div>
+      </div>
+    </section>
+
+    <!-- ======================= CATEGORIES ======================= -->
+    <section class="view" id="view-categories">
+      <div class="view-header">
+        <div>
+          <h1>Categories</h1>
+          <p class="view-subtitle">Organize the type of work you deliver for clients.</p>
+        </div>
+      </div>
+
+      <div class="card" style="max-width:520px;">
+        <form id="addCategoryForm" class="inline-form">
+          <input type="text" id="newCategoryInput" placeholder="New category name" required />
+          <button type="submit" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Add</button>
+        </form>
+      </div>
+
+      <div class="category-grid" id="categoryGrid"></div>
+    </section>
+
+    <!-- ======================= EXPENSES ======================= -->
+    <section class="view" id="view-expenses">
+      <div class="view-header">
+        <div>
+          <h1>Expenses</h1>
+          <p class="view-subtitle">Track your daily spend — ad spend, tools, salary and more.</p>
+        </div>
+        <button class="btn btn-primary" id="addExpenseBtn"><i class="fa-solid fa-plus"></i> Add Expense</button>
+      </div>
+
+      <div class="stat-grid expense-stat-grid">
+        <div class="stat-card rose">
+          <div class="stat-icon"><i class="fa-solid fa-calendar-day"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Spent Today</span>
+            <span class="stat-value" id="expenseStatToday">₹0</span>
+          </div>
+        </div>
+        <div class="stat-card amber">
+          <div class="stat-icon"><i class="fa-solid fa-calendar-week"></i></div>
+          <div class="stat-info">
+            <span class="stat-label" id="expenseStatMonthLabel">This Month</span>
+            <span class="stat-value" id="expenseStatMonth">₹0</span>
+          </div>
+        </div>
+        <div class="stat-card violet">
+          <div class="stat-icon"><i class="fa-solid fa-wallet"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">All Time Spend</span>
+            <span class="stat-value" id="expenseStatAllTime">₹0</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="dash-grid two-col">
+        <div class="card table-card">
+          <div class="card-head">
+            <h3>Expense Log</h3>
+            <div style="display:flex; gap:10px; align-items:center;">
+              <select id="expenseFilterMonth"><option value="all">All Months</option></select>
+              <button type="button" class="icon-btn" id="exportExpensesQuickBtn" title="Export expenses as CSV"><i class="fa-solid fa-file-csv"></i></button>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table" id="expensesTable">
+              <thead><tr><th>Date</th><th>Category</th><th>Amount</th><th>Notes</th><th>Actions</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="empty-state" id="expensesEmpty" hidden>
+            <i class="fa-solid fa-wallet"></i>
+            <p>No expenses logged yet. Add your first expense to start tracking spend.</p>
+          </div>
+        </div>
+        <div class="card chart-card">
+          <div class="card-head"><h3>Spend by Category</h3></div>
+          <canvas id="expenseCategoryChart" height="220"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= EXPORT ======================= -->
+    <section class="view" id="view-export">
+      <div class="view-header">
+        <div>
+          <h1>Export</h1>
+          <p class="view-subtitle">Download your payment data or print client invoices.</p>
+        </div>
+      </div>
+
+      <div class="export-grid">
+        <div class="card export-card">
+          <div class="export-icon green"><i class="fa-solid fa-file-excel"></i></div>
+          <h3>Excel Export</h3>
+          <p>Download a formatted .xlsx with Payments, Expenses and a monthly Profit summary — all in one file.</p>
+          <button class="btn btn-outline" id="exportExcelBtn">Export Excel</button>
+        </div>
+        <div class="card export-card">
+          <div class="export-icon blue"><i class="fa-solid fa-file-csv"></i></div>
+          <h3>CSV Export</h3>
+          <p>Download raw data as CSV files — payments and expenses separately.</p>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn btn-outline" id="exportCsvBtn">Payments CSV</button>
+            <button class="btn btn-outline" id="exportExpensesCsvBtn">Expenses CSV</button>
+          </div>
+        </div>
+        <div class="card export-card">
+          <div class="export-icon red"><i class="fa-solid fa-file-pdf"></i></div>
+          <h3>PDF Export</h3>
+          <p>Download a printable PDF with Payments, Expenses and Profit — for every month.</p>
+          <button class="btn btn-outline" id="exportPdfBtn">Export PDF</button>
+        </div>
+        <div class="card export-card">
+          <div class="export-icon red"><i class="fa-solid fa-file-pdf"></i></div>
+          <h3>PDF Reports</h3>
+          <p>Alag alag PDF: Expenses, Pending Payments ane Received Payments. Period pasand karo: mahino ke custom date.</p>
+          <select id="pdfMonthSelect" class="select-block"></select>
+          <div id="pdfCustomRange" style="display:none; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
+            <label style="font-size:12px; color:var(--text-muted);">From <input type="date" id="pdfFrom" /></label>
+            <label style="font-size:12px; color:var(--text-muted);">To <input type="date" id="pdfTo" /></label>
+          </div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn btn-outline" id="pdfExpensesBtn">Expenses PDF</button>
+            <button class="btn btn-outline" id="pdfPendingBtn">Pending PDF</button>
+            <button class="btn btn-outline" id="pdfReceivedBtn">Received PDF</button>
+          </div>
+        </div>
+        <div class="card export-card">
+          <div class="export-icon teal"><i class="fa-solid fa-print"></i></div>
+          <h3>Print Invoice</h3>
+          <p>Select a payment and print a client-ready invoice.</p>
+          <select id="invoicePaymentSelect" class="select-block"></select>
+          <button class="btn btn-outline" id="printInvoiceBtn">Print Invoice</button>
+        </div>
+      </div>
+    </section>
+
+    
+<section class="view" id="view-reports">
       <div class="view-header">
         <div>
           <h1>Reports</h1>
@@ -882,6 +1058,42 @@
 </div>
 
 <!-- ============================ MODALS ============================ -->
+
+<!-- Content Production Add/Edit Modal -->
+<div class="modal-overlay" id="cpModalOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head"><h2 id="cpModalTitle">Add Content Production</h2><button class="icon-btn" id="cpModalClose"><i class="fa-solid fa-xmark"></i></button></div>
+    <form id="cpForm" class="modal-body">
+      <input type="hidden" id="cpId" />
+      <div class="form-grid">
+        <div class="form-group"><label>Client Name *</label><input id="cpClientName" required /></div>
+        <div class="form-group"><label>Client Mobile</label><input id="cpClientMobile" type="tel" /></div>
+        <div class="form-group full"><label>Content Title *</label><input id="cpContentTitle" required placeholder="e.g. Doctor Introduction Reel" /></div>
+        <div class="form-group"><label>Type</label><select id="cpType"><option>Reel</option><option>Video</option><option>Post</option><option>Story</option><option>Photo</option><option>Other</option></select></div>
+        <div class="form-group"><label>Platform</label><select id="cpPlatform"><option>Instagram</option><option>Facebook</option><option>YouTube</option><option>LinkedIn</option><option>Twitter/X</option><option>TikTok</option><option>Website</option><option>Other</option></select></div>
+        <div class="form-group"><label>Shoot Category</label><select id="cpShootCategory"><option>Delivery Shoot</option><option>Patient Testimonial</option><option>Informative Reel</option><option>Festival Reel</option><option>Doctor Reel</option><option>Hospital Tour</option><option>Procedure / Treatment</option><option>Patient Education</option><option>Service Promotion</option><option>Offer / Advertisement</option><option>Event Coverage</option><option>Product Shoot</option><option>Behind The Scenes</option><option>Other</option></select></div>
+        <div class="form-group"><label>Priority</label><select id="cpPriority"><option>Normal</option><option>Low</option><option>High</option><option>Urgent</option></select></div>
+        <div class="form-group"><label>Shoot Planned Date *</label><input type="date" id="cpShootDate" required /></div>
+        <div class="form-group"><label>Shoot By *</label><input id="cpShootBy" required value="Dasev" /></div>
+        <div class="form-group"><label>Assigned Editor</label><input id="cpEditor" placeholder="e.g. Harshil V." /></div>
+        <div class="form-group"><label>Due Date *</label><input type="date" id="cpDueDate" required /></div>
+        <div class="form-group"><label>Aspect Ratio</label><select id="cpAspect"><option>9:16</option><option>4:5</option><option>1:1</option><option>16:9</option><option>Other</option></select></div>
+        <div class="form-group"><label>Final Deliverable Link</label><input id="cpFinalLink" type="url" placeholder="Google Drive / Dropbox / etc." /></div>
+        <div class="form-group full"><label>Notes &amp; Brief</label><textarea id="cpNotes" rows="3" placeholder="Hook, concept, shoot instructions, client brief…"></textarea></div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-ghost" id="cpCancel">Cancel</button><button type="submit" class="btn btn-primary" id="cpSave"><i class="fa-solid fa-check"></i> Save Content</button></div>
+    </form>
+  </div>
+</div>
+
+<!-- Content Production Detail / Revision Modal -->
+<div class="modal-overlay" id="cpDetailOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head"><h2 id="cpDetailTitle">Content Details</h2><button class="icon-btn" id="cpDetailClose"><i class="fa-solid fa-xmark"></i></button></div>
+    <div class="modal-body" id="cpDetailBody"></div>
+  </div>
+</div>
+
 
 <!-- Payment Add/Edit Modal -->
 <div class="modal-overlay" id="paymentModalOverlay" hidden>

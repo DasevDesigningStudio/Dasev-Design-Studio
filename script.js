@@ -35,6 +35,7 @@
     oneTimeJobs: [],
     packages: [],
     platformOptions: [],
+    contentProduction: [],
     clientProfiles: {},
     currentClientKey: null,     // mobile||name of the client currently open in the drawer
     currentClient: null,        // full client object currently open
@@ -151,6 +152,16 @@
     getPackageActivity: (id) => api(`/api/packages/${id}/activity`),
 
     getPlatformOptions: () => api("/api/platform-options"),
+    getContentProduction: (params = {}) => { const q = new URLSearchParams(); Object.entries(params).forEach(([k,v]) => { if (v && v !== "all") q.set(k, v); }); return api(`/api/production${q.toString() ? `?${q.toString()}` : ""}`); },
+    getContentProductionItem: (id) => api(`/api/production/${encodeURIComponent(id)}`),
+    createContentProduction: (data) => api("/api/production", { method:"POST", body:JSON.stringify(data) }),
+    updateContentProduction: (id, data) => api(`/api/production/${encodeURIComponent(id)}`, { method:"PUT", body:JSON.stringify(data) }),
+    updateContentProductionStage: (id, stage, meta = {}) => api(`/api/production/${encodeURIComponent(id)}/stage`, { method:"PATCH", body:JSON.stringify({stage, ...meta}) }),
+    duplicateContentProduction: (id) => api(`/api/production/${encodeURIComponent(id)}/duplicate`, { method:"POST" }),
+    addProductionRevision: (id, data) => api(`/api/production/${encodeURIComponent(id)}/revisions`, { method:"POST", body:JSON.stringify(data) }),
+    updateProductionRevision: (id, revId, data) => api(`/api/production/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revId)}`, { method:"PATCH", body:JSON.stringify(data) }),
+    deleteContentProduction: (id) => api(`/api/production/${encodeURIComponent(id)}`, { method:"DELETE" }),
+
     getClientOverview: (key) => api(`/api/clients/${encodeURIComponent(key)}/overview`),
 
     getClientProfiles: () => api("/api/client-profiles"),
@@ -334,6 +345,7 @@
     if (view === "packages") renderPackagesView(arg);
     if (view === "calendar") renderCalendarView();
     if (view === "work") renderWorkView(arg);
+    if (view === "content-production") renderContentProductionView();
 
     closeSidebarMobile();
   }
@@ -4111,6 +4123,111 @@
 
 
   /* ====================== Work module (migrated legacy) ====================== */
+  const CP_STAGES = ["Shoot Planned", "Assigned to Editor", "Upload", "Completed"];
+  const CP_STAGE_NEXT = { "Shoot Planned": "Assigned to Editor", "Assigned to Editor": "Upload", "Upload": "Completed" };
+  let cpItems = [];
+  let cpLoaded = false;
+  let cpEditingId = null;
+
+  function cpToday(offset = 0) { const d = new Date(); d.setDate(d.getDate() + offset); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+  function cpStageClass(stage) { return ({"Shoot Planned":"cp-stage-shoot","Assigned to Editor":"cp-stage-editor","Upload":"cp-stage-upload","Completed":"cp-stage-done"}[stage] || "cp-stage-default"); }
+  function cpPriorityClass(p) { return ({Urgent:"cp-priority-urgent",High:"cp-priority-high",Normal:"cp-priority-normal",Low:"cp-priority-low"}[p] || "cp-priority-normal"); }
+  function cpFiltered() {
+    const q = (($("#cpSearch")?.value || "").trim().toLowerCase());
+    const stage = $("#cpStageFilter")?.value || "all";
+    const type = $("#cpTypeFilter")?.value || "all";
+    const platform = $("#cpPlatformFilter")?.value || "all";
+    const priority = $("#cpPriorityFilter")?.value || "all";
+    return cpItems.filter(x => (!q || [x.id,x.clientName,x.clientMobile,x.contentTitle,x.editor,x.shootBy,x.shootCategory,x.notes].some(v => String(v||"").toLowerCase().includes(q))) && (stage === "all" || x.stage === stage) && (type === "all" || x.type === type) && (platform === "all" || x.platform === platform) && (priority === "all" || x.priority === priority));
+  }
+  function renderContentProductionView() {
+    if (!$("#view-content-production")) return;
+    if (!cpLoaded) { loadContentProduction(); return; }
+    const rows = cpFiltered();
+    $("#cpStatTotal").textContent = cpItems.length;
+    $("#cpStatShoot").textContent = cpItems.filter(x=>x.stage === "Shoot Planned").length;
+    $("#cpStatEditor").textContent = cpItems.filter(x=>x.stage === "Assigned to Editor").length;
+    $("#cpStatCompleted").textContent = cpItems.filter(x=>x.stage === "Completed").length;
+    $("#cpResultCount").textContent = `${rows.length} record${rows.length===1?"":"s"}`;
+    const tbody = $("#cpTable tbody"), empty = $("#cpEmpty");
+    empty.hidden = rows.length !== 0;
+    tbody.innerHTML = rows.map(x => {
+      const overdue = x.stage !== "Completed" && x.dueDate && x.dueDate < cpToday();
+      const next = CP_STAGE_NEXT[x.stage];
+      return `<tr>
+        <td><span class="cp-id">${escapeHtml(x.id)}</span></td>
+        <td><b>${escapeHtml(x.clientName || "—")}</b><br><small>${escapeHtml(x.clientMobile || "")}</small></td>
+        <td><button class="link-btn cp-content-link" data-cp-action="detail" data-id="${escapeHtml(x.id)}"><b>${escapeHtml(x.contentTitle)}</b></button><br><small>${escapeHtml(x.shootCategory || "")}</small></td>
+        <td>${escapeHtml(x.type)}<br><small>${escapeHtml(x.platform)}</small></td>
+        <td><span class="cp-stage ${cpStageClass(x.stage)}">${escapeHtml(x.stage)}</span></td>
+        <td>${fmtDate(x.shootPlannedDate)}</td>
+        <td class="${overdue ? "cp-overdue" : ""}">${fmtDate(x.dueDate)}</td>
+        <td>${escapeHtml(x.editor || "Unassigned")}</td>
+        <td><span class="cp-priority ${cpPriorityClass(x.priority)}">${escapeHtml(x.priority || "Normal")}</span></td>
+        <td><div class="cp-actions">
+          ${next ? `<button class="icon-btn-sm" title="Move to ${escapeHtml(next)}" data-cp-action="next" data-id="${escapeHtml(x.id)}"><i class="fa-solid fa-arrow-right"></i></button>` : ""}
+          <button class="icon-btn-sm" title="Edit" data-cp-action="edit" data-id="${escapeHtml(x.id)}"><i class="fa-solid fa-pen"></i></button>
+          <button class="icon-btn-sm" title="Duplicate" data-cp-action="duplicate" data-id="${escapeHtml(x.id)}"><i class="fa-regular fa-copy"></i></button>
+          <button class="icon-btn-sm danger" title="Delete" data-cp-action="delete" data-id="${escapeHtml(x.id)}"><i class="fa-solid fa-trash"></i></button>
+        </div></td>
+      </tr>`;
+    }).join("");
+  }
+  async function loadContentProduction() {
+    try { cpItems = await Api.getContentProduction(); state.contentProduction = cpItems; cpLoaded = true; renderContentProductionView(); }
+    catch (err) { showToast("Content Production load na thayu: " + err.message, "error"); }
+  }
+  function openCpModal(item = null) {
+    cpEditingId = item?.id || null;
+    $("#cpModalTitle").textContent = item ? "Edit Content Production" : "Add Content Production";
+    $("#cpId").value = item?.id || "";
+    $("#cpClientName").value = item?.clientName || "";
+    $("#cpClientMobile").value = item?.clientMobile || "";
+    $("#cpContentTitle").value = item?.contentTitle || "";
+    $("#cpType").value = item?.type || "Reel";
+    $("#cpPlatform").value = item?.platform || "Instagram";
+    $("#cpShootCategory").value = item?.shootCategory || "Informative Reel";
+    $("#cpPriority").value = item?.priority || "Normal";
+    $("#cpShootDate").value = item?.shootPlannedDate || cpToday();
+    $("#cpShootBy").value = item?.shootBy || "Dasev";
+    $("#cpEditor").value = item?.editor || "";
+    $("#cpDueDate").value = item?.dueDate || cpToday(7);
+    $("#cpAspect").value = item?.aspectRatio || "9:16";
+    $("#cpFinalLink").value = item?.driveLinks?.finalDeliverable || "";
+    $("#cpNotes").value = item?.notes || "";
+    $("#cpModalOverlay").hidden = false;
+  }
+  function closeCpModal() { $("#cpModalOverlay").hidden = true; cpEditingId = null; }
+  function cpDetailHtml(item) {
+    const revs = item.revisionHistory || [];
+    const next = CP_STAGE_NEXT[item.stage];
+    return `<div class="cp-detail-grid">
+      <div><span class="cp-detail-label">Client</span><b>${escapeHtml(item.clientName)}</b><small>${escapeHtml(item.clientMobile || "")}</small></div>
+      <div><span class="cp-detail-label">Stage</span><span class="cp-stage ${cpStageClass(item.stage)}">${escapeHtml(item.stage)}</span></div>
+      <div><span class="cp-detail-label">Shoot</span><b>${fmtDate(item.shootPlannedDate)}</b><small>By ${escapeHtml(item.shootBy || "—")}</small></div>
+      <div><span class="cp-detail-label">Due</span><b>${fmtDate(item.dueDate)}</b><small>${escapeHtml(item.editor || "Unassigned")}</small></div>
+    </div>
+    <div class="cp-detail-section"><h3>Workflow</h3><div class="cp-workflow">${CP_STAGES.map((st,i)=>`<span class="${st===item.stage?"active":""} ${CP_STAGES.indexOf(item.stage)>i?"done":""}">${i+1}. ${escapeHtml(st)}</span>`).join("<i class='fa-solid fa-chevron-right'></i>")}</div></div>
+    <div class="cp-detail-section"><h3>Content Details</h3><div class="cp-detail-meta"><span><b>Type</b>${escapeHtml(item.type)}</span><span><b>Platform</b>${escapeHtml(item.platform)}</span><span><b>Category</b>${escapeHtml(item.shootCategory || "—")}</span><span><b>Priority</b>${escapeHtml(item.priority || "Normal")}</span><span><b>Aspect</b>${escapeHtml(item.aspectRatio || "—")}</span><span><b>Editor</b>${escapeHtml(item.editor || "Unassigned")}</span></div><p class="cp-detail-notes">${escapeHtml(item.notes || "No notes")}</p>${item.driveLinks?.finalDeliverable ? `<a href="${escapeHtml(item.driveLinks.finalDeliverable)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Open Final Deliverable</a>` : ""}</div>
+    <div class="cp-detail-section"><div class="cp-section-head"><h3>Revision History (${revs.length})</h3></div><div class="cp-revision-form"><input id="cpRevBy" placeholder="Requested by" value="Client"/><input id="cpRevFeedback" placeholder="Revision feedback"/><button class="btn btn-primary btn-sm" data-cp-detail="add-revision" data-id="${escapeHtml(item.id)}">Add Revision</button></div><div class="cp-revisions">${revs.length ? revs.map(r=>`<div class="cp-revision"><div><b>#${r.revisionNumber} · ${escapeHtml(r.requestedBy)}</b><small>${fmtDate(r.requestedAt)} · ${escapeHtml(r.status)}</small></div><p>${escapeHtml(r.feedback)}</p>${r.status !== "Resolved" ? `<button class="btn btn-ghost btn-sm" data-cp-detail="resolve-revision" data-id="${escapeHtml(item.id)}" data-rev="${escapeHtml(r.id)}">Resolve</button>` : ""}</div>`).join("") : `<p class="muted">No revisions recorded.</p>`}</div></div>
+    <div class="modal-footer"><button class="btn btn-ghost" data-cp-detail="edit" data-id="${escapeHtml(item.id)}">Edit</button>${next ? `<button class="btn btn-primary" data-cp-detail="next" data-id="${escapeHtml(item.id)}"><i class="fa-solid fa-arrow-right"></i> ${escapeHtml(next)}</button>` : `<span class="cp-done-label"><i class="fa-solid fa-circle-check"></i> Completed</span>`}</div>`;
+  }
+  async function openCpDetail(id) { try { const item = await Api.getContentProductionItem(id); $("#cpDetailTitle").textContent = `${item.id} · ${item.contentTitle}`; $("#cpDetailBody").innerHTML = cpDetailHtml(item); $("#cpDetailOverlay").hidden = false; } catch(err) { showToast(err.message,"error"); } }
+  function closeCpDetail() { $("#cpDetailOverlay").hidden = true; }
+  function initContentProduction() {
+    if (!$("#view-content-production")) return;
+    $("#cpAddBtn").onclick = () => openCpModal();
+    $("#cpEmptyAdd").onclick = () => openCpModal();
+    $("#cpRefreshBtn").onclick = loadContentProduction;
+    ["#cpSearch","#cpStageFilter","#cpTypeFilter","#cpPlatformFilter","#cpPriorityFilter"].forEach(sel => $(sel).addEventListener("input", renderContentProductionView));
+    $("#cpModalClose").onclick = closeCpModal; $("#cpCancel").onclick = closeCpModal;
+    $("#cpForm").addEventListener("submit", async e => { e.preventDefault(); const payload={clientName:$("#cpClientName").value.trim(),clientMobile:$("#cpClientMobile").value.trim(),contentTitle:$("#cpContentTitle").value.trim(),type:$("#cpType").value,platform:$("#cpPlatform").value,shootCategory:$("#cpShootCategory").value,priority:$("#cpPriority").value,shootPlannedDate:$("#cpShootDate").value,shootBy:$("#cpShootBy").value.trim(),editor:$("#cpEditor").value.trim(),dueDate:$("#cpDueDate").value,aspectRatio:$("#cpAspect").value,finalDeliverableLink:$("#cpFinalLink").value.trim(),notes:$("#cpNotes").value.trim()}; try { if(cpEditingId){ await Api.updateContentProduction(cpEditingId,payload); showToast("Content updated","success"); } else { await Api.createContentProduction(payload); showToast("Content added to Shoot Planned","success"); } closeCpModal(); await loadContentProduction(); } catch(err){ showToast(err.message,"error"); } });
+    $("#cpTable").addEventListener("click", async e => { const b=e.target.closest("[data-cp-action]"); if(!b)return; const id=b.dataset.id, action=b.dataset.cpAction; try { if(action==="detail") return openCpDetail(id); const item=cpItems.find(x=>x.id===id); if(!item)return; if(action==="edit") return openCpModal(item); if(action==="duplicate"){ await Api.duplicateContentProduction(id); showToast("Content duplicated","success"); await loadContentProduction(); } else if(action==="delete"){ openConfirm("Delete Content", `Delete ${item.contentTitle}?`, async()=>{ try{await Api.deleteContentProduction(id); showToast("Content deleted","success"); await loadContentProduction();}catch(err){showToast(err.message,"error");} }); } else if(action==="next"){ const next=CP_STAGE_NEXT[item.stage]; if(!next)return; const meta=next==="Assigned to Editor"?{editor:item.editor||prompt("Editor name:")||"Unassigned"}:next==="Upload"?{uploadedBy:state.me?.name}: {completedBy:state.me?.name}; await Api.updateContentProductionStage(id,next,meta); showToast(`Moved to ${next}`,"success"); await loadContentProduction(); } } catch(err){ showToast(err.message,"error"); } });
+    $("#cpDetailClose").onclick=closeCpDetail;
+    $("#cpDetailBody").addEventListener("click", async e => { const b=e.target.closest("[data-cp-detail]"); if(!b)return; const id=b.dataset.id; const action=b.dataset.cpDetail; try { if(action==="edit"){ const item=await Api.getContentProductionItem(id); closeCpDetail(); openCpModal(item); } else if(action==="next"){ const item=await Api.getContentProductionItem(id); const next=CP_STAGE_NEXT[item.stage]; if(next){ await Api.updateContentProductionStage(id,next,next==="Upload"?{uploadedBy:state.me?.name}:next==="Completed"?{completedBy:state.me?.name}:{editor:item.editor||"Unassigned"}); showToast(`Moved to ${next}`,"success"); await openCpDetail(id); await loadContentProduction(); } } else if(action==="add-revision"){ const by=$("#cpRevBy").value.trim()||"Client", feedback=$("#cpRevFeedback").value.trim(); if(!feedback)return showToast("Revision feedback lakho","error"); await Api.addProductionRevision(id,{requestedBy:by,feedback}); showToast("Revision recorded","success"); await openCpDetail(id); await loadContentProduction(); } else if(action==="resolve-revision"){ await Api.updateProductionRevision(id,b.dataset.rev,{status:"Resolved"}); showToast("Revision resolved","success"); await openCpDetail(id); } } catch(err){showToast(err.message,"error");} });
+  }
+
+
   const WORK_TAB_LABELS = {production:"Content Production", social:"Social Media", shoots:"Shoots", designs:"Design Projects", festival:"64 Festival Posts"};
   const escW = (v) => escapeHtml(v == null ? "" : String(v));
   const workToday = () => new Date().toISOString().slice(0,10);
@@ -4229,7 +4346,7 @@
   /* ---- Roles: what this logged-in user may see ---- */
   const ROLE_LABEL = { owner: "Owner", manager: "Manager", sales: "Sales", finance: "Finance", editor: "Editor", designer: "Designer", shooter: "Shooter", sm: "Social media", viewer: "Viewer" };
   const TEAM_ROLES = ["manager", "sales", "finance", "editor", "designer", "shooter", "sm", "viewer"];
-  const VIEW_MODULE = { dashboard: "dashboard", calendar: "calendar", clients: "clients", leads: "leads", payments: "payments", expenses: "expenses", reports: "reports", categories: "payments", export: "reports", backup: "backup", settings: "settings", packages: "clients", work: "work" };
+  const VIEW_MODULE = { dashboard: "dashboard", calendar: "calendar", clients: "clients", leads: "leads", payments: "payments", expenses: "expenses", reports: "reports", categories: "payments", export: "reports", backup: "backup", settings: "settings", packages: "clients", work: "work", "content-production": "work" };
   const can = (m) => !!(state.me && state.me.access && state.me.access[m]);
   const viewAllowed = (v) => !VIEW_MODULE[v] || can(VIEW_MODULE[v]);
   const firstAllowedView = () => ["dashboard", "calendar", "clients", "leads", "payments", "expenses", "reports"].find(viewAllowed) || "calendar";
@@ -4365,6 +4482,7 @@
   /* ------------------------------------------------------------------ */
   document.addEventListener("DOMContentLoaded", async () => {
     initNavigation();
+    initContentProduction();
     initSidebarToggle();
     initDarkModeToggle();
     initNotifications();
