@@ -1,0 +1,336 @@
+[
+  {
+    "id": "CP-1001",
+    "clientId": "CLI-000124",
+    "clientName": "Sanjeevani Care Hospital",
+    "clientMobile": "9876543210",
+    "contentTitle": "Doctor Tip Reel #4: Root Canal Myths & Painless Treatment",
+    "type": "Reel",
+    "shootCategory": "Doctor Reel",
+    "platform": "Instagram",
+    "stage": "Assigned to Editor",
+    "shootPlannedDate": "2026-09-24",
+    "shootBy": "Dasev",
+    "editor": "Harshil V.",
+    "assignedDate": "2026-09-25",
+    "dueDate": "2026-10-02",
+    "priority": "High",
+    "notes": "Hook: \"Root Canal karavta dar laage che?\" Answer top 3 patient objections in 35 seconds.",
+    "aspectRatio": "9:16",
+    "reelNumber": "#4",
+    "createdAt": "2026-09-24",
+    "activity": [
+      {
+        "id": "ACT-P1",
+        "timestamp": "2026-09-24 11:00",
+        "action": "Shoot completed at hospital dental wing"
+      },
+      {
+        "id": "ACT-P2",
+        "timestamp": "2026-09-25 10:00",
+        "action": "Assigned to Harshil V.",
+        "stageFrom": "Shoot Planned",
+        "stageTo": "Assigned to Editor"
+      }
+    ]
+  },
+  {
+    "id": "CP-1002",
+    "clientId": "CLI-000124",
+    "clientName": "Sanjeevani Care Hospital",
+    "clientMobile": "9876543210",
+    "contentTitle": "Multispeciality Hospital Tour & 24/7 ICU Care Showcase",
+    "type": "Video",
+    "shootCategory": "Hospital Tour",
+    "platform": "Instagram",
+    "stage": "Upload",
+    "shootPlannedDate": "2026-09-19",
+    "shootBy": "Rohan Sharma",
+    "editor": "Priya K.",
+    "assignedDate": "2026-09-20",
+    "uploadDate": "2026-09-27",
+    "uploadedBy": "Priya K.",
+    "dueDate": "2026-09-28",
+    "priority": "Normal",
+    "notes": "10 slides carousel highlighting clean ICU, round-the-clock emergency, and senior MD specialists.",
+    "aspectRatio": "1:1",
+    "createdAt": "2026-09-19",
+    "activity": [
+      {
+        "id": "ACT-P4",
+        "timestamp": "2026-09-19 15:00",
+        "action": "Photoshoot completed"
+      },
+      {
+        "id": "ACT-P5",
+        "timestamp": "2026-09-27 18:00",
+        "action": "Draft uploaded by Priya K.",
+        "stageFrom": "Assigned to Editor",
+        "stageTo": "Upload"
+      }
+    ]
+  },
+  {
+    "id": "CP-1003",
+    "clientId": "CLI-000127",
+    "clientName": "Landmark Heights Realty",
+    "clientMobile": "9945678123",
+    "contentTitle": "4BHK Ultra-Luxury Penthouse Cinematic Walkthrough Reel",
+    "type": "Reel",
+    "shootCategory": "Product Shoot",
+    "platform": "Instagram",
+    "stage": "Assigned to Editor",
+    "shootPlannedDate": "2026-09-19",
+    "shootBy": "Dasev",
+    "editor": "Priyank M.",
+    "assignedDate": "2026-09-20",
+    "dueDate": "2026-10-02",
+    "notes": "Drone sunset aerials at start. Target high-net-worth real estate investors.",
+    "priority": "High",
+    "aspectRatio": "9:16",
+    "reelNumber": "#12",
+    "createdAt": "2026-09-19",
+    "activity": [
+      {
+        "id": "ACT-P7",
+        "timestamp": "2026-09-20 17:00",
+        "action": "Assigned to Priyank M.",
+        "stageFrom": "Shoot Planned",
+        "stageTo": "Assigned to Editor"
+      }
+    ]
+  },
+  {
+    "id": "CP-1004",
+    "clientId": "CLI-000127",
+    "clientName": "Landmark Heights Realty",
+    "clientMobile": "9945678123",
+    "contentTitle": "Customer Testimonial: NRI Homebuyer Seamless Handover",
+    "type": "Video",
+    "shootCategory": "Patient Testimonial",
+    "platform": "YouTube",
+    "stage": "Shoot Planned",
+    "shootPlannedDate": "2026-09-28",
+    "shootBy": "Dasev",
+    "dueDate": "2026-10-04",
+    "notes": "Dual wireless lapel mic audio. 4K 60fps files ~45GB pending upload from shoot SSD.",
+    "priority": "Normal",
+    "aspectRatio": "16:9",
+    "createdAt": "2026-09-28",
+    "activity": [
+      {
+        "id": "ACT-P9",
+        "timestamp": "2026-09-28 16:00",
+        "action": "Shoot planned and scheduled"
+      }
+    ]
+  },
+  {
+    "id": "CP-1005",
+    "clientId": "CLI-000128",
+    "clientName": "Aura Glow Dermatology",
+    "clientMobile": "9654321987",
+    "contentTitle": "HydraFacial Glow Before & After Transformation Reel",
+    "type": "Reel",
+    "platform": "Instagram",
+    "stage": "Completed",
+    "editor": "Rahul S.",
+    "editorNotes": "High-contrast skin macro shots, trending aesthetic lofi sound.",
+    "dates": {
+      "shootDate": "2026-09-14",
+      "filesTransferDate": "2026-09-15",
+      "firstCutDate": "2026-09-19",
+      "approvalDate": "2026-09-24",
+      "publishDate": "2026-09-28"
+    },
+    "driveLinks": {
+      "rawFootage": "https://drive.google.com/drive/folders/agency-auraglow-hydra-raw",
+      "finalDeliverable": "https://drive.google.com/drive/folders/agency-auraglow-final-4k"
+    },
+    "revisionHistory": [
+      {
+        "id": "REV-3",
+        "revisionNumber": 1,
+        "requestedAt": "2026-09-19",
+        "requestedBy": "Dr. Tanya",
+        "feedback": "Add disclaimer banner \"Results may vary based on skin type\"",
+        "status": "Resolved",
+        "resolvedAt": "2026-09-21"
+      }
+    ],
+    "waitingOn": "None (On Track)",
+    "notes": "Trending audio sync. High retention hook in first 1.5 seconds. Reached 25K+ organic views.",
+    "priority": "High",
+    "aspectRatio": "9:16",
+    "reelNumber": "#8",
+    "createdAt": "2026-09-14",
+    "activity": [
+      {
+        "id": "ACT-P11",
+        "timestamp": "2026-09-24 14:00",
+        "action": "Client approved final cut",
+        "stageFrom": "Client Approval",
+        "stageTo": "Final Upload"
+      },
+      {
+        "id": "ACT-P12",
+        "timestamp": "2026-09-28 09:00",
+        "action": "Final 4K master uploaded and published",
+        "stageFrom": "Final Upload",
+        "stageTo": "Completed"
+      }
+    ],
+    "shootBy": "Dasev",
+    "shootCategory": "Informative Reel",
+    "shootPlannedDate": "2026-09-14",
+    "dueDate": "2026-09-14",
+    "assignedDate": "2026-09-15",
+    "uploadDate": "2026-09-24",
+    "uploadedBy": "Rahul S.",
+    "completionDate": "2026-09-28",
+    "completedBy": "Agency Lead"
+  },
+  {
+    "id": "CP-1006",
+    "clientId": "CLI-000126",
+    "clientName": "SuryaShakti Green Solar",
+    "clientMobile": "9712345678",
+    "contentTitle": "5kW Residential Solar Rooftop Installation Drone Reel",
+    "type": "Reel",
+    "shootCategory": "Offer / Advertisement",
+    "platform": "Instagram",
+    "stage": "Shoot Planned",
+    "shootPlannedDate": "2026-10-02",
+    "shootBy": "Rohan Sharma",
+    "dueDate": "2026-10-09",
+    "priority": "Normal",
+    "notes": "Site visit in Adajan, Surat. Drone top-down spiral and inverter screen highlights.",
+    "aspectRatio": "9:16",
+    "createdAt": "2026-09-28",
+    "activity": [
+      {
+        "id": "ACT-P13",
+        "timestamp": "2026-09-28 10:00",
+        "action": "Shoot planned and scheduled for 2026-10-02"
+      }
+    ]
+  },
+  {
+    "id": "CP-1007",
+    "clientId": "CLI-000125",
+    "clientName": "Spice Symphony",
+    "clientMobile": "9823456789",
+    "contentTitle": "Chef Special Dal Makhani 12-Hour Simmer Secret",
+    "type": "Reel",
+    "shootCategory": "Delivery Shoot",
+    "platform": "Instagram",
+    "stage": "Upload",
+    "shootPlannedDate": "2026-09-24",
+    "shootDate": "2026-09-24",
+    "shootBy": "Dasev",
+    "editor": "Priyank M.",
+    "assignedDate": "2026-09-25",
+    "uploadDate": "2026-09-28",
+    "uploadedBy": "Priyank M.",
+    "dueDate": "2026-10-02",
+    "priority": "High",
+    "notes": "Sizzling sound design. Approved by restaurant owner Mr. Kapoor on first cut.",
+    "aspectRatio": "9:16",
+    "reelNumber": "#15",
+    "createdAt": "2026-09-24",
+    "activity": [
+      {
+        "id": "ACT-P14",
+        "timestamp": "2026-09-28 17:00",
+        "action": "First cut uploaded by Priyank M.",
+        "stageFrom": "Assigned to Editor",
+        "stageTo": "Upload"
+      }
+    ]
+  },
+  {
+    "id": "CP-1008",
+    "clientId": "CLI-000127",
+    "clientName": "Landmark Heights Realty",
+    "clientMobile": "9945678123",
+    "contentTitle": "Sky Lounge & Clubhouse Amenities Vertical Teaser",
+    "type": "Reel",
+    "shootCategory": "Behind The Scenes",
+    "platform": "Instagram",
+    "stage": "Assigned to Editor",
+    "shootPlannedDate": "2026-09-27",
+    "shootDate": "2026-09-27",
+    "shootBy": "Dasev",
+    "editor": "Harshil V.",
+    "assignedDate": "2026-09-28",
+    "dueDate": "2026-10-03",
+    "priority": "High",
+    "notes": "Shot with Sony FX3 + Ronin gimbal. Need upbeat house electronic background track.",
+    "aspectRatio": "9:16",
+    "reelNumber": "#14",
+    "createdAt": "2026-09-27",
+    "activity": [
+      {
+        "id": "ACT-P15",
+        "timestamp": "2026-09-28 14:00",
+        "action": "Assigned to Harshil V.",
+        "stageFrom": "Shoot Planned",
+        "stageTo": "Assigned to Editor"
+      }
+    ]
+  },
+  {
+    "id": "CP-1009",
+    "clientId": "CLI-000128",
+    "clientName": "Aura Glow Dermatology",
+    "clientMobile": "9654321987",
+    "contentTitle": "Dermatologist Reacts: Top 3 Sunscreen Mistakes Everyone Makes",
+    "type": "Reel",
+    "shootCategory": "Doctor Reel",
+    "platform": "Instagram",
+    "stage": "Completed",
+    "shootPlannedDate": "2026-09-25",
+    "shootDate": "2026-09-25",
+    "shootBy": "Rohan Sharma",
+    "editor": "Rahul S.",
+    "assignedDate": "2026-09-26",
+    "uploadDate": "2026-09-28",
+    "uploadedBy": "Rahul S.",
+    "completionDate": "2026-09-29",
+    "completedBy": "Krupa D.",
+    "dueDate": "2026-10-01",
+    "priority": "High",
+    "notes": "Targeting summer skincare keywords and viral SPF myths. Pacing is fast 32 seconds.",
+    "aspectRatio": "9:16",
+    "reelNumber": "#9",
+    "createdAt": "2026-09-25",
+    "activity": [
+      {
+        "id": "ACT-P16",
+        "timestamp": "2026-09-25 10:30",
+        "action": "Shoot completed in clinic studio"
+      },
+      {
+        "id": "ACT-P17",
+        "timestamp": "2026-09-26 09:00",
+        "action": "Assigned to Rahul S.",
+        "stageFrom": "Shoot Planned",
+        "stageTo": "Assigned to Editor"
+      },
+      {
+        "id": "ACT-P18",
+        "timestamp": "2026-09-28 18:00",
+        "action": "Cut uploaded by Rahul S.",
+        "stageFrom": "Assigned to Editor",
+        "stageTo": "Upload"
+      },
+      {
+        "id": "ACT-P19",
+        "timestamp": "2026-09-29 11:00",
+        "action": "Approved and Completed by Krupa D.",
+        "stageFrom": "Upload",
+        "stageTo": "Completed"
+      }
+    ]
+  }
+]
