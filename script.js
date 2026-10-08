@@ -4241,11 +4241,12 @@
   async function renderSocialManagement(){
     const box=$("#workList"); if(!box)return;
     const view=$("#view-work"); view?.classList.add("social-mode");
+    const tabs=$("#workTabs"); if(tabs){tabs.classList.add("social-hidden");tabs.style.display="none";}
+    const toolbar=$(".work-toolbar"); if(toolbar) toolbar.style.display="none";
     const head=view?.querySelector(".page-head");
     if(head){ head.querySelector("h1").textContent="Social Media Management"; head.querySelector("p").textContent="Client-wise package tracking, content, publishing, ads & performance"; }
     const addBtn=$("#workAddBtn"); if(addBtn){ addBtn.innerHTML='<i class="fa-solid fa-plus"></i> Add Package'; addBtn.onclick=()=>openManagementPackageModal(null); }
-    $("#workTabs")?.classList.add("social-hidden");
-    try{ if(!state.socialPackageId){ await loadSocialPackages(); renderSocialPackageList(); } else { if(!state.socialDashboard) state.socialDashboard=await Api.getSMDashboard(state.socialPackageId,state.socialMonth); renderSocialPackageDashboard(); } }catch(e){box.innerHTML=`<div class="work-empty">${escW(e.message)}</div>`;}
+    try{ if(!state.socialPackageId){ await loadSocialPackages(); renderSocialPackageList(); } else { if(!state.socialDashboard) state.socialDashboard=await Api.getSMDashboard(state.socialPackageId,state.socialMonth); renderSocialPackageDashboard(); } }catch(e){box.innerHTML=`<div class="work-empty"><i class="fa-solid fa-triangle-exclamation"></i><br>${escW(e.message || "Social Media load failed")}</div>`;}
   }
   function smPackageSidebar(list){
     return `<aside class="sm-client-sidebar"><div class="sm-client-sidebar-head"><div><h3>Clients & Packages</h3><p>${list.length} management packages</p></div><button class="sm-icon-btn" id="smRefreshPackages" title="Refresh"><i class="fa-solid fa-rotate"></i></button></div><div class="sm-client-search"><i class="fa-solid fa-magnifying-glass"></i><input id="smClientSearch" placeholder="Search client..."></div><div class="sm-client-filters"><button class="active" data-sm-filter="all">All (${list.length})</button><button data-sm-filter="active">Active (${list.filter(x=>x.status==="Active").length})</button><button data-sm-filter="paused">Paused (${list.filter(x=>x.status!=="Active").length})</button></div><div class="sm-client-list">${list.map(p=>{const s=p.stats||{};return `<button class="sm-client-item ${state.socialPackageId===p.id?'selected':''}" data-sm-package="${escW(p.id)}"><div class="sm-avatar">${escW((p.clientName||"C").slice(0,1).toUpperCase())}</div><div class="sm-client-item-main"><strong>${escW(p.clientName)}</strong><small>${escW(p.name)}</small><div class="sm-client-mini"><span>${s.reels?.published||0} Reels</span><span>${s.posts?.published||0} Posts</span><span>${s.stories?.published||0} Stories</span></div></div><span class="sm-pill ${smStatusClass(p.status)}">${escW(p.status)}</span></button>`}).join("") || `<div class="sm-empty">No management packages found.<br><button class="btn btn-primary btn-sm" id="smCreateFirst">+ Create Management Package</button></div>`}</div></aside>`;
@@ -4258,36 +4259,124 @@
     $$('[data-sm-filter]').forEach(b=>b.addEventListener('click',()=>{ $$('[data-sm-filter]').forEach(x=>x.classList.remove('active')); b.classList.add('active'); const f=b.dataset.smFilter; $$('.sm-client-item').forEach(x=>{const status=x.querySelector('.sm-pill')?.textContent?.toLowerCase()||''; x.style.display=(f==='all'||(f==='active'&&status==='active')||(f==='paused'&&status!=='active'))?'flex':'none';}); }));
   }
   function renderSocialPackageList(){
-    const box=$("#workList"); if(!box)return;
-    const list=state.socialPackages||[]; const active=list.filter(x=>x.status==="Active").length; const reels=list.reduce((n,x)=>n+(x.stats?.reels?.published||0),0),posts=list.reduce((n,x)=>n+(x.stats?.posts?.published||0),0),stories=list.reduce((n,x)=>n+(x.stats?.stories?.published||0),0),boosts=list.reduce((n,x)=>n+(x.stats?.boosted||0),0),spend=list.reduce((n,x)=>n+(x.stats?.adSpend||0),0);
-    $("#workSummary").innerHTML=`<div class="work-summary-card smc"><div class="lbl">Active Clients</div><div class="num">${active}</div><div class="work-sub">${list.length} management packages</div></div><div class="work-summary-card smc"><div class="lbl">Total Reels</div><div class="num">${reels}</div><div class="work-sub">Published this month</div></div><div class="work-summary-card smc"><div class="lbl">Total Posts</div><div class="num">${posts}</div><div class="work-sub">Published this month</div></div><div class="work-summary-card smc"><div class="lbl">Total Stories</div><div class="num">${stories}</div><div class="work-sub">Published this month</div></div><div class="work-summary-card smc"><div class="lbl">Boosts & Ad Spend</div><div class="num">${boosts}</div><div class="work-sub">${smFmt(spend)} spent</div></div>`;
-    $("#workStageFilter").innerHTML=`<option value="all">All Status</option><option value="Active">Active</option><option value="Paused">Paused</option>`;
-    $("#workSearch").placeholder="Search client, package, content...";
-    box.innerHTML=`<div class="sm-package-toolbar"><div><h2>Clients & Packages</h2><p>Select a management package to open complete monthly tracking.</p></div><div class="sm-month"><label>Month</label><input id="smMonthPicker" type="month" value="${state.socialMonth}"></div></div><div class="sm-empty-workspace"><div class="sm-list-only">${smPackageSidebar(list)}</div><div class="sm-no-selection"><div class="sm-no-selection-icon"><i class="fa-solid fa-share-nodes"></i></div><h2>Select a Client Package</h2><p>Choose a management package from the left to track reels, posts, stories, shoots, ads and performance.</p></div></div>`;
-    $("#smMonthPicker")?.addEventListener("change",async e=>{state.socialMonth=e.target.value;state.socialPackageId=null;state.socialDashboard=null;await renderSocialManagement();});
+    const box = $("#workList");
+    if (!box) return;
+    const list = Array.isArray(state.socialPackages) ? state.socialPackages : [];
+    const active = list.filter(x => String(x.status || "").toLowerCase() === "active").length;
+    const reels = list.reduce((n,x) => n + Number(x.stats?.reels?.published || 0), 0);
+    const posts = list.reduce((n,x) => n + Number(x.stats?.posts?.published || 0), 0);
+    const stories = list.reduce((n,x) => n + Number(x.stats?.stories?.published || 0), 0);
+    const boosts = list.reduce((n,x) => n + Number(x.stats?.boosted || 0), 0);
+    const spend = list.reduce((n,x) => n + Number(x.stats?.adSpend || 0), 0);
+    const esc = escW;
+
+    $("#workSummary").innerHTML = `
+      <div class="sm-kpi sm-kpi-green"><span class="sm-kpi-icon"><i class="fa-solid fa-users"></i></span><div><small>Active Clients</small><strong>${active}</strong><em>${list.length} management packages</em></div></div>
+      <div class="sm-kpi sm-kpi-pink"><span class="sm-kpi-icon"><i class="fa-solid fa-clapperboard"></i></span><div><small>Total Reels</small><strong>${reels}</strong><em>Published this month</em></div></div>
+      <div class="sm-kpi sm-kpi-blue"><span class="sm-kpi-icon"><i class="fa-solid fa-image"></i></span><div><small>Total Posts</small><strong>${posts}</strong><em>Published this month</em></div></div>
+      <div class="sm-kpi sm-kpi-purple"><span class="sm-kpi-icon"><i class="fa-solid fa-circle-plus"></i></span><div><small>Total Stories</small><strong>${stories}</strong><em>Published this month</em></div></div>
+      <div class="sm-kpi sm-kpi-orange"><span class="sm-kpi-icon"><i class="fa-solid fa-bullhorn"></i></span><div><small>Boosts & Ad Spend</small><strong>${boosts}</strong><em>${smFmt(spend)} spent</em></div></div>`;
+
+    $("#workSearch").placeholder = "Search client or package...";
+    $("#workStageFilter").innerHTML = `<option value="all">All Status</option><option value="Active">Active</option><option value="Paused">Paused</option>`;
+
+    box.innerHTML = `
+      <div class="sm-page-toolbar">
+        <div><h2>Clients & Packages</h2><p>Select a management package to open complete monthly tracking.</p></div>
+        <div class="sm-month-control"><label>Month</label><input id="smMonthPicker" type="month" value="${esc(state.socialMonth)}"></div>
+      </div>
+      <div class="sm-package-layout">
+        <section class="sm-package-list-card">
+          ${smPackageSidebar(list)}
+        </section>
+        <section class="sm-welcome-card">
+          <div class="sm-welcome-icon"><i class="fa-solid fa-share-nodes"></i></div>
+          <h2>Select a Client Package</h2>
+          <p>Choose a management package from the left to track reels, posts, stories, shoots, ads and performance.</p>
+          ${list.length ? `<div class="sm-welcome-hints"><span><i class="fa-solid fa-film"></i> Content</span><span><i class="fa-solid fa-calendar"></i> Monthly Plan</span><span><i class="fa-solid fa-bullhorn"></i> Ads</span><span><i class="fa-solid fa-chart-line"></i> Performance</span></div>` : `<button class="btn btn-primary" id="smCreateFirst"><i class="fa-solid fa-plus"></i> Create Management Package</button>`}
+        </section>
+      </div>`;
+
+    $("#smMonthPicker")?.addEventListener("change", async e => {
+      state.socialMonth = e.target.value || workToday().slice(0,7);
+      state.socialPackageId = null;
+      state.socialDashboard = null;
+      await renderSocialManagement();
+    });
     bindSocialPackageList();
   }
 
   function renderSocialPackageDashboard(){
-    const d=state.socialDashboard||{},p=d.package||{},c=d.cycle||{},s=d.stats||{},tab=state.socialTab; const items=c.contentItems||[], ads=c.adCampaigns||[];
-    $("#workSummary").innerHTML=`<div class="work-summary-card"><div class="lbl">Total Reels</div><div class="num">${s.reels?.created||0} / ${s.reels?.total||0}</div><div class="work-sub">${s.reels?.published||0} published</div></div><div class="work-summary-card"><div class="lbl">Total Posts</div><div class="num">${s.posts?.created||0} / ${s.posts?.total||0}</div><div class="work-sub">${s.posts?.published||0} published</div></div><div class="work-summary-card"><div class="lbl">Total Stories</div><div class="num">${s.stories?.created||0} / ${s.stories?.total||0}</div><div class="work-sub">${s.stories?.published||0} published</div></div><div class="work-summary-card"><div class="lbl">Total Boosts</div><div class="num">${s.boosted||0}</div><div class="work-sub">${smFmt(s.adSpend||0)} spent</div></div>`;
-    $("#workSearch").placeholder="Search content, campaign…"; $("#workStageFilter").innerHTML=`<option value="all">All Status</option><option>Planned</option><option>Editing</option><option>Approval</option><option>Scheduled</option><option>Published</option><option>Boosted</option>`;
-    const perf=c.performance||{};
-    const list=state.socialPackages||[];
-    $("#workList").innerHTML=`<div class="sm-workspace"><div class="sm-workspace-sidebar">${smPackageSidebar(list)}</div><main class="sm-workspace-main"><div class="sm-detail-head"><button class="btn btn-ghost" id="smBack">← All Packages</button><div class="sm-client-title"><div class="sm-avatar big">${escW((p.clientName||"C").slice(0,1).toUpperCase())}</div><div><h2>${escW(p.clientName)}</h2><p>${escW(p.name)} · ${escW(c.month)}</p><div class="sm-platforms">${(p.platforms||[]).map(x=>`<span>${escW(x.name)}</span>`).join("")}</div></div></div><div class="sm-head-actions"><button class="btn btn-ghost" id="smPrevMonth">← Month</button><button class="btn btn-primary" data-sm-action="add-content">+ Add Content</button></div></div><div class="sm-tabs">${[["overview","Overview"],["reels","Reels"],["posts","Posts"],["stories","Stories"],["shoots","Shoots"],["ads","Ads & Boosts"],["performance","Performance"],["history","Monthly History"],["activity","Activity"]].map(x=>`<button class="sm-tab ${tab===x[0]?'active':''}" data-sm-tab="${x[0]}">${x[1]}</button>`).join("")}</div>${smTabHtml(tab,d,items,ads,perf)}</main></div>`;
-    $("#smBack").onclick=()=>{state.socialPackageId=null;state.socialDashboard=null;renderSocialManagement();};
-    $("#smPrevMonth").onclick=()=>{state.socialMonth=prevMonth(state.socialMonth);state.socialDashboard=null;renderSocialManagement();};
-    $$("[data-sm-tab]").forEach(b=>b.onclick=()=>{state.socialTab=b.dataset.smTab;renderSocialPackageDashboard();});
-    bindSocialPackageList();
-    $$("[data-sm-action]").forEach(b=>b.onclick=()=>smAction(b.dataset.smAction,b.dataset.id));
-    $$("[data-sm-content-id]").forEach(b=>b.onclick=()=>smContentAction(b.dataset.smAction,b.dataset.smContentId));
-    $$("[data-sm-ad-id]").forEach(b=>b.onclick=()=>smAdAction(b.dataset.smAction,b.dataset.smAdId));
-    $("#smAddAd")?.addEventListener("click",()=>smOpenAdForm()); $("#smSavePerf")?.addEventListener("click",smSavePerformance); $("#smAddCycle")?.addEventListener("click",smAddCycle);
+    const d = state.socialDashboard || {}, p = d.package || {}, c = d.cycle || {}, s = d.stats || {};
+    const items = Array.isArray(c.contentItems) ? c.contentItems : [];
+    const ads = Array.isArray(c.adCampaigns) ? c.adCampaigns : [];
+    const perf = c.performance || {};
+    const totalAdBudget = Number(c.clientAdBudget || s.adBudget || 0);
+    const spend = Number(s.adSpend || 0);
+    const remaining = Math.max(0, totalAdBudget - spend);
+    const pctBudget = totalAdBudget ? Math.min(100, Math.round(spend / totalAdBudget * 100)) : 0;
+    const published = Number(s.published || 0);
+    const scheduled = items.filter(x => x.status === "Scheduled").length;
+    const approval = items.filter(x => x.status === "Approval").length;
+    const inProgress = items.filter(x => ["Planned","Editing"].includes(x.status)).length;
+    const boosted = Number(s.boosted || 0);
+    const history = Array.isArray(d.history) ? d.history : [];
+    const esc = escW;
+
+    $("#workSummary").innerHTML = `
+      <div class="sm-detail-kpi"><small>Reels</small><strong>${Number(s.reels?.published||0)} / ${Number(s.reels?.total||0)}</strong><span>${Number(s.reels?.published||0)} published</span></div>
+      <div class="sm-detail-kpi"><small>Posts</small><strong>${Number(s.posts?.published||0)} / ${Number(s.posts?.total||0)}</strong><span>${Number(s.posts?.published||0)} published</span></div>
+      <div class="sm-detail-kpi"><small>Stories</small><strong>${Number(s.stories?.published||0)} / ${Number(s.stories?.total||0)}</strong><span>${Number(s.stories?.published||0)} published</span></div>
+      <div class="sm-detail-kpi"><small>Boosted</small><strong>${boosted}</strong><span>${smFmt(spend)} spent</span></div>
+      <div class="sm-detail-kpi"><small>Published</small><strong>${published}</strong><span>${scheduled} scheduled</span></div>`;
+
+    $("#workSearch").placeholder = "Search content, campaign...";
+    $("#workStageFilter").innerHTML = `<option value="all">All Status</option><option>Planned</option><option>Editing</option><option>Approval</option><option>Scheduled</option><option>Published</option><option>Boosted</option>`;
+
+    const clientLetter = esc((p.clientName || "C").slice(0,1).toUpperCase());
+    const platforms = (p.platforms || []).map(x => `<span>${esc(x.name)}</span>`).join("");
+    const progress = (label, done, total, cls) => smProgress(label, Number(done||0), Number(total||0), cls);
+    const recentReels = items.filter(x => String(x.contentType||"").toLowerCase()==="reel").slice(0,5);
+    const recentPosts = items.filter(x => String(x.contentType||"").toLowerCase()==="post").slice(0,5);
+    const contentRows = (arr) => arr.length ? arr.map((x,i)=>`<tr><td><b>${i+1}</b></td><td><b>${esc(x.title)}</b><small>${esc(x.contentType)} · ${esc(x.platform)}</small></td><td><span class="sm-pill ${smStatusClass(x.status)}">${esc(x.status)}</span></td><td>${esc(x.scheduledDate || "—")}</td><td>${x.boosted ? `<span class="sm-yes">Yes</span>` : "—"}</td></tr>`).join("") : `<tr><td colspan="5" class="sm-table-empty">No content yet</td></tr>`;
+
+    $("#workList").innerHTML = `
+      <div class="sm-detail-shell">
+        <div class="sm-detail-client-head">
+          <button class="btn btn-ghost btn-sm" id="smBack"><i class="fa-solid fa-arrow-left"></i> All Packages</button>
+          <div class="sm-client-identity"><div class="sm-avatar big">${clientLetter}</div><div><h2>${esc(p.clientName || "Client")}</h2><p>${esc(p.name || "Social Media Management Package")}</p><div class="sm-platforms">${platforms}</div></div></div>
+          <div class="sm-head-actions"><div class="sm-month-inline"><i class="fa-regular fa-calendar"></i><span>${esc(c.month || state.socialMonth)}</span></div><button class="btn btn-primary" data-sm-action="add-content"><i class="fa-solid fa-plus"></i> Add Content</button></div>
+        </div>
+
+        <div class="sm-detail-tabs">${[["overview","Overview"],["reels","Reels"],["posts","Posts"],["stories","Stories"],["shoots","Shoots"],["ads","Ads & Boosts"],["performance","Performance"],["history","Monthly History"],["activity","Activity"]].map(x=>`<button class="sm-tab ${state.socialTab===x[0]?"active":""}" data-sm-tab="${x[0]}">${x[1]}</button>`).join("")}</div>
+
+        ${state.socialTab === "overview" ? `
+        <div class="sm-overview-grid-new">
+          <section class="sm-panel-card"><div class="sm-panel-head"><div><h3>This Month Progress</h3><span>${esc(c.month || state.socialMonth)}</span></div><button class="btn btn-ghost btn-sm" data-sm-action="add-cycle"><i class="fa-solid fa-calendar-plus"></i> Cycle</button></div>
+            ${progress("Reels",s.reels?.published,s.reels?.total,"pink")}${progress("Posts",s.posts?.published,s.posts?.total,"blue")}${progress("Stories",s.stories?.published,s.stories?.total,"purple")}${progress("Shoots",s.shoots?.done,s.shoots?.total,"orange")}
+            <div class="sm-mini-grid"><div><small>Published</small><b>${published}</b></div><div><small>Scheduled</small><b>${scheduled}</b></div><div><small>Approval</small><b>${approval}</b></div><div><small>In Progress</small><b>${inProgress}</b></div><div><small>Boosted</small><b>${boosted}</b></div></div>
+          </section>
+          <aside class="sm-panel-card sm-budget-card"><div class="sm-panel-head"><h3>Ad Budget & Spend</h3><button class="btn btn-ghost btn-sm" data-sm-action="add-ad">+ Ad</button></div><div class="sm-budget-wrap"><div class="sm-ring" style="--sm-pct:${pctBudget}%"><span>${smFmt(spend)}</span><small>Spent</small></div><div class="sm-budget-values"><p>Planned Budget <b>${smFmt(totalAdBudget)}</b></p><p>Actual Spend <b>${smFmt(spend)}</b></p><p>Remaining <b>${smFmt(remaining)}</b></p></div></div></aside>
+          <section class="sm-panel-card"><div class="sm-panel-head"><h3>Recent Reels</h3><button class="btn btn-link" data-sm-tab="reels">View All →</button></div><div class="sm-table-wrap"><table class="sm-table"><thead><tr><th>#</th><th>Content</th><th>Status</th><th>Publish Date</th><th>Boost</th></tr></thead><tbody>${contentRows(recentReels)}</tbody></table></div></section>
+          <section class="sm-panel-card"><div class="sm-panel-head"><h3>Recent Posts</h3><button class="btn btn-link" data-sm-tab="posts">View All →</button></div><div class="sm-table-wrap"><table class="sm-table"><thead><tr><th>#</th><th>Content</th><th>Status</th><th>Publish Date</th><th>Boost</th></tr></thead><tbody>${contentRows(recentPosts)}</tbody></table></div></section>
+          <section class="sm-panel-card sm-wide"><div class="sm-panel-head"><h3>Active Campaigns</h3><button class="btn btn-link" data-sm-tab="ads">View All →</button></div><div class="sm-table-wrap"><table class="sm-table"><thead><tr><th>Campaign</th><th>Platform</th><th>Objective</th><th>Spend</th><th>Results</th><th>Status</th></tr></thead><tbody>${ads.slice(0,5).map(a=>`<tr><td><b>${esc(a.campaign)}</b></td><td>${esc(a.platform)}</td><td>${esc(a.objective)}</td><td>${smFmt(a.actualSpend)}</td><td>${Number(a.leads||0)} Leads · ${Number(a.messages||0)} Msg</td><td><span class="sm-pill ${smStatusClass(a.status)}">${esc(a.status)}</span></td></tr>`).join("") || `<tr><td colspan="6" class="sm-table-empty">No campaigns yet</td></tr>`}</tbody></table></div></section>
+          <aside class="sm-panel-card sm-performance-card"><div class="sm-panel-head"><h3>Performance</h3><button class="btn btn-link" data-sm-tab="performance">Full Report →</button></div><div class="sm-performance-mini"><div><b>${Number(perf.reach||0).toLocaleString("en-IN")}</b><span>Reach</span></div><div><b>${Number(perf.impressions||0).toLocaleString("en-IN")}</b><span>Impressions</span></div><div><b>${Number(perf.messages||0)}</b><span>Messages</span></div><div><b>${Number(perf.leads||0)}</b><span>Leads</span></div><div><b>${Number(perf.profileVisits||0)}</b><span>Profile Visits</span></div><div><b>${Number(perf.engagements||0)}</b><span>Engagements</span></div></div></aside>
+        </div>` : smTabHtml(state.socialTab,d,items,ads,perf)}
+      </div>`;
+
+    $("#smBack").onclick = () => { state.socialPackageId=null; state.socialDashboard=null; renderSocialManagement(); };
+    $$('[data-sm-tab]').forEach(b => b.onclick = () => { state.socialTab = b.dataset.smTab; renderSocialPackageDashboard(); });
+    $$('[data-sm-action]').forEach(b => b.onclick = () => smAction(b.dataset.smAction,b.dataset.id));
+    $$('[data-sm-content-id]').forEach(b => b.onclick = () => smContentAction(b.dataset.smAction,b.dataset.smContentId));
+    $$('[data-sm-ad-id]').forEach(b => b.onclick = () => smAdAction(b.dataset.smAction,b.dataset.smAdId));
+    $("#smAddAd")?.addEventListener("click",()=>smOpenAdForm());
+    $("#smSavePerf")?.addEventListener("click",smSavePerformance);
+    $("#smAddCycle")?.addEventListener("click",smAddCycle);
   }
   function prevMonth(k){const [y,m]=k.split("-").map(Number);const d=new Date(y,m-2,1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;}
   function smContentRows(items,kind){const arr=items.filter(x=>!kind||x.contentType.toLowerCase()===kind);return arr.length?`<div class="sm-table-wrap"><table class="sm-table"><thead><tr><th>Content</th><th>Platform</th><th>Status</th><th>Schedule</th><th>Assigned</th><th>Boost</th><th></th></tr></thead><tbody>${arr.map(x=>`<tr><td><b>${escW(x.title)}</b><small>${escW(x.contentType)}</small></td><td>${escW(x.platform)}</td><td><span class="sm-pill ${smStatusClass(x.status)}">${escW(x.status)}</span></td><td>${escW(x.scheduledDate||"—")} ${escW(x.scheduledTime||"")}</td><td>${escW(x.assignedTo||x.editor||"—")}</td><td>${x.boosted?smFmt(x.boostSpend):"—"}</td><td><button class="btn btn-ghost btn-sm" data-sm-action="edit-content" data-sm-content-id="${escW(x.id)}">Edit</button><button class="btn btn-ghost btn-sm" data-sm-action="delete-content" data-sm-content-id="${escW(x.id)}">Delete</button></td></tr>`).join("")}</tbody></table></div>`:`<div class="sm-empty">No ${kind||"content"} yet.</div>`;}
   function smTabHtml(tab,d,items,ads,perf){const s=d.stats||{},c=d.cycle||{}; if(tab==="overview")return `<div class="sm-overview-grid"><div class="sm-main-card"><div class="sm-card-title"><h3>This Month Progress</h3><span>${escW(c.month)}</span></div>${smProgress("Reels",s.reels?.published||0,s.reels?.total||0,"pink")}${smProgress("Posts",s.posts?.published||0,s.posts?.total||0,"blue")}${smProgress("Stories",s.stories?.published||0,s.stories?.total||0,"purple")}${smProgress("Shoots",s.shoots?.done||0,s.shoots?.total||0,"orange")}<div class="sm-stat-row"><div><b>${items.filter(x=>x.status==="Published").length}</b><span>Published</span></div><div><b>${items.filter(x=>x.status==="Scheduled").length}</b><span>Scheduled</span></div><div><b>${items.filter(x=>x.status==="Approval").length}</b><span>Approval</span></div><div><b>${items.filter(x=>["Planned","Editing"].includes(x.status)).length}</b><span>In Progress</span></div><div><b>${s.boosted||0}</b><span>Boosted</span></div></div></div><div class="sm-side-card"><h3>Ad Budget & Spend</h3><div class="sm-budget"><div class="sm-ring"><b>${smFmt(s.adSpend||0)}</b><span>Spent</span></div><div><p>Planned Budget <b>${smFmt(c.clientAdBudget)}</b></p><p>Actual Spend <b>${smFmt(s.adSpend)}</b></p><p>Remaining <b>${smFmt(s.remainingAdBudget)}</b></p><p>Agency Ad Fee <b>${smFmt(c.agencyAdFee)}</b></p></div></div></div><div class="sm-main-card"><div class="sm-card-title"><h3>Recent Reels</h3><button class="btn btn-ghost btn-sm" data-sm-tab="reels">View All</button></div>${smContentRows(items,"reel")}</div><div class="sm-main-card"><div class="sm-card-title"><h3>Recent Posts</h3><button class="btn btn-ghost btn-sm" data-sm-tab="posts">View All</button></div>${smContentRows(items,"post")}</div></div>`; if(["reels","posts","stories"].includes(tab))return `<div class="sm-section-card"><div class="sm-card-title"><h3>${tab[0].toUpperCase()+tab.slice(1)} Tracking</h3><button class="btn btn-primary btn-sm" data-sm-action="add-content">+ Add ${tab.slice(0,-1)}</button></div>${smContentRows(items,tab.slice(0,-1))}</div>`; if(tab==="shoots")return `<div class="sm-section-card"><div class="sm-card-title"><h3>Shoot Tracking</h3><button class="btn btn-primary btn-sm" data-sm-action="add-shoot">+ Add Shoot</button></div><div class="sm-stat-row"><div><b>${s.shoots?.done||0}</b><span>Completed</span></div><div><b>${s.shoots?.total||0}</b><span>Target</span></div></div><p class="muted">Shoot tracking is linked to this monthly package cycle. Use Content Production to create and complete individual shoot records.</p></div>`; if(tab==="ads")return `<div class="sm-section-card"><div class="sm-card-title"><h3>Ads & Boosts</h3><button class="btn btn-primary btn-sm" id="smAddAd">+ Add Campaign</button></div><div class="sm-ad-summary"><div><b>${ads.length}</b><span>Campaigns</span></div><div><b>${smFmt(s.adSpend)}</b><span>Actual Spend</span></div><div><b>${smFmt(c.clientAdBudget)}</b><span>Client Budget</span></div><div><b>${smFmt(s.remainingAdBudget)}</b><span>Remaining</span></div></div><div class="sm-table-wrap"><table class="sm-table"><thead><tr><th>Campaign</th><th>Platform</th><th>Objective</th><th>Budget</th><th>Spend</th><th>Results</th><th>Status</th><th></th></tr></thead><tbody>${ads.map(a=>`<tr><td><b>${escW(a.campaign)}</b><small>${escW(a.startDate||"")} → ${escW(a.endDate||"")}</small></td><td>${escW(a.platform)}</td><td>${escW(a.objective)}</td><td>${smFmt(a.plannedBudget)}</td><td>${smFmt(a.actualSpend)}</td><td>${Number(a.leads)||0} leads · ${Number(a.messages)||0} msg</td><td><span class="sm-pill ${smStatusClass(a.status)}">${escW(a.status)}</span></td><td><button class="btn btn-ghost btn-sm" data-sm-ad-id="${escW(a.id)}" data-sm-action="delete-ad">Delete</button></td></tr>`).join("")||`<tr><td colspan="8">No campaigns yet.</td></tr>`}</tbody></table></div></div>`; if(tab==="performance")return `<div class="sm-performance-grid">${[["Reach","reach"],["Impressions","impressions"],["Messages","messages"],["Leads","leads"],["Profile Visits","profileVisits"],["Engagements","engagements"]].map(x=>`<label><span>${x[0]}</span><input type="number" id="perf_${x[1]}" value="${Number(perf[x[1]])||0}"></label>`).join("")}<button class="btn btn-primary" id="smSavePerf">Save Performance</button><div class="sm-performance-results"><div><b>${Number(perf.reach)||0}</b><span>Reach</span></div><div><b>${Number(perf.impressions)||0}</b><span>Impressions</span></div><div><b>${Number(perf.messages)||0}</b><span>Messages</span></div><div><b>${Number(perf.leads)||0}</b><span>Leads</span></div><div><b>${smFmt((Number(perf.leads)||0)?Number(s.adSpend||0)/(Number(perf.leads)||1):0)}</b><span>Cost / Lead</span></div><div><b>${Number(perf.engagements)||0}</b><span>Engagements</span></div></div></div>`; if(tab==="history")return `<div class="sm-section-card"><div class="sm-card-title"><h3>Monthly History</h3><button class="btn btn-primary btn-sm" id="smAddCycle">+ Add Month</button></div><div class="sm-table-wrap"><table class="sm-table"><thead><tr><th>Month</th><th>Stage</th><th>Reels</th><th>Posts</th><th>Stories</th><th>Ad Spend</th></tr></thead><tbody>${(d.history||[]).map(h=>`<tr><td><b>${escW(h.month)}</b></td><td>${escW(h.stage)}</td><td>${h.stats?.reels?.published||0} / ${h.stats?.reels?.total||0}</td><td>${h.stats?.posts?.published||0} / ${h.stats?.posts?.total||0}</td><td>${h.stats?.stories?.published||0} / ${h.stats?.stories?.total||0}</td><td>${smFmt(h.stats?.adSpend||0)}</td></tr>`).join("")}</tbody></table></div></div>`; return `<div class="sm-section-card"><div class="sm-card-title"><h3>Activity</h3></div>${(c.activity||[]).map(a=>`<div class="sm-activity"><b>${escW(a.action)}</b><span>${escW(a.summary)}</span><small>${new Date(a.at).toLocaleString("en-IN")}</small></div>`).join("")||`<div class="sm-empty">No activity yet.</div>`}</div>`;}
-  async function smAction(action,id){try{if(action==="add-content"){smOpenContentForm();return;}if(action==="add-shoot"){smOpenContentForm("Shoot");return;}}catch(e){showToast(e.message,"error");}}
+  async function smAction(action,id){try{if(action==="add-content"){smOpenContentForm();return;}if(action==="add-shoot"){smOpenContentForm("Shoot");return;}if(action==="add-ad"){await smOpenAdForm();return;}if(action==="add-cycle"){await smAddCycle();return;}}catch(e){showToast(e.message,"error");}}
   function smOpenContentForm(kind){const c=state.socialDashboard?.cycle||{}; const type=kind&&["Post","Reel","Story"].includes(kind)?kind:"Reel"; const title=prompt(`${type} title`);if(!title)return;const date=prompt("Scheduled date (YYYY-MM-DD)",new Date().toISOString().slice(0,10));if(!date)return; const status=prompt("Status: Planned / Editing / Approval / Scheduled / Published / Boosted","Planned")||"Planned"; Api.addSMContent(c.id,{title,contentType:type,platform:"Instagram",scheduledDate:date,status}).then(async()=>{state.socialDashboard=await Api.getSMDashboard(state.socialPackageId,state.socialMonth);renderSocialPackageDashboard();showToast(`${type} added`,`success`);}).catch(e=>showToast(e.message,"error"));}
   async function smContentAction(action,id){try{if(action==="delete-content"){openConfirm("Delete Content","Aa social content delete karvu che?",async()=>{await Api.deleteSMContent(id);state.socialDashboard=await Api.getSMDashboard(state.socialPackageId,state.socialMonth);renderSocialPackageDashboard();});}else if(action==="edit-content"){const x=(state.socialDashboard?.cycle?.contentItems||[]).find(x=>x.id===id);if(!x)return;const status=prompt("Status",x.status)||x.status;await Api.updateSMContent(id,{status});state.socialDashboard=await Api.getSMDashboard(state.socialPackageId,state.socialMonth);renderSocialPackageDashboard();}}catch(e){showToast(e.message,"error");}}
   async function smAdAction(action,id){if(action==="delete-ad"){openConfirm("Delete Campaign","Aa ad campaign delete karvi che?",async()=>{await Api.deleteSMAd(id);state.socialDashboard=await Api.getSMDashboard(state.socialPackageId,state.socialMonth);renderSocialPackageDashboard();});}}
