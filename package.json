@@ -5,8 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "migrate": "node migrate-to-supabase.js",
-    "migrate-content-production": "node migrate-content-production.js"
+    "migrate": "node migrate-to-supabase.js"
   },
   "dependencies": {
     "express": "^4.22.2",

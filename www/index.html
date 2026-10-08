@@ -1,10 +1,1702 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Agency Operating System</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AgencyOS — Payment Manager</title>
+<meta name="description" content="Premium payment manager dashboard for social media marketing agencies." />
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+
+<!-- Icons -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+<!-- Styles -->
+<link rel="stylesheet" href="style.css?v=8" />
 </head>
 <body>
-Loading...
+
+<!-- ============================ LOADER ============================ -->
+<div id="appLoader" class="app-loader">
+  <div class="loader-ring"></div>
+  <p>Loading AgencyOS…</p>
+</div>
+
+<!-- ============================ SIDEBAR ============================ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
+    <div class="brand-mark"><i class="fa-solid fa-wave-square"></i></div>
+    <div class="brand-text">
+      <span class="brand-name">Dasev Designing Studio</span>
+      <span class="brand-sub">OPERATING SYSTEM</span>
+    </div>
+    <button class="sidebar-close" id="sidebarClose" aria-label="Close menu"><i class="fa-solid fa-xmark"></i></button>
+  </div>
+
+  <nav class="sidebar-nav">
+    <div class="nav-group-label">Main</div>
+    <a href="#dashboard" class="nav-item active" data-view="dashboard"><i class="fa-solid fa-grip"></i><span>Dashboard</span></a>
+    <a href="#calendar" class="nav-item" data-view="calendar"><i class="fa-regular fa-calendar"></i><span>Agency Calendar</span></a>
+
+    <div class="nav-group-label">Clients</div>
+    <a href="#clients" class="nav-item" data-view="clients"><i class="fa-solid fa-address-book"></i><span>Clients</span></a>
+    <span class="nav-item nav-soon" title="Aavnari"><i class="fa-solid fa-chart-column"></i><span>Client Analytics</span><em>Soon</em></span>
+
+    <div class="nav-group-label">Work</div>
+    <button type="button" class="nav-item nav-parent open" data-toggle="navWork"><i class="fa-regular fa-building"></i><span>Work</span><i class="fa-solid fa-chevron-down nav-caret"></i></button>
+    <div class="nav-sub open" id="navWork">
+      <a href="#work/production" class="nav-item" data-view="work"><i class="fa-solid fa-film"></i><span>Content Production</span></a>
+      <a href="#work/social" class="nav-item" data-view="work"><i class="fa-solid fa-share-nodes"></i><span>Social Media Mgmt</span></a>
+      <a href="#clients" class="nav-item" data-goto="clients" title="Client kholine One-Time Jobs jovo"><i class="fa-solid fa-box"></i><span>One-Time Jobs</span></a>
+      <div class="nav-sub-label"><i class="fa-solid fa-cube"></i> Packages</div>
+      <a href="#packages" class="nav-item nav-deep" data-view="packages"><i class="fa-solid fa-pen-ruler"></i><span>Design &amp; Reel</span></a>
+      <a href="#clients" class="nav-item nav-deep" data-goto="clients"><i class="fa-solid fa-bars-progress"></i><span>Management</span></a>
+      <a href="#work/festival" class="nav-item nav-deep" data-view="work"><i class="fa-solid fa-gift"></i><span>64 Festival Posts</span></a>
+    </div>
+
+    <div class="nav-group-label">Leads</div>
+    <a href="#leads" class="nav-item" data-view="leads"><i class="fa-solid fa-user-plus"></i><span>Leads</span></a>
+
+    <div class="nav-group-label">Finance</div>
+    <button type="button" class="nav-item nav-parent open" data-toggle="navFinance"><i class="fa-regular fa-credit-card"></i><span>Finance</span><i class="fa-solid fa-chevron-down nav-caret"></i></button>
+    <div class="nav-sub open" id="navFinance">
+      <a href="#payments" class="nav-item" data-view="payments"><i class="fa-solid fa-money-check-dollar"></i><span>Payments</span></a>
+      <a href="#expenses" class="nav-item" data-view="expenses"><i class="fa-solid fa-wallet"></i><span>Expenses</span></a>
+    </div>
+
+    <div class="nav-group-label">Reporting &amp; Data</div>
+    <a href="#reports" class="nav-item" data-view="reports"><i class="fa-solid fa-chart-line"></i><span>Agency Reports</span></a>
+    <a href="#categories" class="nav-item" data-view="categories"><i class="fa-solid fa-tags"></i><span>Categories</span></a>
+    <a href="#export" class="nav-item" data-view="export"><i class="fa-solid fa-file-export"></i><span>Export</span></a>
+
+    <div class="nav-group-label">System</div>
+    <a href="#backup" class="nav-item" data-view="backup"><i class="fa-solid fa-database"></i><span>Backup &amp; Restore</span></a>
+    <a href="#settings" class="nav-item" data-view="settings"><i class="fa-solid fa-gear"></i><span>Settings</span></a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-card">
+      <div class="user-avatar"><i class="fa-solid fa-user"></i></div>
+      <div class="user-meta"><strong id="sidebarAgencyName">Dasev Designing Studio</strong><span>Owner</span></div>
+    </div>
+    <button class="nav-item logout-btn" id="logoutBtn"><i class="fa-solid fa-right-from-bracket"></i><span>Sign Out</span></button>
+<div class="sidebar-agency">© 2026 AgencyOS · All rights reserved</div>  </div>
+</aside>
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+<!-- ============================ MAIN ============================ -->
+<div class="main-wrap">
+
+  <!-- TOP NAVBAR -->
+  <header class="topbar">
+    <button class="icon-btn burger" id="burgerBtn" aria-label="Menu"><i class="fa-solid fa-bars"></i></button>
+
+    <div class="topbar-search">
+      <i class="fa-solid fa-magnifying-glass"></i>
+      <input type="text" id="globalSearch" placeholder="Search client, mobile, business, Instagram, category, status, amount…" />
+    </div>
+
+    <div class="topbar-actions">
+      <span class="topbar-date" id="topbarDate">—</span>
+
+      <button class="icon-btn" id="darkModeToggle" aria-label="Toggle dark mode">
+        <i class="fa-solid fa-moon"></i>
+      </button>
+
+      <div class="notif-wrap">
+        <button class="icon-btn" id="notifBtn" aria-label="Notifications">
+          <i class="fa-solid fa-bell"></i>
+          <span class="notif-dot" id="notifDot" hidden></span>
+        </button>
+        <div class="notif-panel" id="notifPanel" hidden>
+          <div class="notif-panel-head">Notifications</div>
+          <div class="notif-list" id="notifList"></div>
+        </div>
+      </div>
+
+      <button class="profile-chip" id="profileChip">
+        <span class="avatar">A</span>
+        <span class="profile-name">Jay Kodavla</span>
+        <i class="fa-solid fa-chevron-down"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- CONTENT -->
+  <main class="content" id="content">
+
+
+    <!-- ======================= CALENDAR ======================= -->
+    <section class="view" id="view-calendar">
+      <div class="view-header">
+        <div>
+          <h1>Agency Calendar</h1>
+          <p class="view-subtitle">Payments, follow-ups, jobs, packages ane tamara potana events, ek j jagya e.</p>
+        </div>
+        <button class="btn btn-primary" id="calAddBtn"><i class="fa-solid fa-plus"></i> Add Event</button>
+      </div>
+      <div class="cal-toolbar">
+        <div class="cal-nav">
+          <button class="btn btn-ghost btn-sm" id="calTodayBtn">Today</button>
+          <button class="icon-btn" id="calPrevBtn" title="Previous"><i class="fa-solid fa-chevron-left"></i></button>
+          <button class="icon-btn" id="calNextBtn" title="Next"><i class="fa-solid fa-chevron-right"></i></button>
+          <h2 id="calTitle"></h2>
+        </div>
+        <div class="cal-views" id="calViews">
+          <button data-calview="month" class="active">Month</button>
+          <button data-calview="week">Week</button>
+          <button data-calview="day">Day</button>
+          <button data-calview="agenda">Agenda</button>
+        </div>
+      </div>
+      <div class="cal-legend" id="calLegend">
+        <button class="cal-leg cal-payment on" data-type="payment">Payments due</button>
+        <button class="cal-leg cal-lead on" data-type="lead">Lead follow-ups</button>
+        <button class="cal-leg cal-job on" data-type="job">Jobs due</button>
+        <button class="cal-leg cal-package on" data-type="package">Package ends</button>
+        <button class="cal-leg cal-manual on" data-type="manual">My events</button>
+      </div>
+      <div id="calBody" class="cal-body"></div>
+    </section>
+
+    <!-- ======================= DASHBOARD ======================= -->
+    <section class="view active" id="view-dashboard">
+      <div class="view-header">
+        <div>
+          <h1 id="greetingText">Good morning, Jay Kodavla 👋</h1>
+          <p class="view-subtitle">Here's what's happening with your agency's payments today.</p>
+        </div>
+        <div class="dash-header-actions">
+          <div class="dash-month-filter">
+            <i class="fa-solid fa-calendar-days"></i>
+            <select id="dashboardMonthFilter" class="dash-month-select"></select>
+          </div>
+          <button class="btn btn-primary" id="quickAddBtn"><i class="fa-solid fa-plus"></i> Add Payment</button>
+        </div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card teal">
+          <div class="stat-icon"><i class="fa-solid fa-sack-dollar"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Total Business</span>
+            <span class="stat-value" id="statTotalBusiness">₹0</span>
+          </div>
+          <span class="stat-trend up"><i class="fa-solid fa-arrow-trend-up"></i></span>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-icon"><i class="fa-solid fa-circle-check"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Received</span>
+            <span class="stat-value" id="statReceived">₹0</span>
+          </div>
+          <span class="stat-trend up"><i class="fa-solid fa-arrow-trend-up"></i></span>
+        </div>
+        <div class="stat-card amber">
+          <div class="stat-icon"><i class="fa-solid fa-hourglass-half"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Pending</span>
+            <span class="stat-value" id="statPending">₹0</span>
+          </div>
+          <span class="stat-trend down"><i class="fa-solid fa-arrow-trend-down"></i></span>
+        </div>
+        <div class="stat-card violet">
+          <div class="stat-icon"><i class="fa-solid fa-users"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Total Clients</span>
+            <span class="stat-value" id="statClients">0</span>
+          </div>
+          <span class="stat-trend up"><i class="fa-solid fa-arrow-trend-up"></i></span>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-icon"><i class="fa-solid fa-calendar-days"></i></div>
+          <div class="stat-info">
+            <span class="stat-label" id="statMonthlyIncomeLabel">Monthly Income</span>
+            <span class="stat-value" id="statMonthlyIncome">₹0</span>
+          </div>
+          <span class="stat-trend up"><i class="fa-solid fa-arrow-trend-up"></i></span>
+        </div>
+        <div class="stat-card rose">
+          <div class="stat-icon"><i class="fa-solid fa-wallet"></i></div>
+          <div class="stat-info">
+            <span class="stat-label" id="statMonthlyExpensesLabel">This Month Expenses</span>
+            <span class="stat-value" id="statMonthlyExpenses">₹0</span>
+          </div>
+          <span class="stat-trend down"><i class="fa-solid fa-arrow-trend-down"></i></span>
+        </div>
+        <div class="stat-card green profit-card" id="statMonthlyProfitCard">
+          <div class="stat-icon"><i class="fa-solid fa-chart-pie"></i></div>
+          <div class="stat-info">
+            <span class="stat-label" id="statMonthlyProfitLabel">This Month Profit</span>
+            <span class="stat-value" id="statMonthlyProfit">₹0</span>
+          </div>
+          <span class="stat-trend up" id="statMonthlyProfitTrend"><i class="fa-solid fa-arrow-trend-up"></i></span>
+        </div>
+      </div>
+
+      <div class="dash-grid">
+        <div class="card today-card">
+          <h3>Today's Snapshot</h3>
+          <div class="today-row">
+            <div>
+              <span class="today-label">Collected Today</span>
+              <span class="today-value success" id="todayCollected">₹0</span>
+            </div>
+            <div>
+              <span class="today-label">Pending Today</span>
+              <span class="today-value warning" id="todayPending">₹0</span>
+            </div>
+            <div>
+              <span class="today-label">Spent Today</span>
+              <span class="today-value danger" id="todaySpent">₹0</span>
+            </div>
+          </div>
+          <div class="progress-wrap">
+            <div class="progress-head">
+              <span>Payment Progress</span>
+              <span id="progressPercent">0%</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+          </div>
+        </div>
+
+        <div class="card chart-card">
+          <div class="card-head">
+            <h3>Payment Status Split</h3>
+          </div>
+          <canvas id="statusPieChart" height="220"></canvas>
+        </div>
+
+        <div class="card chart-card">
+          <div class="card-head">
+            <h3>Monthly Income Trend</h3>
+          </div>
+          <canvas id="monthlyIncomeChart" height="220"></canvas>
+        </div>
+
+        <div class="card chart-card">
+          <div class="card-head">
+            <h3>Business by Category</h3>
+          </div>
+          <canvas id="categoryChart" height="220"></canvas>
+        </div>
+      </div>
+
+      <div class="dash-grid two-col">
+        <div class="card table-card">
+          <div class="card-head">
+            <h3>Recent Payments</h3>
+            <a href="#payments" class="link-btn" data-view="payments">View all</a>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table" id="recentPaymentsTable">
+              <thead>
+                <tr><th>Client</th><th>Category</th><th>Amount</th><th>Status</th><th>Date</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card table-card">
+          <div class="card-head">
+            <h3>Upcoming Due Payments</h3>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table" id="upcomingDueTable">
+              <thead>
+                <tr><th>Client</th><th>Pending</th><th>Due Date</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= PAYMENTS ======================= -->
+    <section class="view" id="view-payments">
+      <div class="view-header">
+        <div>
+          <h1>Payments</h1>
+          <p class="view-subtitle">Manage every payment record for your agency.</p>
+        </div>
+        <button class="btn btn-primary" id="addPaymentBtn"><i class="fa-solid fa-plus"></i> Add Payment</button>
+      </div>
+
+      <div class="toolbar card">
+        <div class="toolbar-search">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input type="text" id="paymentSearch" placeholder="Search payments…" />
+        </div>
+        <div class="toolbar-filters">
+          <select id="filterMonth"><option value="all">All Months</option></select>
+          <select id="filterCategory"><option value="">All Categories</option></select>
+          <select id="filterStatus">
+            <option value="">All Status</option>
+            <option value="Paid">Paid</option>
+            <option value="Partial">Partial</option>
+            <option value="Pending">Pending</option>
+          </select>
+          <select id="sortPayments">
+            <option value="date-desc">Newest First</option>
+            <option value="date-asc">Oldest First</option>
+            <option value="amount-desc">Amount High → Low</option>
+            <option value="amount-asc">Amount Low → High</option>
+            <option value="name-asc">Client A → Z</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card table-card">
+        <div class="table-scroll">
+          <table class="data-table" id="paymentsTable">
+            <thead>
+              <tr>
+                <th>Client</th><th>Business</th><th>Category</th><th>Total</th>
+                <th>Paid</th><th>Pending</th><th>Status</th><th>Date</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="paymentsEmpty" hidden>
+          <i class="fa-solid fa-inbox"></i>
+          <p>No payments found. Try adjusting filters or add a new payment.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= CLIENTS ======================= -->
+    <section class="view" id="view-clients">
+      <div class="view-header">
+        <div>
+          <h1>Clients</h1>
+          <p class="view-subtitle">Every client, their business history and pending balances.</p>
+        </div>
+        <button class="btn btn-primary" id="clientsAddBtn"><i class="fa-solid fa-plus"></i> Add</button>
+      </div>
+
+      <div class="toolbar card">
+        <div class="toolbar-search">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input type="text" id="clientSearch" placeholder="Search clients…" />
+        </div>
+        <div class="toolbar-filters">
+          <select id="clientFilterMonth"><option value="all">All Months</option></select>
+          <div class="layout-toggle" id="clientLayoutToggle" role="group" aria-label="Clients layout">
+            <button type="button" data-layout="card" title="Card view" class="active"><i class="fa-solid fa-table-cells-large"></i></button>
+            <button type="button" data-layout="list" title="List view"><i class="fa-solid fa-list"></i></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="client-grid" id="clientGrid"></div>
+    </section>
+
+    <!-- ======================= LEADS ======================= -->
+    <section class="view" id="view-leads">
+      <div class="view-header">
+        <div>
+          <h1>Leads</h1>
+          <p class="view-subtitle">Track inquiries and follow-ups before they become paying clients.</p>
+        </div>
+        <button class="btn btn-primary" id="addLeadBtn"><i class="fa-solid fa-plus"></i> Add Lead</button>
+      </div>
+
+      <div class="stat-grid lead-stat-grid">
+        <div class="stat-card teal">
+          <div class="stat-icon"><i class="fa-solid fa-user-plus"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Total Leads</span>
+            <span class="stat-value" id="leadStatTotal">0</span>
+          </div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-icon"><i class="fa-solid fa-comment-dots"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">In Progress</span>
+            <span class="stat-value" id="leadStatInProgress">0</span>
+          </div>
+        </div>
+        <div class="stat-card amber">
+          <div class="stat-icon"><i class="fa-solid fa-calendar-check"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Follow-up Today</span>
+            <span class="stat-value" id="leadStatFollowupToday">0</span>
+          </div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-icon"><i class="fa-solid fa-circle-check"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Converted</span>
+            <span class="stat-value" id="leadStatConverted">0</span>
+          </div>
+        </div>
+        <div class="stat-card rose">
+          <div class="stat-icon"><i class="fa-solid fa-circle-xmark"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Lost</span>
+            <span class="stat-value" id="leadStatLost">0</span>
+          </div>
+        </div>
+        <div class="stat-card violet">
+          <div class="stat-icon"><i class="fa-solid fa-sack-dollar"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Pipeline Value</span>
+            <span class="stat-value" id="leadStatPipelineValue">₹0</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="toolbar card">
+        <div class="toolbar-search">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input type="text" id="leadSearch" placeholder="Search leads, business, mobile, Instagram…" />
+        </div>
+        <div class="toolbar-filters wrap">
+          <select id="leadFilterStatus">
+            <option value="">All Status</option>
+            <option value="New">New</option>
+            <option value="Contacted">Contacted</option>
+            <option value="Follow-up">Follow-up</option>
+            <option value="Interested">Interested</option>
+            <option value="Converted">Converted</option>
+            <option value="Lost">Lost</option>
+          </select>
+          <select id="leadFilterSource">
+            <option value="">All Sources</option>
+            <option value="Instagram DM">Instagram DM</option>
+            <option value="Referral">Referral</option>
+            <option value="Cold Call">Cold Call</option>
+            <option value="Website">Website</option>
+            <option value="Other">Other</option>
+          </select>
+          <select id="sortLeads">
+            <option value="followup-asc">Next Follow-up (Soonest)</option>
+            <option value="date-desc">Newest First</option>
+            <option value="date-asc">Oldest First</option>
+            <option value="value-desc">Expected Value High → Low</option>
+            <option value="name-asc">Name A → Z</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card table-card">
+        <div class="table-scroll">
+          <table class="data-table" id="leadsTable">
+            <thead>
+              <tr>
+                <th>Name</th><th>Business</th><th>Mobile</th><th>Source</th>
+                <th>Status</th><th>Expected Value</th><th>Next Follow-up</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="leadsEmpty" hidden>
+          <i class="fa-solid fa-user-plus"></i>
+          <p>No leads yet. Add your first lead to start tracking inquiries.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= REPORTS ======================= -->
+    <!-- ================= Packages → Design & Reel ================= -->
+    <section class="view" id="view-packages">
+      <!-- PAGE 1: package list -->
+      <div id="pkListPage">
+        <div class="view-header">
+          <div>
+            <h1>Design &amp; Reel Packages</h1>
+            <p class="view-subtitle">Manage design and reel service packages for clients.</p>
+          </div>
+          <button class="btn btn-primary" id="pkAddBtn"><i class="fa-solid fa-plus"></i> Add Package</button>
+        </div>
+
+        <div class="toolbar card pk-toolbar">
+          <div class="toolbar-search">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="pkSearch" placeholder="Search client, client ID, package name or ID…" />
+          </div>
+          <div class="toolbar-filters wrap">
+            <select id="pkFilterClient" title="Client"></select>
+            <select id="pkFilterManager" title="Account Manager"></select>
+            <button type="button" class="btn btn-ghost btn-sm" id="pkMoreToggle"><i class="fa-solid fa-sliders"></i> More filters</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="pkFilterReset">Reset</button>
+          </div>
+          <div class="chip-filters pk-chips" id="pkStatusChips"></div>
+          <div class="pk-more-filters" id="pkMoreFilters" hidden>
+            <label>Package Type<select id="pkFilterType"></select></label>
+            <label>Start from<input type="date" id="pkFilterFrom" /></label>
+            <label>Start to<input type="date" id="pkFilterTo" /></label>
+          </div>
+        </div>
+
+        <div class="card table-card">
+          <div class="table-scroll">
+            <table class="data-table pk-table">
+              <thead>
+                <tr>
+                  <th>Client</th><th>Package Name</th><th>Deliverables</th><th>Duration</th>
+                  <th>Amount</th><th>Progress</th><th>Status</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="pkTableBody"></tbody>
+            </table>
+          </div>
+          <p class="muted" id="pkEmpty" hidden style="padding:18px 0 4px;">No Design &amp; Reel packages found.</p>
+        </div>
+      </div>
+
+      <!-- PAGE 2: package detail (rendered by script.js) -->
+      <div id="pkDetailPage" hidden></div>
+    </section>
+
+
+    <section class="view" id="view-work">
+      <div class="page-head">
+        <div><h1>Work</h1><p>Content Production · Social Media · Shoots · Designs · Festival Orders</p></div>
+        <div class="page-head-actions"><button class="btn btn-primary" id="workAddBtn"><i class="fa-solid fa-plus"></i> Add Work</button></div>
+      </div>
+      <div class="work-tabs" id="workTabs">
+        <button class="work-tab active" data-worktab="production">Content Production</button>
+        <button class="work-tab" data-worktab="social">Social Media</button>
+        <button class="work-tab" data-worktab="shoots">Shoots</button>
+        <button class="work-tab" data-worktab="designs">Design Projects</button>
+        <button class="work-tab" data-worktab="festival">64 Festival Posts</button>
+      </div>
+      <div id="workSummary" class="work-summary-grid"></div>
+      <div class="card work-panel">
+        <div class="work-toolbar">
+          <div class="toolbar-search"><i class="fa-solid fa-magnifying-glass"></i><input id="workSearch" placeholder="Search client, title, status…"></div>
+          <select id="workStageFilter"><option value="all">All Status</option><option>Shoot Planned</option><option>Assigned to Editor</option><option>Upload</option><option>Revision</option><option>Completed</option></select>
+          <button class="btn btn-ghost" id="workRefreshBtn"><i class="fa-solid fa-rotate"></i> Refresh</button>
+        </div>
+        <div id="workList"></div>
+      </div>
+    </section>
+
+    <div class="modal-overlay" id="workModalOverlay" hidden>
+      <div class="modal modal-lg">
+        <div class="modal-head"><h2 id="workModalTitle">Add Work</h2><button class="icon-btn" id="closeWorkModal"><i class="fa-solid fa-xmark"></i></button></div>
+        <form class="modal-body" id="workForm">
+          <input type="hidden" id="workEditId"><input type="hidden" id="workEditType">
+          <div id="workFormFields"></div>
+          <div class="modal-foot"><button type="button" class="btn btn-ghost" id="cancelWorkModal">Cancel</button><button class="btn btn-primary" type="submit">Save</button></div>
+        </form>
+      </div>
+    </div>
+    <section class="view" id="view-reports">
+      <div class="view-header">
+        <div>
+          <h1>Reports</h1>
+          <p class="view-subtitle">Break down performance by time, category, client and status.</p>
+        </div>
+      </div>
+
+      <div class="toolbar card">
+        <div class="toolbar-filters wrap">
+          <select id="reportPeriod" title="Period"></select>
+          <span id="reportCustomRange" style="display:none; gap:8px; align-items:center;">
+            <input type="date" id="reportFrom" title="From" />
+            <input type="date" id="reportTo" title="To" />
+          </span>
+          <select id="reportType">
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly" selected>Monthly</option>
+            <option value="yearly">Yearly</option>
+            <option value="category">Category Wise</option>
+            <option value="client">Client Wise</option>
+          </select>
+          <select id="reportStatus">
+            <option value="">All Status</option>
+            <option value="Paid">Paid Report</option>
+            <option value="Partial">Partial Report</option>
+            <option value="Pending">Pending Report</option>
+          </select>
+          <button class="btn btn-outline" id="runReportBtn"><i class="fa-solid fa-rotate"></i> Run Report</button>
+        </div>
+      </div>
+
+      <div class="stat-grid report-stat-grid">
+        <div class="stat-card teal">
+          <div class="stat-icon"><i class="fa-solid fa-layer-group"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Records</span>
+            <span class="stat-value" id="reportStatRecords">0</span>
+          </div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-icon"><i class="fa-solid fa-sack-dollar"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Total Business</span>
+            <span class="stat-value" id="reportStatTotal">₹0</span>
+          </div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-icon"><i class="fa-solid fa-circle-check"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Total Paid</span>
+            <span class="stat-value" id="reportStatPaid">₹0</span>
+          </div>
+        </div>
+        <div class="stat-card amber">
+          <div class="stat-icon"><i class="fa-solid fa-hourglass-half"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Total Pending</span>
+            <span class="stat-value" id="reportStatPending">₹0</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="dash-grid two-col">
+        <div class="card table-card">
+          <div class="card-head"><h3>Report Breakdown</h3></div>
+          <div class="table-scroll">
+            <table class="data-table" id="reportTable">
+              <thead><tr><th>Period / Group</th><th>Records</th><th>Total</th><th>Paid</th><th>Pending</th></tr></thead>
+              <tbody></tbody>
+              <tfoot></tfoot>
+            </table>
+          </div>
+        </div>
+        <div class="card table-card">
+          <div class="card-head"><h3>Top Clients</h3></div>
+          <div class="table-scroll">
+            <table class="data-table" id="topClientsTable">
+              <thead><tr><th>#</th><th>Client</th><th>Business</th><th>Total</th><th>Pending</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= CATEGORIES ======================= -->
+    <section class="view" id="view-categories">
+      <div class="view-header">
+        <div>
+          <h1>Categories</h1>
+          <p class="view-subtitle">Organize the type of work you deliver for clients.</p>
+        </div>
+      </div>
+
+      <div class="card" style="max-width:520px;">
+        <form id="addCategoryForm" class="inline-form">
+          <input type="text" id="newCategoryInput" placeholder="New category name" required />
+          <button type="submit" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Add</button>
+        </form>
+      </div>
+
+      <div class="category-grid" id="categoryGrid"></div>
+    </section>
+
+    <!-- ======================= EXPENSES ======================= -->
+    <section class="view" id="view-expenses">
+      <div class="view-header">
+        <div>
+          <h1>Expenses</h1>
+          <p class="view-subtitle">Track your daily spend — ad spend, tools, salary and more.</p>
+        </div>
+        <button class="btn btn-primary" id="addExpenseBtn"><i class="fa-solid fa-plus"></i> Add Expense</button>
+      </div>
+
+      <div class="stat-grid expense-stat-grid">
+        <div class="stat-card rose">
+          <div class="stat-icon"><i class="fa-solid fa-calendar-day"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">Spent Today</span>
+            <span class="stat-value" id="expenseStatToday">₹0</span>
+          </div>
+        </div>
+        <div class="stat-card amber">
+          <div class="stat-icon"><i class="fa-solid fa-calendar-week"></i></div>
+          <div class="stat-info">
+            <span class="stat-label" id="expenseStatMonthLabel">This Month</span>
+            <span class="stat-value" id="expenseStatMonth">₹0</span>
+          </div>
+        </div>
+        <div class="stat-card violet">
+          <div class="stat-icon"><i class="fa-solid fa-wallet"></i></div>
+          <div class="stat-info">
+            <span class="stat-label">All Time Spend</span>
+            <span class="stat-value" id="expenseStatAllTime">₹0</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="dash-grid two-col">
+        <div class="card table-card">
+          <div class="card-head">
+            <h3>Expense Log</h3>
+            <div style="display:flex; gap:10px; align-items:center;">
+              <select id="expenseFilterMonth"><option value="all">All Months</option></select>
+              <button type="button" class="icon-btn" id="exportExpensesQuickBtn" title="Export expenses as CSV"><i class="fa-solid fa-file-csv"></i></button>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table" id="expensesTable">
+              <thead><tr><th>Date</th><th>Category</th><th>Amount</th><th>Notes</th><th>Actions</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="empty-state" id="expensesEmpty" hidden>
+            <i class="fa-solid fa-wallet"></i>
+            <p>No expenses logged yet. Add your first expense to start tracking spend.</p>
+          </div>
+        </div>
+        <div class="card chart-card">
+          <div class="card-head"><h3>Spend by Category</h3></div>
+          <canvas id="expenseCategoryChart" height="220"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= EXPORT ======================= -->
+    <section class="view" id="view-export">
+      <div class="view-header">
+        <div>
+          <h1>Export</h1>
+          <p class="view-subtitle">Download your payment data or print client invoices.</p>
+        </div>
+      </div>
+
+      <div class="export-grid">
+        <div class="card export-card">
+          <div class="export-icon green"><i class="fa-solid fa-file-excel"></i></div>
+          <h3>Excel Export</h3>
+          <p>Download a formatted .xlsx with Payments, Expenses and a monthly Profit summary — all in one file.</p>
+          <button class="btn btn-outline" id="exportExcelBtn">Export Excel</button>
+        </div>
+        <div class="card export-card">
+          <div class="export-icon blue"><i class="fa-solid fa-file-csv"></i></div>
+          <h3>CSV Export</h3>
+          <p>Download raw data as CSV files — payments and expenses separately.</p>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn btn-outline" id="exportCsvBtn">Payments CSV</button>
+            <button class="btn btn-outline" id="exportExpensesCsvBtn">Expenses CSV</button>
+          </div>
+        </div>
+        <div class="card export-card">
+          <div class="export-icon red"><i class="fa-solid fa-file-pdf"></i></div>
+          <h3>PDF Export</h3>
+          <p>Download a printable PDF with Payments, Expenses and Profit — for every month.</p>
+          <button class="btn btn-outline" id="exportPdfBtn">Export PDF</button>
+        </div>
+        <div class="card export-card">
+          <div class="export-icon red"><i class="fa-solid fa-file-pdf"></i></div>
+          <h3>PDF Reports</h3>
+          <p>Alag alag PDF: Expenses, Pending Payments ane Received Payments. Period pasand karo: mahino ke custom date.</p>
+          <select id="pdfMonthSelect" class="select-block"></select>
+          <div id="pdfCustomRange" style="display:none; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
+            <label style="font-size:12px; color:var(--text-muted);">From <input type="date" id="pdfFrom" /></label>
+            <label style="font-size:12px; color:var(--text-muted);">To <input type="date" id="pdfTo" /></label>
+          </div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn btn-outline" id="pdfExpensesBtn">Expenses PDF</button>
+            <button class="btn btn-outline" id="pdfPendingBtn">Pending PDF</button>
+            <button class="btn btn-outline" id="pdfReceivedBtn">Received PDF</button>
+          </div>
+        </div>
+        <div class="card export-card">
+          <div class="export-icon teal"><i class="fa-solid fa-print"></i></div>
+          <h3>Print Invoice</h3>
+          <p>Select a payment and print a client-ready invoice.</p>
+          <select id="invoicePaymentSelect" class="select-block"></select>
+          <button class="btn btn-outline" id="printInvoiceBtn">Print Invoice</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= BACKUP ======================= -->
+    <section class="view" id="view-backup">
+      <div class="view-header">
+        <div>
+          <h1>Backup &amp; Restore</h1>
+          <p class="view-subtitle">Keep your agency data safe. Backups are full copies of data.json.</p>
+        </div>
+      </div>
+
+      <div class="export-grid">
+        <div class="card export-card">
+          <div class="export-icon teal"><i class="fa-solid fa-cloud-arrow-down"></i></div>
+          <h3>Backup Data</h3>
+          <p>Download a full JSON backup of every payment, client and setting.</p>
+          <button class="btn btn-outline" id="backupBtn">Download Backup</button>
+        </div>
+        <div class="card export-card">
+          <div class="export-icon amber"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+          <h3>Restore Backup</h3>
+          <p>Upload a previously downloaded backup file to restore your data.</p>
+          <input type="file" id="restoreFileInput" accept="application/json" hidden />
+          <button class="btn btn-outline" id="restoreBtn">Upload &amp; Restore</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= SETTINGS ======================= -->
+    <section class="view" id="view-settings">
+      <div class="view-header">
+        <div>
+          <h1>Settings</h1>
+          <p class="view-subtitle">Configure your agency profile and appearance.</p>
+        </div>
+      </div>
+
+      <div class="card settings-card">
+        <form id="settingsForm">
+          <div class="form-group">
+            <label>Company Name</label>
+            <input type="text" id="settingCompanyName" placeholder="Your Agency Name" />
+          </div>
+          <div class="form-group">
+            <label>Currency Symbol</label>
+            <input type="text" id="settingCurrency" placeholder="₹" maxlength="3" />
+          </div>
+          <div class="form-group">
+            <label>Theme Color</label>
+            <div class="theme-swatches" id="themeSwatches">
+              <button type="button" class="swatch orange" data-theme="orange" title="Orange"></button>
+              <button type="button" class="swatch teal" data-theme="teal" title="Teal"></button>
+              <button type="button" class="swatch violet" data-theme="violet" title="Violet"></button>
+              <button type="button" class="swatch blue" data-theme="blue" title="Blue"></button>
+              <button type="button" class="swatch rose" data-theme="rose" title="Rose"></button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Appearance</label>
+            <div class="mode-toggle-group">
+              <button type="button" class="mode-btn active" id="lightModeBtn"><i class="fa-solid fa-sun"></i> Light Mode</button>
+              <button type="button" class="mode-btn" id="darkModeBtn"><i class="fa-solid fa-moon"></i> Dark Mode</button>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save Settings</button>
+        </form>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ============================ MODALS ============================ -->
+
+<!-- Payment Add/Edit Modal -->
+<div class="modal-overlay" id="paymentModalOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h2 id="paymentModalTitle">Add Payment</h2>
+      <button class="icon-btn" id="closePaymentModal"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="paymentForm" class="modal-body">
+      <input type="hidden" id="paymentId" />
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Client Name *</label>
+          <input type="text" id="fClientName" required />
+        </div>
+        <div class="form-group">
+          <label>Mobile Number *</label>
+          <input type="tel" id="fMobile" required pattern="[0-9+\-\s]{7,15}" />
+        </div>
+        <div class="form-group">
+          <label>Business Name</label>
+          <input type="text" id="fBusinessName" />
+        </div>
+        <div class="form-group">
+          <label>Instagram ID</label>
+          <input type="text" id="fInstagram" placeholder="@handle" />
+        </div>
+        <div class="form-group full">
+          <label>Work Details</label>
+          <textarea id="fWorkDetails" rows="2" placeholder="Describe the deliverable…"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Category *</label>
+          <select id="fCategory" required></select>
+        </div>
+        <div class="form-group">
+          <label>Date *</label>
+          <input type="date" id="fDate" required />
+        </div>
+        <div class="form-group">
+          <label>Total Amount (₹) *</label>
+          <input type="number" id="fTotalAmount" min="0" step="0.01" required />
+        </div>
+        <div class="form-group">
+          <label>Paid Amount (₹)</label>
+          <input type="number" id="fPaidAmount" min="0" step="0.01" value="0" />
+        </div>
+        <div class="form-group">
+          <label>Pending Amount (₹)</label>
+          <input type="number" id="fPendingAmount" readonly />
+        </div>
+        <div class="form-group">
+          <label>Payment Status</label>
+          <select id="fStatus">
+            <option value="Pending">Pending</option>
+            <option value="Partial">Partial</option>
+            <option value="Paid">Paid</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Due Date</label>
+          <input type="date" id="fDueDate" />
+        </div>
+        <div class="form-group full">
+          <label>Notes</label>
+          <textarea id="fNotes" rows="2" placeholder="Optional notes…"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="cancelPaymentBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="savePaymentBtn"><i class="fa-solid fa-check"></i> Save Payment</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Expense Add/Edit Modal -->
+<div class="modal-overlay" id="expenseModalOverlay" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="expenseModalTitle">Add Expense</h2>
+      <button class="icon-btn" id="closeExpenseModal"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="expenseForm" class="modal-body">
+      <input type="hidden" id="expenseId" />
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Date *</label>
+          <input type="date" id="eDate" required />
+        </div>
+        <div class="form-group">
+          <label>Category *</label>
+          <select id="eCategory" required></select>
+        </div>
+        <div class="form-group full">
+          <label>Amount (₹) *</label>
+          <input type="number" id="eAmount" min="0" step="0.01" required />
+        </div>
+        <div class="form-group full">
+          <label>Notes</label>
+          <textarea id="eNotes" rows="2" placeholder="e.g. Facebook ads for Client X…"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="cancelExpenseBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveExpenseBtn"><i class="fa-solid fa-check"></i> Save Expense</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Calendar: add/edit event -->
+<div class="modal-overlay" id="calEventOverlay" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="calEventModalTitle">Add Event</h2>
+      <button class="icon-btn" id="calEventClose"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="calEventForm" class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full"><label>Title *</label><input type="text" id="calTitleInput" required placeholder="e.g. Shoot at Dr. Shah clinic" /></div>
+        <div class="form-group"><label>Date *</label><input type="date" id="calDateInput" required /></div>
+        <div class="form-group"><label>&nbsp;</label><label style="display:flex;gap:8px;align-items:center;font-weight:500;"><input type="checkbox" id="calAllDayInput" checked /> All day</label></div>
+        <div class="form-group" id="calStartWrap"><label>Start time</label><input type="time" id="calStartInput" /></div>
+        <div class="form-group" id="calEndWrap"><label>End time</label><input type="time" id="calEndInput" /></div>
+        <div class="form-group full"><label>Notes</label><textarea id="calNotesInput" rows="2"></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="calEventDeleteBtn" style="margin-right:auto;color:var(--danger);" hidden><i class="fa-solid fa-trash"></i> Delete</button>
+        <button type="button" class="btn btn-ghost" id="calEventCancelBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Calendar: details of an automatic event -->
+<div class="modal-overlay" id="calDetailOverlay" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="calDetailTitle"></h2>
+      <button class="icon-btn" id="calDetailClose"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body" id="calDetailBody"></div>
+  </div>
+</div>
+
+<!-- Lead Add/Edit Modal -->
+<div class="modal-overlay" id="leadModalOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h2 id="leadModalTitle">Add Lead</h2>
+      <button class="icon-btn" id="closeLeadModal"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="leadForm" class="modal-body">
+      <input type="hidden" id="leadId" />
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Name *</label>
+          <input type="text" id="lName" required />
+        </div>
+        <div class="form-group">
+          <label>Mobile *</label>
+          <input type="tel" id="lMobile" required pattern="[0-9+\-\s]{7,15}" />
+        </div>
+        <div class="form-group">
+          <label>Business Name</label>
+          <input type="text" id="lBusinessName" />
+        </div>
+        <div class="form-group">
+          <label>Instagram Handle</label>
+          <input type="text" id="lInstagram" placeholder="@handle" />
+        </div>
+        <div class="form-group">
+          <label>Source *</label>
+          <select id="lSource" required>
+            <option value="Instagram DM">Instagram DM</option>
+            <option value="Referral">Referral</option>
+            <option value="Cold Call">Cold Call</option>
+            <option value="Website">Website</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="lStatus">
+            <option value="New">New</option>
+            <option value="Contacted">Contacted</option>
+            <option value="Follow-up">Follow-up</option>
+            <option value="Interested">Interested</option>
+            <option value="Converted">Converted</option>
+            <option value="Lost">Lost</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Expected Value (₹)</label>
+          <input type="number" id="lExpectedValue" min="0" step="0.01" />
+        </div>
+        <div class="form-group">
+          <label>Next Follow-up Date</label>
+          <input type="date" id="lNextFollowup" />
+        </div>
+        <div class="form-group full">
+          <label>Notes</label>
+          <textarea id="lNotes" rows="3" placeholder="Conversation details…"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="cancelLeadBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveLeadBtn"><i class="fa-solid fa-check"></i> Save Lead</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Confirmation Dialog -->
+<div class="modal-overlay" id="confirmOverlay" hidden>
+  <div class="modal modal-sm">
+    <div class="confirm-body">
+      <div class="confirm-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+      <h3 id="confirmTitle">Are you sure?</h3>
+      <p id="confirmMessage">This action cannot be undone.</p>
+    </div>
+    <div class="modal-footer center">
+      <button class="btn btn-ghost" id="confirmCancelBtn">Cancel</button>
+      <button class="btn btn-danger" id="confirmOkBtn">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Client Detail Drawer (Overview / One-Time / Package tabs) -->
+<div class="modal-overlay" id="clientDrawerOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h2 id="clientDrawerTitle">Client</h2>
+      <button class="icon-btn" id="closeClientDrawer"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div id="clientDrawerHeader"></div>
+
+      <div class="client-tabs">
+        <button class="tab-btn active" data-tab="overview">Overview</button>
+        <button class="tab-btn" data-tab="onetime">One-Time <span class="tab-count" id="cOneTimeCount"></span></button>
+        <button class="tab-btn" data-tab="packages">Packages <span class="tab-count" id="cPackageCount"></span></button>
+      </div>
+
+      <div class="tab-panel" id="tabPanel-overview"></div>
+
+      <div class="tab-panel" id="tabPanel-onetime" hidden>
+        <div class="drawer-section-head">
+          <div class="chip-filters" id="jobFilterChips">
+            <button class="chip active" data-status="">All</button>
+            <button class="chip" data-status="Active">Active</button>
+            <button class="chip" data-status="In Progress">In Progress</button>
+            <button class="chip" data-status="On Hold">On Hold</button>
+            <button class="chip" data-status="Completed">Completed</button>
+          </div>
+          <button class="btn btn-primary btn-sm" id="addOneTimeJobBtn"><i class="fa-solid fa-plus"></i> Add One-Time Job</button>
+        </div>
+        <div id="oneTimeJobList"></div>
+      </div>
+
+      <div class="tab-panel" id="tabPanel-packages" hidden>
+        <div class="drawer-section-head">
+          <div class="chip-filters" id="packageFilterChips">
+            <button class="chip active" data-status="">All</button>
+            <button class="chip" data-status="Active">Active</button>
+            <button class="chip" data-status="On Hold">On Hold</button>
+            <button class="chip" data-status="Completed">Completed</button>
+          </div>
+          <button class="btn btn-primary btn-sm" id="addPackageBtn"><i class="fa-solid fa-plus"></i> Add Package</button>
+        </div>
+        <div id="clientPackageList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Type Picker (from Clients main tab) -->
+<div class="modal-overlay" id="addTypePickerOverlay" hidden>
+  <div class="modal modal-sm">
+    <div class="modal-head">
+      <h2>Add</h2>
+      <button class="icon-btn" id="closeAddTypePicker"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <p class="muted" style="margin-bottom:14px;">Su add karvu che?</p>
+      <div class="package-type-picker">
+        <button type="button" class="package-type-card" id="pickAddOneTimeType">
+          <i class="fa-solid fa-pen"></i>
+          <h4>One-Time Job</h4>
+          <p>Single job — status + payment history</p>
+        </button>
+        <button type="button" class="package-type-card" id="pickAddPackageType">
+          <i class="fa-solid fa-box-archive"></i>
+          <h4>Package</h4>
+          <p>Post &amp; Reel or Management package</p>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Client Picker (select existing client or add a new one, from global Add flow) -->
+<div class="modal-overlay" id="clientPickerOverlay" hidden>
+  <div class="modal modal-sm">
+    <div class="modal-head">
+      <h2 id="clientPickerTitle">Select Client</h2>
+      <button class="icon-btn" id="closeClientPicker"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="toolbar-search" style="margin-bottom:12px;">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input type="text" id="clientPickerSearch" placeholder="Search existing clients…" />
+      </div>
+      <div id="clientPickerList" class="client-picker-list"></div>
+
+      <div class="drawer-section" style="margin-top:16px;">
+        <div class="drawer-section-head"><h3>Or add a new client</h3></div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Client Name *</label>
+            <input type="text" id="clientPickerNewName" placeholder="Client name" />
+          </div>
+          <div class="form-group">
+            <label>Mobile</label>
+            <input type="text" id="clientPickerNewMobile" placeholder="Mobile number" />
+          </div>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" id="clientPickerUseNewBtn" style="margin-top:8px;"><i class="fa-solid fa-plus"></i> Continue with new client</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Package Type Picker -->
+<div class="modal-overlay" id="packageTypePickerOverlay" hidden>
+  <div class="modal modal-sm">
+    <div class="modal-head">
+      <h2>Add Package</h2>
+      <button class="icon-btn" id="closePackageTypePicker"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body">
+      <p class="muted" style="margin-bottom:14px;">Konu package banavvu che?</p>
+      <div class="package-type-picker">
+        <button type="button" class="package-type-card" id="pickPostReelType">
+          <i class="fa-solid fa-images"></i>
+          <h4>Post &amp; Reel Package</h4>
+          <p>Fixed count — ketli post/reel/story banavani, ketli thai gayi</p>
+        </button>
+        <button type="button" class="package-type-card" id="pickManagementType">
+          <i class="fa-solid fa-chart-line"></i>
+          <h4>Management Package</h4>
+          <p>Ongoing — platform-wise (Instagram/FB/YouTube) upload tracking</p>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- One-Time Job Add/Edit Modal -->
+<div class="modal-overlay" id="oneTimeJobModalOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h2 id="oneTimeJobModalTitle">Add One-Time Job</h2>
+      <button class="icon-btn" id="closeOneTimeJobModal"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="oneTimeJobForm" class="modal-body">
+      <input type="hidden" id="jClientName" />
+      <input type="hidden" id="jClientMobile" />
+      <input type="hidden" id="jobId" />
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>Job Name *</label>
+          <input type="text" id="jName" required placeholder="e.g. Brochure Design" />
+        </div>
+        <div class="form-group">
+          <label>Category</label>
+          <select id="jCategory"></select>
+        </div>
+        <div class="form-group">
+          <label>Priority</label>
+          <select id="jPriority">
+            <option value="High">High</option>
+            <option value="Medium" selected>Medium</option>
+            <option value="Low">Low</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Start Date *</label>
+          <input type="date" id="jStartDate" required />
+        </div>
+        <div class="form-group">
+          <label>Due Date</label>
+          <input type="date" id="jDueDate" />
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="jStatus">
+            <option value="Active">Active</option>
+            <option value="In Progress">In Progress</option>
+            <option value="On Hold">On Hold</option>
+            <option value="Completed">Completed</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Total Units <span style="font-weight:400; color:var(--text-muted);">(optional, e.g. 10 Banners)</span></label>
+          <input type="number" id="jTotalUnits" min="0" value="0" />
+        </div>
+        <div class="form-group">
+          <label>Done Units</label>
+          <input type="number" id="jDoneUnits" min="0" value="0" />
+        </div>
+        <div class="form-group">
+          <label>Total Amount (₹) *</label>
+          <input type="number" id="jTotalAmount" min="0" step="0.01" required />
+        </div>
+        <div class="form-group full">
+          <label>Notes</label>
+          <textarea id="jNotes" rows="2" placeholder="Optional notes…"></textarea>
+        </div>
+      </div>
+
+      <div id="jPaymentSection" class="drawer-section" hidden>
+        <div class="drawer-section-head">
+          <h3>Payment</h3>
+          <button type="button" class="btn btn-ghost btn-sm" id="jAddPaymentBtn"><i class="fa-solid fa-plus"></i> Add Payment</button>
+        </div>
+        <div class="drawer-summary-row" id="jPaymentSummary"></div>
+        <div id="jPaymentAddForm" class="inline-form" hidden>
+          <input type="date" id="jphDate" />
+          <input type="number" id="jphAmount" placeholder="Amount" min="0" step="0.01" />
+          <select id="jphType">
+            <option value="Advance">Advance</option>
+            <option value="Partial">Partial</option>
+            <option value="Final">Final</option>
+          </select>
+          <input type="text" id="jphNote" placeholder="Note (optional)" />
+          <button type="button" class="btn btn-primary btn-sm" id="jSavePaymentBtn">Save</button>
+        </div>
+        <table class="mini-table"><thead><tr><th>Date</th><th>Amount</th><th>Type</th><th>Note</th><th></th></tr></thead><tbody id="jPaymentHistoryBody"></tbody></table>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="cancelOneTimeJobBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveOneTimeJobBtn"><i class="fa-solid fa-check"></i> Save Job</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Design & Reel: Add / Edit Package -->
+<div class="modal-overlay" id="pkModalOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h2 id="pkModalTitle">Add Package</h2>
+      <button class="icon-btn" type="button" id="pkModalClose"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="pkForm" class="modal-body">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Package ID</label>
+          <input type="text" id="pkfId" readonly />
+        </div>
+        <div class="form-group">
+          <label>Client ID</label>
+          <input type="text" id="pkfClientId" readonly placeholder="Select a client" />
+        </div>
+        <div class="form-group full">
+          <label>Client *</label>
+          <select id="pkfClient" required></select>
+        </div>
+        <div class="form-group" id="pkfNewClientName" hidden>
+          <label>New client name *</label>
+          <input type="text" id="pkfNewName" />
+        </div>
+        <div class="form-group" id="pkfNewClientMobile" hidden>
+          <label>New client mobile *</label>
+          <input type="text" id="pkfNewMobile" />
+        </div>
+        <div class="form-group full">
+          <label>Package Name *</label>
+          <input type="text" id="pkfName" required placeholder="e.g. Standard Package" />
+        </div>
+        <div class="form-group">
+          <label>Package Type / Billing Cycle</label>
+          <select id="pkfCycle"></select>
+        </div>
+        <div class="form-group">
+          <label>Package Amount</label>
+          <input type="number" id="pkfAmount" min="0" step="1" placeholder="0" />
+        </div>
+        <div class="form-group">
+          <label>Start Date *</label>
+          <input type="date" id="pkfStart" required />
+        </div>
+        <div class="form-group">
+          <label>End Date</label>
+          <input type="date" id="pkfEnd" />
+        </div>
+        <div class="form-group">
+          <label>Account Manager</label>
+          <input type="text" id="pkfManager" placeholder="e.g. Jay Kodavla" />
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="pkfStatus"></select>
+        </div>
+        <div class="form-group full">
+          <label>Notes</label>
+          <textarea id="pkfNotes" rows="2"></textarea>
+        </div>
+      </div>
+
+      <h4 class="pk-form-sec">Deliverables <span class="muted">— what the client purchased</span></h4>
+      <div class="form-grid">
+        <div class="form-group"><label>Posts</label><input type="number" id="pkfPosts" min="0" value="0" /></div>
+        <div class="form-group"><label>Posts — per</label><select id="pkfPostsCycle"></select></div>
+        <div class="form-group"><label>Reels</label><input type="number" id="pkfReels" min="0" value="0" /></div>
+        <div class="form-group"><label>Reels — per</label><select id="pkfReelsCycle"></select></div>
+        <div class="form-group"><label>Stories</label><input type="number" id="pkfStories" min="0" value="0" /></div>
+        <div class="form-group"><label>Stories — per</label><select id="pkfStoriesCycle"></select></div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="pkModalCancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="pkModalSave"><i class="fa-solid fa-check"></i> <span id="pkModalSaveText">Create Package</span></button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Design & Reel: Add / Edit Work (post / reel / story) -->
+<div class="modal-overlay" id="pkWorkOverlay" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="pkWorkTitle">Add Post</h2>
+      <button class="icon-btn" type="button" id="pkWorkClose"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="pkWorkForm" class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full">
+          <label id="pkwNameLabel">Post Name *</label>
+          <input type="text" id="pkwName" required />
+        </div>
+        <div class="form-group">
+          <label id="pkwAssignedLabel">Assigned To</label>
+          <input type="text" id="pkwAssigned" />
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="pkwStatus"></select>
+        </div>
+        <div class="form-group" id="pkwPlannedGroup">
+          <label id="pkwPlannedLabel">Planned Date</label>
+          <input type="date" id="pkwPlanned" />
+        </div>
+        <div class="form-group">
+          <label>Due Date</label>
+          <input type="date" id="pkwDue" />
+        </div>
+      </div>
+      <p class="muted" style="margin-top:10px;">Completed date is set automatically when status becomes Completed.</p>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="pkWorkCancel">Cancel</button>
+        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Design & Reel: Add Payment -->
+<div class="modal-overlay" id="pkPayOverlay" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Add Payment</h2>
+      <button class="icon-btn" type="button" id="pkPayClose"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="pkPayForm" class="modal-body">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Date *</label>
+          <input type="date" id="pkpDate" required />
+        </div>
+        <div class="form-group">
+          <label>Amount *</label>
+          <input type="number" id="pkpAmount" min="1" step="1" required />
+        </div>
+        <div class="form-group">
+          <label>Method</label>
+          <select id="pkpMethod">
+            <option>UPI</option><option>Cash</option><option>Bank Transfer</option><option>Cheque</option><option>Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Reference</label>
+          <input type="text" id="pkpRef" placeholder="UTR / receipt no." />
+        </div>
+        <div class="form-group full">
+          <label>Note</label>
+          <input type="text" id="pkpNote" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="pkPayCancel">Cancel</button>
+        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Add Payment</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Post & Reel Package Add/Edit Modal -->
+<div class="modal-overlay" id="postReelPackageModalOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h2 id="postReelPackageModalTitle">Add Post &amp; Reel Package</h2>
+      <button class="icon-btn" id="closePostReelPackageModal"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="postReelPackageForm" class="modal-body">
+      <input type="hidden" id="prClientName" />
+      <input type="hidden" id="prClientMobile" />
+      <input type="hidden" id="prPackageId" />
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>Package Name *</label>
+          <input type="text" id="prName" required placeholder="e.g. Festival Post &amp; Reel Package" />
+        </div>
+        <div class="form-group">
+          <label>Start Date *</label>
+          <input type="date" id="prStartDate" required />
+        </div>
+        <div class="form-group">
+          <label>End Date</label>
+          <input type="date" id="prEndDate" />
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="prStatus">
+            <option value="Active">Active</option>
+            <option value="On Hold">On Hold</option>
+            <option value="Completed">Completed</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Total Amount (₹) *</label>
+          <input type="number" id="prTotalAmount" min="0" step="0.01" required />
+        </div>
+      </div>
+
+      <div class="drawer-section">
+        <h3>Deliverable Counts</h3>
+        <table class="mini-table">
+          <thead><tr><th></th><th>Total</th><th>Done</th><th>Pending</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><b>Posts</b></td>
+              <td><input type="number" min="0" id="prPostsTotal" class="mini-input" value="0" /></td>
+              <td><input type="number" min="0" id="prPostsDone" class="mini-input" value="0" /></td>
+              <td class="pending-cell" id="prPostsPending">0</td>
+            </tr>
+            <tr>
+              <td><b>Reels</b></td>
+              <td><input type="number" min="0" id="prReelsTotal" class="mini-input" value="0" /></td>
+              <td><input type="number" min="0" id="prReelsDone" class="mini-input" value="0" /></td>
+              <td class="pending-cell" id="prReelsPending">0</td>
+            </tr>
+            <tr>
+              <td><b>Stories</b></td>
+              <td><input type="number" min="0" id="prStoriesTotal" class="mini-input" value="0" /></td>
+              <td><input type="number" min="0" id="prStoriesDone" class="mini-input" value="0" /></td>
+              <td class="pending-cell" id="prStoriesPending">0</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="progress-line" style="margin-top:12px;">
+          <div class="progress-track"><div class="progress-fill" id="prProgressFill" style="width:0%;"></div></div>
+          <span id="prProgressLabel">0%</span>
+        </div>
+      </div>
+
+      <div class="form-group full">
+        <label>Notes</label>
+        <textarea id="prNotes" rows="2" placeholder="Optional notes…"></textarea>
+      </div>
+
+      <div id="prPaymentSection" class="drawer-section" hidden>
+        <div class="drawer-section-head">
+          <h3>Payment</h3>
+          <button type="button" class="btn btn-ghost btn-sm" id="prAddPaymentBtn"><i class="fa-solid fa-plus"></i> Add Payment</button>
+        </div>
+        <div class="drawer-summary-row" id="prPaymentSummary"></div>
+        <div id="prPaymentAddForm" class="inline-form" hidden>
+          <input type="date" id="prphDate" />
+          <input type="number" id="prphAmount" placeholder="Amount" min="0" step="0.01" />
+          <select id="prphType">
+            <option value="Advance">Advance</option>
+            <option value="Partial">Partial</option>
+            <option value="Final">Final</option>
+          </select>
+          <input type="text" id="prphNote" placeholder="Note (optional)" />
+          <button type="button" class="btn btn-primary btn-sm" id="prSavePaymentBtn">Save</button>
+        </div>
+        <table class="mini-table"><thead><tr><th>Date</th><th>Amount</th><th>Type</th><th>Note</th><th></th></tr></thead><tbody id="prPaymentHistoryBody"></tbody></table>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="cancelPostReelPackageBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="savePostReelPackageBtn"><i class="fa-solid fa-check"></i> Save Package</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Management Package Add/Edit Modal -->
+<div class="modal-overlay" id="managementPackageModalOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h2 id="managementPackageModalTitle">Add Management Package</h2>
+      <button class="icon-btn" id="closeManagementPackageModal"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="managementPackageForm" class="modal-body">
+      <input type="hidden" id="mgClientName" />
+      <input type="hidden" id="mgClientMobile" />
+      <input type="hidden" id="mgPackageId" />
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>Package Name *</label>
+          <input type="text" id="mgName" required placeholder="e.g. Social Media Management" />
+        </div>
+        <div class="form-group">
+          <label>Start Date *</label>
+          <input type="date" id="mgStartDate" required />
+        </div>
+        <div class="form-group">
+          <label>End Date</label>
+          <input type="date" id="mgEndDate" />
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="mgStatus">
+            <option value="Active">Active</option>
+            <option value="On Hold">On Hold</option>
+            <option value="Completed">Completed</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Total Amount (₹) *</label>
+          <input type="number" id="mgTotalAmount" min="0" step="0.01" required />
+        </div>
+      </div>
+
+      <div class="drawer-section">
+        <div class="drawer-section-head"><h3>Platforms</h3></div>
+        <p class="muted" style="margin-bottom:10px;">Aa client mate je platforms handle karva na che ae select karo:</p>
+        <div class="platform-chip-row" id="platformChipRow"></div>
+        <div id="platformCountersArea"></div>
+        <div class="drawer-summary-row" id="mgTotalsRollup" style="margin-top:14px;"></div>
+      </div>
+
+      <div class="form-group full">
+        <label>Notes</label>
+        <textarea id="mgNotes" rows="2" placeholder="Optional notes…"></textarea>
+      </div>
+
+      <div id="mgPaymentSection" class="drawer-section" hidden>
+        <div class="drawer-section-head">
+          <h3>Payment</h3>
+          <button type="button" class="btn btn-ghost btn-sm" id="mgAddPaymentBtn"><i class="fa-solid fa-plus"></i> Add Payment</button>
+        </div>
+        <div class="drawer-summary-row" id="mgPaymentSummary"></div>
+        <div id="mgPaymentAddForm" class="inline-form" hidden>
+          <input type="date" id="mgphDate" />
+          <input type="number" id="mgphAmount" placeholder="Amount" min="0" step="0.01" />
+          <select id="mgphType">
+            <option value="Advance">Advance</option>
+            <option value="Partial">Partial</option>
+            <option value="Final">Final</option>
+          </select>
+          <input type="text" id="mgphNote" placeholder="Note (optional)" />
+          <button type="button" class="btn btn-primary btn-sm" id="mgSavePaymentBtn">Save</button>
+        </div>
+        <table class="mini-table"><thead><tr><th>Date</th><th>Amount</th><th>Type</th><th>Note</th><th></th></tr></thead><tbody id="mgPaymentHistoryBody"></tbody></table>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="cancelManagementPackageBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveManagementPackageBtn"><i class="fa-solid fa-check"></i> Save Package</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<!-- Lead Detail Drawer -->
+<div class="modal-overlay" id="leadDrawerOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <h2 id="leadDrawerTitle">Lead</h2>
+      <button class="icon-btn" id="closeLeadDrawer"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="modal-body" id="leadDrawerBody"></div>
+  </div>
+</div>
+
+<!-- Invoice Print Area (hidden, used only when printing) -->
+<div id="invoicePrintArea" class="invoice-print-area"></div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- ============================ SCRIPTS ============================ -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js"></script>
+<script src="script.js?v=8"></script>
 </body>
 </html>

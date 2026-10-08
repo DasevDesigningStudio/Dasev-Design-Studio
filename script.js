@@ -35,7 +35,6 @@
     oneTimeJobs: [],
     packages: [],
     platformOptions: [],
-    contentProduction: [],
     clientProfiles: {},
     currentClientKey: null,     // mobile||name of the client currently open in the drawer
     currentClient: null,        // full client object currently open
@@ -49,7 +48,8 @@
 
     // Global "Add" flow (from the Clients main tab, before any client is open)
     addFlowTarget: null,        // null | "onetime" | "postreel" | "management" — what to open once a client is picked
-    addFlowFromGlobal: false    // true while the package type picker was opened from the global Add flow
+    addFlowFromGlobal: false,   // true while the package type picker was opened from the global Add flow
+    workTab: "production", workRows: [], workSummary: null, workEditing: null, workCycles: [], socialPackages: [], socialDashboard: null, socialMonth: new Date().toISOString().slice(0,7), socialTab: "overview", socialPackageId: null
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -127,6 +127,18 @@
     deleteOneTimeJobPayment: (id, entryId) => api(`/api/one-time-jobs/${id}/payments/${entryId}`, { method: "DELETE" }),
 
     getPackages: (clientKey) => api(`/api/packages${clientKey ? `?client=${encodeURIComponent(clientKey)}` : ""}`),
+    getWorkSummary: () => api("/api/work/summary"),
+    getProduction: (q="") => api(`/api/production${q ? "?"+q : ""}`),
+    createProduction: (d) => api("/api/production", {method:"POST", body:JSON.stringify(d)}),
+    updateProduction: (id,d) => api(`/api/production/${id}`, {method:"PUT", body:JSON.stringify(d)}),
+    setProductionStage: (id,stage) => api(`/api/production/${id}/stage`, {method:"PATCH", body:JSON.stringify({stage})}),
+    addProductionRevision: (id,d) => api(`/api/production/${id}/revisions`, {method:"POST", body:JSON.stringify(d)}),
+    duplicateProduction: (id) => api(`/api/production/${id}/duplicate`, {method:"POST"}),
+    deleteProduction: (id) => api(`/api/production/${id}`, {method:"DELETE"}),
+    getShoots: () => api("/api/shoots"), createShoot: (d) => api("/api/shoots", {method:"POST",body:JSON.stringify(d)}), updateShoot: (id,d) => api(`/api/shoots/${id}`,{method:"PUT",body:JSON.stringify(d)}), setShootStatus:(id,status)=>api(`/api/shoots/${id}/status`,{method:"PATCH",body:JSON.stringify({status})}), createShootContent:(id,d)=>api(`/api/shoots/${id}/create-content-items`,{method:"POST",body:JSON.stringify(d)}), deleteShoot:(id)=>api(`/api/shoots/${id}`,{method:"DELETE"}),
+    getDesigns: () => api("/api/designs"), createDesign:(d)=>api("/api/designs",{method:"POST",body:JSON.stringify(d)}), updateDesign:(id,d)=>api(`/api/designs/${id}`,{method:"PUT",body:JSON.stringify(d)}), deleteDesign:(id)=>api(`/api/designs/${id}`,{method:"DELETE"}),
+    getSocialPosts:()=>api("/api/social-media/posts"), createSocialPost:(d)=>api("/api/social-media/posts",{method:"POST",body:JSON.stringify(d)}), updateSocialPost:(id,d)=>api(`/api/social-media/posts/${id}`,{method:"PUT",body:JSON.stringify(d)}), deleteSocialPost:(id)=>api(`/api/social-media/posts/${id}`,{method:"DELETE"}), getCycles:()=>api("/api/monthly-cycles"), createCycle:(d)=>api("/api/monthly-cycles",{method:"POST",body:JSON.stringify(d)}), updateCycle:(id,d)=>api(`/api/monthly-cycles/${id}`,{method:"PUT",body:JSON.stringify(d)}), getSMPackages:(month)=>api(`/api/social-management/packages?month=${encodeURIComponent(month||"")}`), getSMDashboard:(id,month)=>api(`/api/social-management/packages/${id}/dashboard?month=${encodeURIComponent(month||"")}`), createSMCycle:(id,d)=>api(`/api/social-management/packages/${id}/cycles`,{method:"POST",body:JSON.stringify(d)}), updateSMCycle:(id,d)=>api(`/api/social-management/cycles/${id}`,{method:"PUT",body:JSON.stringify(d)}), addSMContent:(id,d)=>api(`/api/social-management/cycles/${id}/content`,{method:"POST",body:JSON.stringify(d)}), updateSMContent:(id,d)=>api(`/api/social-management/content/${id}`,{method:"PUT",body:JSON.stringify(d)}), deleteSMContent:(id)=>api(`/api/social-management/content/${id}`,{method:"DELETE"}), addSMAd:(id,d)=>api(`/api/social-management/cycles/${id}/ads`,{method:"POST",body:JSON.stringify(d)}), updateSMAd:(id,d)=>api(`/api/social-management/ads/${id}`,{method:"PUT",body:JSON.stringify(d)}), deleteSMAd:(id)=>api(`/api/social-management/ads/${id}`,{method:"DELETE"}), updateSMPerformance:(id,d)=>api(`/api/social-management/cycles/${id}/performance`,{method:"PUT",body:JSON.stringify(d)}),
+    getFestivalOrders:()=>api("/api/festival-orders"), createFestivalOrder:(d)=>api("/api/festival-orders",{method:"POST",body:JSON.stringify(d)}), updateFestivalOrder:(id,d)=>api(`/api/festival-orders/${id}`,{method:"PUT",body:JSON.stringify(d)}), deleteFestivalOrder:(id)=>api(`/api/festival-orders/${id}`,{method:"DELETE"}),
     getPackage: (id) => api(`/api/packages/${id}`),
     createPackage: (data) => api("/api/packages", { method: "POST", body: JSON.stringify(data) }),
     updatePackage: (id, data) => api(`/api/packages/${id}`, { method: "PUT", body: JSON.stringify(data) }),
@@ -139,15 +151,6 @@
     getPackageActivity: (id) => api(`/api/packages/${id}/activity`),
 
     getPlatformOptions: () => api("/api/platform-options"),
-    getContentProduction: (params = {}) => { const q = new URLSearchParams(); Object.entries(params).forEach(([k,v]) => { if (v && v !== "all") q.set(k, v); }); return api(`/api/content-production${q.toString() ? `?${q.toString()}` : ""}`); },
-    getContentProductionItem: (id) => api(`/api/content-production/${encodeURIComponent(id)}`),
-    createContentProduction: (data) => api("/api/content-production", { method:"POST", body:JSON.stringify(data) }),
-    updateContentProduction: (id, data) => api(`/api/content-production/${encodeURIComponent(id)}`, { method:"PUT", body:JSON.stringify(data) }),
-    updateContentProductionStage: (id, stage, meta = {}) => api(`/api/content-production/${encodeURIComponent(id)}/stage`, { method:"PATCH", body:JSON.stringify({stage, ...meta}) }),
-    duplicateContentProduction: (id) => api(`/api/content-production/${encodeURIComponent(id)}/duplicate`, { method:"POST" }),
-    addProductionRevision: (id, data) => api(`/api/content-production/${encodeURIComponent(id)}/revisions`, { method:"POST", body:JSON.stringify(data) }),
-    updateProductionRevision: (id, revId, data) => api(`/api/content-production/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revId)}`, { method:"PATCH", body:JSON.stringify(data) }),
-    deleteContentProduction: (id) => api(`/api/content-production/${encodeURIComponent(id)}`, { method:"DELETE" }),
     getClientOverview: (key) => api(`/api/clients/${encodeURIComponent(key)}/overview`),
 
     getClientProfiles: () => api("/api/client-profiles"),
@@ -330,7 +333,7 @@
     if (view === "settings") { renderSettingsForm(); renderTeamCard(); }
     if (view === "packages") renderPackagesView(arg);
     if (view === "calendar") renderCalendarView();
-    if (view === "content-production") renderContentProductionView();
+    if (view === "work") renderWorkView(arg);
 
     closeSidebarMobile();
   }
@@ -340,8 +343,10 @@
       nav.addEventListener("click", (e) => {
         e.preventDefault();
         const view = nav.dataset.view;
-        window.location.hash = view;
-        setActiveView(view);
+        const href = nav.getAttribute("href") || "";
+        const arg = view === "work" && href.includes("/") ? href.split("/")[1] : "";
+        window.location.hash = arg ? `${view}/${arg}` : view;
+        setActiveView(view, arg);
       });
     });
 
@@ -4104,115 +4109,127 @@
     });
   }
 
-  /* ====================== Content Production ====================== */
-  const CP_STAGES = ["Shoot Planned", "Assigned to Editor", "Upload", "Completed"];
-  const CP_STAGE_NEXT = { "Shoot Planned": "Assigned to Editor", "Assigned to Editor": "Upload", "Upload": "Completed" };
-  let cpItems = [];
-  let cpLoaded = false;
-  let cpEditingId = null;
 
-  function cpToday(offset = 0) { const d = new Date(); d.setDate(d.getDate() + offset); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
-  function cpStageClass(stage) { return ({"Shoot Planned":"cp-stage-shoot","Assigned to Editor":"cp-stage-editor","Upload":"cp-stage-upload","Completed":"cp-stage-done"}[stage] || "cp-stage-default"); }
-  function cpPriorityClass(p) { return ({Urgent:"cp-priority-urgent",High:"cp-priority-high",Normal:"cp-priority-normal",Low:"cp-priority-low"}[p] || "cp-priority-normal"); }
-  function cpFiltered() {
-    const q = (($("#cpSearch")?.value || "").trim().toLowerCase());
-    const stage = $("#cpStageFilter")?.value || "all";
-    const type = $("#cpTypeFilter")?.value || "all";
-    const platform = $("#cpPlatformFilter")?.value || "all";
-    const priority = $("#cpPriorityFilter")?.value || "all";
-    return cpItems.filter(x => (!q || [x.id,x.clientName,x.clientMobile,x.contentTitle,x.editor,x.shootBy,x.shootCategory,x.notes].some(v => String(v||"").toLowerCase().includes(q))) && (stage === "all" || x.stage === stage) && (type === "all" || x.type === type) && (platform === "all" || x.platform === platform) && (priority === "all" || x.priority === priority));
+  /* ====================== Work module (migrated legacy) ====================== */
+  const WORK_TAB_LABELS = {production:"Content Production", social:"Social Media", shoots:"Shoots", designs:"Design Projects", festival:"64 Festival Posts"};
+  const escW = (v) => escapeHtml(v == null ? "" : String(v));
+  const workToday = () => new Date().toISOString().slice(0,10);
+
+  function smFmt(n){ return `₹${Number(n||0).toLocaleString("en-IN")}`; }
+  function smPct(done,total){return total?Math.min(100,Math.round(done/total*100)):0;}
+  function smProgress(label,done,total,cls="teal"){return `<div class="sm-progress-row"><div><span>${escW(label)}</span><b>${done} / ${total}</b></div><div class="sm-progress"><i class="${cls}" style="width:${smPct(done,total)}%"></i></div></div>`;}
+  function smStatusClass(s){return String(s||"").toLowerCase().replace(/[^a-z]+/g,"-");}
+  async function loadSocialPackages(){ state.socialPackages=await Api.getSMPackages(state.socialMonth); }
+  async function openSocialPackage(id){ state.socialPackageId=id; state.socialTab="overview"; state.socialDashboard=await Api.getSMDashboard(id,state.socialMonth); renderSocialManagement(); }
+  async function renderSocialManagement(){
+    const box=$("#workList"); if(!box)return;
+    try{ if(!state.socialPackageId){ await loadSocialPackages(); renderSocialPackageList(); } else { if(!state.socialDashboard) state.socialDashboard=await Api.getSMDashboard(state.socialPackageId,state.socialMonth); renderSocialPackageDashboard(); } }catch(e){box.innerHTML=`<div class="work-empty">${escW(e.message)}</div>`;}
   }
-  function renderContentProductionView() {
-    if (!$("#view-content-production")) return;
-    if (!cpLoaded) { loadContentProduction(); return; }
-    const rows = cpFiltered();
-    $("#cpStatTotal").textContent = cpItems.length;
-    $("#cpStatShoot").textContent = cpItems.filter(x=>x.stage === "Shoot Planned").length;
-    $("#cpStatEditor").textContent = cpItems.filter(x=>x.stage === "Assigned to Editor").length;
-    $("#cpStatCompleted").textContent = cpItems.filter(x=>x.stage === "Completed").length;
-    $("#cpResultCount").textContent = `${rows.length} record${rows.length===1?"":"s"}`;
-    const tbody = $("#cpTable tbody"), empty = $("#cpEmpty");
-    empty.hidden = rows.length !== 0;
-    tbody.innerHTML = rows.map(x => {
-      const overdue = x.stage !== "Completed" && x.dueDate && x.dueDate < cpToday();
-      const next = CP_STAGE_NEXT[x.stage];
-      return `<tr>
-        <td><span class="cp-id">${escapeHtml(x.id)}</span></td>
-        <td><b>${escapeHtml(x.clientName || "—")}</b><br><small>${escapeHtml(x.clientMobile || "")}</small></td>
-        <td><button class="link-btn cp-content-link" data-cp-action="detail" data-id="${escapeHtml(x.id)}"><b>${escapeHtml(x.contentTitle)}</b></button><br><small>${escapeHtml(x.shootCategory || "")}</small></td>
-        <td>${escapeHtml(x.type)}<br><small>${escapeHtml(x.platform)}</small></td>
-        <td><span class="cp-stage ${cpStageClass(x.stage)}">${escapeHtml(x.stage)}</span></td>
-        <td>${fmtDate(x.shootPlannedDate)}</td>
-        <td class="${overdue ? "cp-overdue" : ""}">${fmtDate(x.dueDate)}</td>
-        <td>${escapeHtml(x.editor || "Unassigned")}</td>
-        <td><span class="cp-priority ${cpPriorityClass(x.priority)}">${escapeHtml(x.priority || "Normal")}</span></td>
-        <td><div class="cp-actions">
-          ${next ? `<button class="icon-btn-sm" title="Move to ${escapeHtml(next)}" data-cp-action="next" data-id="${escapeHtml(x.id)}"><i class="fa-solid fa-arrow-right"></i></button>` : ""}
-          <button class="icon-btn-sm" title="Edit" data-cp-action="edit" data-id="${escapeHtml(x.id)}"><i class="fa-solid fa-pen"></i></button>
-          <button class="icon-btn-sm" title="Duplicate" data-cp-action="duplicate" data-id="${escapeHtml(x.id)}"><i class="fa-regular fa-copy"></i></button>
-          <button class="icon-btn-sm danger" title="Delete" data-cp-action="delete" data-id="${escapeHtml(x.id)}"><i class="fa-solid fa-trash"></i></button>
-        </div></td>
-      </tr>`;
-    }).join("");
+  function renderSocialPackageList(){
+    const list=state.socialPackages||[]; const active=list.filter(x=>x.status==="Active").length; const reels=list.reduce((n,x)=>n+(x.stats?.reels?.published||0),0),posts=list.reduce((n,x)=>n+(x.stats?.posts?.published||0),0),stories=list.reduce((n,x)=>n+(x.stats?.stories?.published||0),0),boosts=list.reduce((n,x)=>n+(x.stats?.boosted||0),0),spend=list.reduce((n,x)=>n+(x.stats?.adSpend||0),0);
+    $("#workSummary").innerHTML=`<div class="work-summary-card smc"><div class="lbl">Active Clients</div><div class="num">${active}</div><div class="work-sub">${list.length} management packages</div></div><div class="work-summary-card smc"><div class="lbl">Published Reels</div><div class="num">${reels}</div><div class="work-sub">This month</div></div><div class="work-summary-card smc"><div class="lbl">Published Posts</div><div class="num">${posts}</div><div class="work-sub">This month</div></div><div class="work-summary-card smc"><div class="lbl">Published Stories</div><div class="num">${stories}</div><div class="work-sub">This month</div></div><div class="work-summary-card smc"><div class="lbl">Ad Spend</div><div class="num">${smFmt(spend)}</div><div class="work-sub">${boosts} boosted</div></div>`;
+    $("#workStageFilter").innerHTML=`<option value="all">All Status</option><option value="Active">Active</option><option value="Paused">Paused</option>`;
+    $("#workSearch").placeholder="Search client or package…";
+    const boxHTML=`<div class="sm-package-head"><div><h2>Clients & Packages</h2><p>Click a package to open complete monthly tracking.</p></div><div class="sm-month"><label>Month</label><input id="smMonthPicker" type="month" value="${state.socialMonth}"></div></div><div class="sm-package-grid">${list.map(p=>{const s=p.stats||{};return `<button class="sm-package-card ${state.socialPackageId===p.id?'selected':''}" data-sm-package="${escW(p.id)}"><div class="sm-package-top"><div class="sm-avatar">${escW((p.clientName||"C").slice(0,1).toUpperCase())}</div><div><strong>${escW(p.clientName)}</strong><small>${escW(p.name)}</small></div><span class="sm-pill ${smStatusClass(p.status)}">${escW(p.status)}</span></div><div class="sm-mini-grid"><div><b>${s.reels?.published||0}</b><span>Reels</span></div><div><b>${s.posts?.published||0}</b><span>Posts</span></div><div><b>${s.stories?.published||0}</b><span>Stories</span></div><div><b>${s.boosted||0}</b><span>Boosts</span></div></div><div class="sm-card-foot"><span>${smFmt(s.adSpend||0)} ad spend</span><span>Open →</span></div></button>`}).join("")||`<div class="work-empty">No management packages found. Create a Management Package first.</div>`}</div>`;
+    box.innerHTML=boxHTML;
+    $("#smMonthPicker")?.addEventListener("change",async e=>{state.socialMonth=e.target.value;state.socialPackageId=null;state.socialDashboard=null;await renderSocialManagement();});
+    $$("[data-sm-package]",box).forEach(b=>b.addEventListener("click",()=>openSocialPackage(b.dataset.smPackage)));
   }
-  async function loadContentProduction() {
-    try { cpItems = await Api.getContentProduction(); state.contentProduction = cpItems; cpLoaded = true; renderContentProductionView(); }
-    catch (err) { showToast("Content Production load na thayu: " + err.message, "error"); }
+  function renderSocialPackageDashboard(){
+    const d=state.socialDashboard||{},p=d.package||{},c=d.cycle||{},s=d.stats||{},tab=state.socialTab; const items=c.contentItems||[], ads=c.adCampaigns||[];
+    $("#workSummary").innerHTML=`<div class="work-summary-card"><div class="lbl">Total Reels</div><div class="num">${s.reels?.created||0} / ${s.reels?.total||0}</div><div class="work-sub">${s.reels?.published||0} published</div></div><div class="work-summary-card"><div class="lbl">Total Posts</div><div class="num">${s.posts?.created||0} / ${s.posts?.total||0}</div><div class="work-sub">${s.posts?.published||0} published</div></div><div class="work-summary-card"><div class="lbl">Total Stories</div><div class="num">${s.stories?.created||0} / ${s.stories?.total||0}</div><div class="work-sub">${s.stories?.published||0} published</div></div><div class="work-summary-card"><div class="lbl">Total Boosts</div><div class="num">${s.boosted||0}</div><div class="work-sub">${smFmt(s.adSpend||0)} spent</div></div>`;
+    $("#workSearch").placeholder="Search content, campaign…"; $("#workStageFilter").innerHTML=`<option value="all">All Status</option><option>Planned</option><option>Editing</option><option>Approval</option><option>Scheduled</option><option>Published</option><option>Boosted</option>`;
+    const perf=c.performance||{};
+    $("#workList").innerHTML=`<div class="sm-detail-head"><button class="btn btn-ghost" id="smBack">← All Packages</button><div class="sm-client-title"><div class="sm-avatar big">${escW((p.clientName||"C").slice(0,1).toUpperCase())}</div><div><h2>${escW(p.clientName)}</h2><p>${escW(p.name)} · ${escW(c.month)}</p><div class="sm-platforms">${(p.platforms||[]).map(x=>`<span>${escW(x.name)}</span>`).join("")}</div></div></div><div class="sm-head-actions"><button class="btn btn-ghost" id="smPrevMonth">← Month</button><button class="btn btn-primary" data-sm-action="add-content">+ Add Content</button></div></div><div class="sm-tabs">${[["overview","Overview"],["reels","Reels"],["posts","Posts"],["stories","Stories"],["shoots","Shoots"],["ads","Ads & Boosts"],["performance","Performance"],["history","Monthly History"],["activity","Activity"]].map(x=>`<button class="sm-tab ${tab===x[0]?'active':''}" data-sm-tab="${x[0]}">${x[1]}</button>`).join("")}</div>${smTabHtml(tab,d,items,ads,perf)}`;
+    $("#smBack").onclick=()=>{state.socialPackageId=null;state.socialDashboard=null;renderSocialManagement();};
+    $("#smPrevMonth").onclick=()=>{state.socialMonth=prevMonth(state.socialMonth);state.socialDashboard=null;renderSocialManagement();};
+    $$("[data-sm-tab]").forEach(b=>b.onclick=()=>{state.socialTab=b.dataset.smTab;renderSocialPackageDashboard();});
+    $$("[data-sm-action]").forEach(b=>b.onclick=()=>smAction(b.dataset.smAction,b.dataset.id));
+    $$("[data-sm-content-id]").forEach(b=>b.onclick=()=>smContentAction(b.dataset.smAction,b.dataset.smContentId));
+    $$("[data-sm-ad-id]").forEach(b=>b.onclick=()=>smAdAction(b.dataset.smAction,b.dataset.smAdId));
+    $("#smAddAd")?.addEventListener("click",()=>smOpenAdForm()); $("#smSavePerf")?.addEventListener("click",smSavePerformance); $("#smAddCycle")?.addEventListener("click",smAddCycle);
   }
-  function openCpModal(item = null) {
-    cpEditingId = item?.id || null;
-    $("#cpModalTitle").textContent = item ? "Edit Content Production" : "Add Content Production";
-    $("#cpId").value = item?.id || "";
-    $("#cpClientName").value = item?.clientName || "";
-    $("#cpClientMobile").value = item?.clientMobile || "";
-    $("#cpContentTitle").value = item?.contentTitle || "";
-    $("#cpType").value = item?.type || "Reel";
-    $("#cpPlatform").value = item?.platform || "Instagram";
-    $("#cpShootCategory").value = item?.shootCategory || "Informative Reel";
-    $("#cpPriority").value = item?.priority || "Normal";
-    $("#cpShootDate").value = item?.shootPlannedDate || cpToday();
-    $("#cpShootBy").value = item?.shootBy || "Dasev";
-    $("#cpEditor").value = item?.editor || "";
-    $("#cpDueDate").value = item?.dueDate || cpToday(7);
-    $("#cpAspect").value = item?.aspectRatio || "9:16";
-    $("#cpFinalLink").value = item?.driveLinks?.finalDeliverable || "";
-    $("#cpNotes").value = item?.notes || "";
-    $("#cpModalOverlay").hidden = false;
+  function prevMonth(k){const [y,m]=k.split("-").map(Number);const d=new Date(y,m-2,1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;}
+  function smContentRows(items,kind){const arr=items.filter(x=>!kind||x.contentType.toLowerCase()===kind);return arr.length?`<div class="sm-table-wrap"><table class="sm-table"><thead><tr><th>Content</th><th>Platform</th><th>Status</th><th>Schedule</th><th>Assigned</th><th>Boost</th><th></th></tr></thead><tbody>${arr.map(x=>`<tr><td><b>${escW(x.title)}</b><small>${escW(x.contentType)}</small></td><td>${escW(x.platform)}</td><td><span class="sm-pill ${smStatusClass(x.status)}">${escW(x.status)}</span></td><td>${escW(x.scheduledDate||"—")} ${escW(x.scheduledTime||"")}</td><td>${escW(x.assignedTo||x.editor||"—")}</td><td>${x.boosted?smFmt(x.boostSpend):"—"}</td><td><button class="btn btn-ghost btn-sm" data-sm-action="edit-content" data-sm-content-id="${escW(x.id)}">Edit</button><button class="btn btn-ghost btn-sm" data-sm-action="delete-content" data-sm-content-id="${escW(x.id)}">Delete</button></td></tr>`).join("")}</tbody></table></div>`:`<div class="sm-empty">No ${kind||"content"} yet.</div>`;}
+  function smTabHtml(tab,d,items,ads,perf){const s=d.stats||{},c=d.cycle||{}; if(tab==="overview")return `<div class="sm-overview-grid"><div class="sm-main-card"><div class="sm-card-title"><h3>This Month Progress</h3><span>${escW(c.month)}</span></div>${smProgress("Reels",s.reels?.published||0,s.reels?.total||0,"pink")}${smProgress("Posts",s.posts?.published||0,s.posts?.total||0,"blue")}${smProgress("Stories",s.stories?.published||0,s.stories?.total||0,"purple")}${smProgress("Shoots",s.shoots?.done||0,s.shoots?.total||0,"orange")}<div class="sm-stat-row"><div><b>${items.filter(x=>x.status==="Published").length}</b><span>Published</span></div><div><b>${items.filter(x=>x.status==="Scheduled").length}</b><span>Scheduled</span></div><div><b>${items.filter(x=>x.status==="Approval").length}</b><span>Approval</span></div><div><b>${items.filter(x=>["Planned","Editing"].includes(x.status)).length}</b><span>In Progress</span></div><div><b>${s.boosted||0}</b><span>Boosted</span></div></div></div><div class="sm-side-card"><h3>Ad Budget & Spend</h3><div class="sm-budget"><div class="sm-ring"><b>${smFmt(s.adSpend||0)}</b><span>Spent</span></div><div><p>Planned Budget <b>${smFmt(c.clientAdBudget)}</b></p><p>Actual Spend <b>${smFmt(s.adSpend)}</b></p><p>Remaining <b>${smFmt(s.remainingAdBudget)}</b></p><p>Agency Ad Fee <b>${smFmt(c.agencyAdFee)}</b></p></div></div></div><div class="sm-main-card"><div class="sm-card-title"><h3>Recent Reels</h3><button class="btn btn-ghost btn-sm" data-sm-tab="reels">View All</button></div>${smContentRows(items,"reel")}</div><div class="sm-main-card"><div class="sm-card-title"><h3>Recent Posts</h3><button class="btn btn-ghost btn-sm" data-sm-tab="posts">View All</button></div>${smContentRows(items,"post")}</div></div>`; if(["reels","posts","stories"].includes(tab))return `<div class="sm-section-card"><div class="sm-card-title"><h3>${tab[0].toUpperCase()+tab.slice(1)} Tracking</h3><button class="btn btn-primary btn-sm" data-sm-action="add-content">+ Add ${tab.slice(0,-1)}</button></div>${smContentRows(items,tab.slice(0,-1))}</div>`; if(tab==="shoots")return `<div class="sm-section-card"><div class="sm-card-title"><h3>Shoot Tracking</h3><button class="btn btn-primary btn-sm" data-sm-action="add-shoot">+ Add Shoot</button></div><div class="sm-stat-row"><div><b>${s.shoots?.done||0}</b><span>Completed</span></div><div><b>${s.shoots?.total||0}</b><span>Target</span></div></div><p class="muted">Shoot tracking is linked to this monthly package cycle. Use Content Production to create and complete individual shoot records.</p></div>`; if(tab==="ads")return `<div class="sm-section-card"><div class="sm-card-title"><h3>Ads & Boosts</h3><button class="btn btn-primary btn-sm" id="smAddAd">+ Add Campaign</button></div><div class="sm-ad-summary"><div><b>${ads.length}</b><span>Campaigns</span></div><div><b>${smFmt(s.adSpend)}</b><span>Actual Spend</span></div><div><b>${smFmt(c.clientAdBudget)}</b><span>Client Budget</span></div><div><b>${smFmt(s.remainingAdBudget)}</b><span>Remaining</span></div></div><div class="sm-table-wrap"><table class="sm-table"><thead><tr><th>Campaign</th><th>Platform</th><th>Objective</th><th>Budget</th><th>Spend</th><th>Results</th><th>Status</th><th></th></tr></thead><tbody>${ads.map(a=>`<tr><td><b>${escW(a.campaign)}</b><small>${escW(a.startDate||"")} → ${escW(a.endDate||"")}</small></td><td>${escW(a.platform)}</td><td>${escW(a.objective)}</td><td>${smFmt(a.plannedBudget)}</td><td>${smFmt(a.actualSpend)}</td><td>${Number(a.leads)||0} leads · ${Number(a.messages)||0} msg</td><td><span class="sm-pill ${smStatusClass(a.status)}">${escW(a.status)}</span></td><td><button class="btn btn-ghost btn-sm" data-sm-ad-id="${escW(a.id)}" data-sm-action="delete-ad">Delete</button></td></tr>`).join("")||`<tr><td colspan="8">No campaigns yet.</td></tr>`}</tbody></table></div></div>`; if(tab==="performance")return `<div class="sm-performance-grid">${[["Reach","reach"],["Impressions","impressions"],["Messages","messages"],["Leads","leads"],["Profile Visits","profileVisits"],["Engagements","engagements"]].map(x=>`<label><span>${x[0]}</span><input type="number" id="perf_${x[1]}" value="${Number(perf[x[1]])||0}"></label>`).join("")}<button class="btn btn-primary" id="smSavePerf">Save Performance</button><div class="sm-performance-results"><div><b>${Number(perf.reach)||0}</b><span>Reach</span></div><div><b>${Number(perf.impressions)||0}</b><span>Impressions</span></div><div><b>${Number(perf.messages)||0}</b><span>Messages</span></div><div><b>${Number(perf.leads)||0}</b><span>Leads</span></div><div><b>${smFmt((Number(perf.leads)||0)?Number(s.adSpend||0)/(Number(perf.leads)||1):0)}</b><span>Cost / Lead</span></div><div><b>${Number(perf.engagements)||0}</b><span>Engagements</span></div></div></div>`; if(tab==="history")return `<div class="sm-section-card"><div class="sm-card-title"><h3>Monthly History</h3><button class="btn btn-primary btn-sm" id="smAddCycle">+ Add Month</button></div><div class="sm-table-wrap"><table class="sm-table"><thead><tr><th>Month</th><th>Stage</th><th>Reels</th><th>Posts</th><th>Stories</th><th>Ad Spend</th></tr></thead><tbody>${(d.history||[]).map(h=>`<tr><td><b>${escW(h.month)}</b></td><td>${escW(h.stage)}</td><td>${h.stats?.reels?.published||0} / ${h.stats?.reels?.total||0}</td><td>${h.stats?.posts?.published||0} / ${h.stats?.posts?.total||0}</td><td>${h.stats?.stories?.published||0} / ${h.stats?.stories?.total||0}</td><td>${smFmt(h.stats?.adSpend||0)}</td></tr>`).join("")}</tbody></table></div></div>`; return `<div class="sm-section-card"><div class="sm-card-title"><h3>Activity</h3></div>${(c.activity||[]).map(a=>`<div class="sm-activity"><b>${escW(a.action)}</b><span>${escW(a.summary)}</span><small>${new Date(a.at).toLocaleString("en-IN")}</small></div>`).join("")||`<div class="sm-empty">No activity yet.</div>`}</div>`;}
+  async function smAction(action,id){try{if(action==="add-content"){smOpenContentForm();return;}if(action==="add-shoot"){smOpenContentForm("Shoot");return;}}catch(e){showToast(e.message,"error");}}
+  function smOpenContentForm(kind){const c=state.socialDashboard?.cycle||{}; const type=kind&&["Post","Reel","Story"].includes(kind)?kind:"Reel"; const title=prompt(`${type} title`);if(!title)return;const date=prompt("Scheduled date (YYYY-MM-DD)",new Date().toISOString().slice(0,10));if(!date)return; const status=prompt("Status: Planned / Editing / Approval / Scheduled / Published / Boosted","Planned")||"Planned"; Api.addSMContent(c.id,{title,contentType:type,platform:"Instagram",scheduledDate:date,status}).then(async()=>{state.socialDashboard=await Api.getSMDashboard(state.socialPackageId,state.socialMonth);renderSocialPackageDashboard();showToast(`${type} added`,`success`);}).catch(e=>showToast(e.message,"error"));}
+  async function smContentAction(action,id){try{if(action==="delete-content"){openConfirm("Delete Content","Aa social content delete karvu che?",async()=>{await Api.deleteSMContent(id);state.socialDashboard=await Api.getSMDashboard(state.socialPackageId,state.socialMonth);renderSocialPackageDashboard();});}else if(action==="edit-content"){const x=(state.socialDashboard?.cycle?.contentItems||[]).find(x=>x.id===id);if(!x)return;const status=prompt("Status",x.status)||x.status;await Api.updateSMContent(id,{status});state.socialDashboard=await Api.getSMDashboard(state.socialPackageId,state.socialMonth);renderSocialPackageDashboard();}}catch(e){showToast(e.message,"error");}}
+  async function smAdAction(action,id){if(action==="delete-ad"){openConfirm("Delete Campaign","Aa ad campaign delete karvi che?",async()=>{await Api.deleteSMAd(id);state.socialDashboard=await Api.getSMDashboard(state.socialPackageId,state.socialMonth);renderSocialPackageDashboard();});}}
+  async function smOpenAdForm(){const c=state.socialDashboard?.cycle;if(!c)return;const campaign=prompt("Campaign name");if(!campaign)return;const platform=prompt("Platform","Instagram")||"Instagram";const objective=prompt("Objective","Engagement")||"Engagement";const budget=Number(prompt("Planned budget", "5000"))||0;const spend=Number(prompt("Actual spend", "0"))||0;await Api.addSMAd(c.id,{campaign,platform,objective,plannedBudget:budget,actualSpend:spend,status:"Running"});state.socialDashboard=await Api.getSMDashboard(state.socialPackageId,state.socialMonth);renderSocialPackageDashboard();showToast("Campaign added","success");}
+  async function smSavePerformance(){const c=state.socialDashboard?.cycle;if(!c)return;const d={};["reach","impressions","messages","leads","profileVisits","engagements"].forEach(k=>d[k]=Number($("#perf_"+k)?.value)||0);await Api.updateSMPerformance(c.id,d);state.socialDashboard=await Api.getSMDashboard(state.socialPackageId,state.socialMonth);renderSocialPackageDashboard();showToast("Performance updated","success");}
+  async function smAddCycle(){const d=prompt("Month (YYYY-MM)");if(!d)return;const p=state.socialDashboard?.package||{};try{await Api.createSMCycle(p.id,{monthKey:d,targets:p.platforms?.reduce((a,x)=>({posts:a.posts+Number(x.posts)||0,reels:a.reels+Number(x.reels)||0,stories:a.stories+Number(x.stories)||0,shoots:0}),{posts:0,reels:0,stories:0,shoots:0})||{posts:0,reels:0,stories:0,shoots:0},clientAdBudget:0,agencyAdFee:0});state.socialMonth=d;state.socialDashboard=await Api.getSMDashboard(p.id,d);renderSocialPackageDashboard();showToast("Monthly cycle created","success");}catch(e){showToast(e.message,"error");}}
+
+  async function renderWorkView(arg="") {
+    if (!can("work")) return;
+    if (arg && WORK_TAB_LABELS[arg]) state.workTab = arg;
+    $$(".work-tab").forEach(b=>b.classList.toggle("active", b.dataset.worktab===state.workTab));
+    try { if(state.workTab==="social"){ await renderSocialManagement(); return; } state.workSummary = await Api.getWorkSummary(); renderWorkSummary(); await loadWorkRows(); } catch(e){ showToast("Work load na thayu: "+e.message,"error"); }
   }
-  function closeCpModal() { $("#cpModalOverlay").hidden = true; cpEditingId = null; }
-  function cpDetailHtml(item) {
-    const revs = item.revisionHistory || [];
-    const next = CP_STAGE_NEXT[item.stage];
-    return `<div class="cp-detail-grid">
-      <div><span class="cp-detail-label">Client</span><b>${escapeHtml(item.clientName)}</b><small>${escapeHtml(item.clientMobile || "")}</small></div>
-      <div><span class="cp-detail-label">Stage</span><span class="cp-stage ${cpStageClass(item.stage)}">${escapeHtml(item.stage)}</span></div>
-      <div><span class="cp-detail-label">Shoot</span><b>${fmtDate(item.shootPlannedDate)}</b><small>By ${escapeHtml(item.shootBy || "—")}</small></div>
-      <div><span class="cp-detail-label">Due</span><b>${fmtDate(item.dueDate)}</b><small>${escapeHtml(item.editor || "Unassigned")}</small></div>
-    </div>
-    <div class="cp-detail-section"><h3>Workflow</h3><div class="cp-workflow">${CP_STAGES.map((st,i)=>`<span class="${st===item.stage?"active":""} ${CP_STAGES.indexOf(item.stage)>i?"done":""}">${i+1}. ${escapeHtml(st)}</span>`).join("<i class='fa-solid fa-chevron-right'></i>")}</div></div>
-    <div class="cp-detail-section"><h3>Content Details</h3><div class="cp-detail-meta"><span><b>Type</b>${escapeHtml(item.type)}</span><span><b>Platform</b>${escapeHtml(item.platform)}</span><span><b>Category</b>${escapeHtml(item.shootCategory || "—")}</span><span><b>Priority</b>${escapeHtml(item.priority || "Normal")}</span><span><b>Aspect</b>${escapeHtml(item.aspectRatio || "—")}</span><span><b>Editor</b>${escapeHtml(item.editor || "Unassigned")}</span></div><p class="cp-detail-notes">${escapeHtml(item.notes || "No notes")}</p>${item.driveLinks?.finalDeliverable ? `<a href="${escapeHtml(item.driveLinks.finalDeliverable)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Open Final Deliverable</a>` : ""}</div>
-    <div class="cp-detail-section"><div class="cp-section-head"><h3>Revision History (${revs.length})</h3></div><div class="cp-revision-form"><input id="cpRevBy" placeholder="Requested by" value="Client"/><input id="cpRevFeedback" placeholder="Revision feedback"/><button class="btn btn-primary btn-sm" data-cp-detail="add-revision" data-id="${escapeHtml(item.id)}">Add Revision</button></div><div class="cp-revisions">${revs.length ? revs.map(r=>`<div class="cp-revision"><div><b>#${r.revisionNumber} · ${escapeHtml(r.requestedBy)}</b><small>${fmtDate(r.requestedAt)} · ${escapeHtml(r.status)}</small></div><p>${escapeHtml(r.feedback)}</p>${r.status !== "Resolved" ? `<button class="btn btn-ghost btn-sm" data-cp-detail="resolve-revision" data-id="${escapeHtml(item.id)}" data-rev="${escapeHtml(r.id)}">Resolve</button>` : ""}</div>`).join("") : `<p class="muted">No revisions recorded.</p>`}</div></div>
-    <div class="modal-footer"><button class="btn btn-ghost" data-cp-detail="edit" data-id="${escapeHtml(item.id)}">Edit</button>${next ? `<button class="btn btn-primary" data-cp-detail="next" data-id="${escapeHtml(item.id)}"><i class="fa-solid fa-arrow-right"></i> ${escapeHtml(next)}</button>` : `<span class="cp-done-label"><i class="fa-solid fa-circle-check"></i> Completed</span>`}</div>`;
+  function renderWorkSummary(){ const s=state.workSummary||{}; const cards=[
+    ["Content Production",s.production?.active||0,`${s.production?.completed||0} completed`],["Shoots",s.shoots?.planned||0,`${s.shoots?.completed||0} completed`],["Social Media",s.social?.pending||0,`${s.social?.published||0} published`],["Festival Orders",s.festival?.pending||0,`${s.festival?.completed||0} completed`]
+  ]; $("#workSummary").innerHTML=cards.map(x=>`<div class="work-summary-card"><div class="lbl">${escW(x[0])}</div><div class="num">${x[1]}</div><div class="work-sub">${escW(x[2])}</div></div>`).join(""); }
+  async function loadWorkRows(){
+    const q=encodeURIComponent($("#workSearch")?.value||"");
+    if(state.workTab==="production") state.workRows=await Api.getProduction(`search=${q}&stage=${encodeURIComponent($("#workStageFilter")?.value||"all")}`);
+    else if(state.workTab==="social") { await renderSocialManagement(); return; }
+    else if(state.workTab==="shoots") state.workRows=await Api.getShoots();
+    else if(state.workTab==="designs") state.workRows=await Api.getDesigns();
+    else state.workRows=await Api.getFestivalOrders();
+    renderWorkRows();
   }
-  async function openCpDetail(id) { try { const item = await Api.getContentProductionItem(id); $("#cpDetailTitle").textContent = `${item.id} · ${item.contentTitle}`; $("#cpDetailBody").innerHTML = cpDetailHtml(item); $("#cpDetailOverlay").hidden = false; } catch(err) { showToast(err.message,"error"); } }
-  function closeCpDetail() { $("#cpDetailOverlay").hidden = true; }
-  function initContentProduction() {
-    if (!$("#view-content-production")) return;
-    $("#cpAddBtn").onclick = () => openCpModal();
-    $("#cpEmptyAdd").onclick = () => openCpModal();
-    $("#cpRefreshBtn").onclick = loadContentProduction;
-    ["#cpSearch","#cpStageFilter","#cpTypeFilter","#cpPlatformFilter","#cpPriorityFilter"].forEach(sel => $(sel).addEventListener("input", renderContentProductionView));
-    $("#cpModalClose").onclick = closeCpModal; $("#cpCancel").onclick = closeCpModal;
-    $("#cpForm").addEventListener("submit", async e => { e.preventDefault(); const payload={clientName:$("#cpClientName").value.trim(),clientMobile:$("#cpClientMobile").value.trim(),contentTitle:$("#cpContentTitle").value.trim(),type:$("#cpType").value,platform:$("#cpPlatform").value,shootCategory:$("#cpShootCategory").value,priority:$("#cpPriority").value,shootPlannedDate:$("#cpShootDate").value,shootBy:$("#cpShootBy").value.trim(),editor:$("#cpEditor").value.trim(),dueDate:$("#cpDueDate").value,aspectRatio:$("#cpAspect").value,finalDeliverableLink:$("#cpFinalLink").value.trim(),notes:$("#cpNotes").value.trim()}; try { if(cpEditingId){ await Api.updateContentProduction(cpEditingId,payload); showToast("Content updated","success"); } else { await Api.createContentProduction(payload); showToast("Content added to Shoot Planned","success"); } closeCpModal(); await loadContentProduction(); } catch(err){ showToast(err.message,"error"); } });
-    $("#cpTable").addEventListener("click", async e => { const b=e.target.closest("[data-cp-action]"); if(!b)return; const id=b.dataset.id, action=b.dataset.cpAction; try { if(action==="detail") return openCpDetail(id); const item=cpItems.find(x=>x.id===id); if(!item)return; if(action==="edit") return openCpModal(item); if(action==="duplicate"){ await Api.duplicateContentProduction(id); showToast("Content duplicated","success"); await loadContentProduction(); } else if(action==="delete"){ openConfirm("Delete Content", `Delete ${item.contentTitle}?`, async()=>{ try{await Api.deleteContentProduction(id); showToast("Content deleted","success"); await loadContentProduction();}catch(err){showToast(err.message,"error");} }); } else if(action==="next"){ const next=CP_STAGE_NEXT[item.stage]; if(!next)return; const meta=next==="Assigned to Editor"?{editor:item.editor||prompt("Editor name:")||"Unassigned"}:next==="Upload"?{uploadedBy:state.me?.name}: {completedBy:state.me?.name}; await Api.updateContentProductionStage(id,next,meta); showToast(`Moved to ${next}`,"success"); await loadContentProduction(); } } catch(err){ showToast(err.message,"error"); } });
-    $("#cpDetailClose").onclick=closeCpDetail;
-    $("#cpDetailBody").addEventListener("click", async e => { const b=e.target.closest("[data-cp-detail]"); if(!b)return; const id=b.dataset.id; const action=b.dataset.cpDetail; try { if(action==="edit"){ const item=await Api.getContentProductionItem(id); closeCpDetail(); openCpModal(item); } else if(action==="next"){ const item=await Api.getContentProductionItem(id); const next=CP_STAGE_NEXT[item.stage]; if(next){ await Api.updateContentProductionStage(id,next,next==="Upload"?{uploadedBy:state.me?.name}:next==="Completed"?{completedBy:state.me?.name}:{editor:item.editor||"Unassigned"}); showToast(`Moved to ${next}`,"success"); await openCpDetail(id); await loadContentProduction(); } } else if(action==="add-revision"){ const by=$("#cpRevBy").value.trim()||"Client", feedback=$("#cpRevFeedback").value.trim(); if(!feedback)return showToast("Revision feedback lakho","error"); await Api.addProductionRevision(id,{requestedBy:by,feedback}); showToast("Revision recorded","success"); await openCpDetail(id); await loadContentProduction(); } else if(action==="resolve-revision"){ await Api.updateProductionRevision(id,b.dataset.rev,{status:"Resolved"}); showToast("Revision resolved","success"); await openCpDetail(id); } } catch(err){showToast(err.message,"error");} });
+  function workBtn(action,id,label,icon="fa-pen"){ return `<button class="btn btn-ghost btn-sm" data-work-action="${action}" data-id="${escW(id)}"><i class="fa-solid ${icon}"></i>${label}</button>`; }
+  function renderWorkRows(){
+    const rows=state.workRows||[], box=$("#workList"); if(!box)return;
+    if(!rows.length){box.innerHTML='<div class="work-empty"><i class="fa-regular fa-folder-open"></i><br>No work records found.</div>';return;}
+    if(state.workTab==="production") box.innerHTML=`<div style="overflow:auto"><table class="work-table"><thead><tr><th>Content</th><th>Client</th><th>Stage</th><th>Editor</th><th>Due</th><th>Priority</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>`<tr><td><div class="work-title">${escW(x.contentTitle)}</div><div class="work-sub">${escW(x.type)} · ${escW(x.platform)}</div></td><td>${escW(x.clientName)}<div class="work-sub">${escW(x.clientMobile)}</div></td><td><span class="work-badge">${escW(x.stage)}</span></td><td>${escW(x.editor||"Unassigned")}</td><td>${escW(x.dueDate||"—")}</td><td>${escW(x.priority||"Medium")}</td><td class="work-actions">${workBtn("edit",x.id,"Edit")} ${workBtn("stage",x.id,"Next","fa-forward")} ${workBtn("revision",x.id,"Revision","fa-message")} ${workBtn("duplicate",x.id,"Copy","fa-copy")} ${workBtn("delete",x.id,"Delete","fa-trash")}</td></tr>`).join("")}</tbody></table></div>`;
+    else if(state.workTab==="social") box.innerHTML=`<div style="overflow:auto"><table class="work-table"><thead><tr><th>Post</th><th>Client</th><th>Platform</th><th>Schedule</th><th>Status</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>`<tr><td><div class="work-title">${escW(x.title)}</div><div class="work-sub">${escW(x.contentType)}</div></td><td>${escW(x.clientName)}</td><td>${escW(x.platform)}</td><td>${escW(x.scheduledDate||"—")} ${escW(x.scheduledTime||"")}</td><td><span class="work-badge">${escW(x.status)}</span></td><td class="work-actions">${workBtn("edit",x.id,"Edit")} ${workBtn("delete",x.id,"Delete","fa-trash")}</td></tr>`).join("")}</tbody></table></div><div style="padding:18px;border-top:1px solid var(--border)"><div class="drawer-section-head"><h3>Monthly Execution Cycles</h3><button class="btn btn-primary btn-sm" data-work-action="addcycle">+ Add Cycle</button></div><div style="overflow:auto"><table class="work-table"><thead><tr><th>Client</th><th>Month</th><th>Stage</th><th>Delivery</th><th>Targets</th><th>Actions</th></tr></thead><tbody>${(state.workCycles||[]).map(c=>`<tr><td>${escW(c.clientName||"—")}</td><td>${escW(c.month)}</td><td><span class="work-badge">${escW(c.stage)}</span></td><td>${Number(c.completed?.posts||0)}P · ${Number(c.completed?.reels||0)}R · ${Number(c.completed?.stories||0)}S · ${Number(c.completed?.shoots||0)} Sh</td><td>${Number(c.targets?.posts||0)}P · ${Number(c.targets?.reels||0)}R · ${Number(c.targets?.stories||0)}S · ${Number(c.targets?.shoots||0)} Sh</td><td class="work-actions">${workBtn("cycleNext",c.id,"Next","fa-forward")}${workBtn("cyclePost",c.id,"+ Post","fa-plus")}${workBtn("cycleReel",c.id,"+ Reel","fa-plus")}</td></tr>`).join("")||'<tr><td colspan="6">No monthly cycles yet.</td></tr>'}</tbody></table></div></div>`;
+    else if(state.workTab==="shoots") box.innerHTML=`<div style="overflow:auto"><table class="work-table"><thead><tr><th>Shoot</th><th>Client</th><th>Date</th><th>Location</th><th>Status</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>`<tr><td><div class="work-title">${escW(x.title)}</div><div class="work-sub">${escW(x.shootType)}</div></td><td>${escW(x.clientName)}</td><td>${escW(x.shootDate||"—")}</td><td>${escW(x.location||"—")}</td><td><span class="work-badge">${escW(x.status)}</span></td><td class="work-actions">${workBtn("edit",x.id,"Edit")} ${workBtn("makecontent",x.id,"Create Content","fa-film")} ${workBtn("delete",x.id,"Delete","fa-trash")}</td></tr>`).join("")}</tbody></table></div>`;
+    else if(state.workTab==="designs") box.innerHTML=`<div style="overflow:auto"><table class="work-table"><thead><tr><th>Design</th><th>Client</th><th>Designer</th><th>Stage</th><th>Priority</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>`<tr><td><div class="work-title">${escW(x.title)}</div><div class="work-sub">${escW(x.category)} · ${escW(x.aspectRatio)}</div></td><td>${escW(x.clientName)}</td><td>${escW(x.designer)}</td><td><span class="work-badge">${escW(x.stage)}</span></td><td>${escW(x.priority)}</td><td class="work-actions">${workBtn("edit",x.id,"Edit")} ${workBtn("delete",x.id,"Delete","fa-trash")}</td></tr>`).join("")}</tbody></table></div>`;
+    else box.innerHTML=`<div style="overflow:auto"><table class="work-table"><thead><tr><th>Business</th><th>Client</th><th>Plan</th><th>Payment</th><th>Delivery</th><th>Stage</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>`<tr><td><div class="work-title">${escW(x.businessName)}</div><div class="work-sub">${escW(x.instagram||"")}</div></td><td>${escW(x.clientName)}<div class="work-sub">${escW(x.clientMobile)}</div></td><td>${escW(x.plan)} · ₹${Number(x.amount||0).toLocaleString("en-IN")}</td><td><span class="work-badge">${escW(x.paymentStatus)}</span></td><td>${escW(x.deliveryStatus)}</td><td>${escW(x.stage)}</td><td class="work-actions">${workBtn("edit",x.id,"Edit")} ${workBtn("delete",x.id,"Delete","fa-trash")}</td></tr>`).join("")}</tbody></table></div>`;
+  }
+  function workField(label,id,type="text",value="",full=false,extra=""){ return `<div class="${full?'full':''}"><label>${escW(label)}</label>${type==="textarea"?`<textarea id="${id}" ${extra}>${escW(value)}</textarea>`:`<input id="${id}" type="${type}" value="${escW(value)}" ${extra}>`}</div>`; }
+  function openWorkModal(type="production",item=null){
+    state.workEditing=item?{type,item}:null; $("#workEditId").value=item?.id||""; $("#workEditType").value=type; $("#workModalTitle").textContent=(item?"Edit ":"Add ")+WORK_TAB_LABELS[type];
+    let f="";
+    if(type==="production") f=`<div class="work-form-grid">${workField("Client Name","wfClient", "text",item?.clientName||"")}${workField("Client Mobile","wfMobile","text",item?.clientMobile||"")}${workField("Content Title *","wfTitle","text",item?.contentTitle||"",true,"required")}${workField("Type","wfType","text",item?.type||"Reel")}${workField("Shoot Category","wfShootCat","text",item?.shootCategory||"Other")}${workField("Platform","wfPlatform","text",item?.platform||"Instagram")}${workField("Shoot Planned Date","wfShootDate","date",item?.shootPlannedDate||"")}${workField("Shoot By","wfShootBy","text",item?.shootBy||"Dasev")}${workField("Editor","wfEditor","text",item?.editor||"")}${workField("Due Date","wfDue","date",item?.dueDate||"")}${workField("Priority","wfPriority","text",item?.priority||"Medium")}${workField("Aspect Ratio","wfRatio","text",item?.aspectRatio||"9:16")}${workField("Notes","wfNotes","textarea",item?.notes||"",true)}</div>`;
+    else if(type==="shoots") f=`<div class="work-form-grid">${workField("Client Name","wfClient","text",item?.clientName||"")}${workField("Client Mobile","wfMobile","text",item?.clientMobile||"")}${workField("Shoot Title *","wfTitle","text",item?.title||"",true,"required")}${workField("Shoot Type","wfType","text",item?.shootType||"Reels Batch")}${workField("Shoot Date","wfDate","date",item?.shootDate||"")}${workField("Call Time","wfCall","text",item?.callTime||"")}${workField("Wrap Time","wfWrap","text",item?.wrapTime||"")}${workField("Location","wfLocation","text",item?.location||"",true)}${workField("Reels Count","wfCount","number",item?.plannedDeliverables?.reelsCount||0)}${workField("Shot List / Notes","wfNotes","textarea",item?.plannedDeliverables?.shotListNotes||item?.notes||"",true)}</div>`;
+    else if(type==="social") f=`<div class="work-form-grid">${workField("Client Name","wfClient","text",item?.clientName||"")}${workField("Title *","wfTitle","text",item?.title||"",true,"required")}${workField("Platform","wfPlatform","text",item?.platform||"Instagram")}${workField("Content Type","wfType","text",item?.contentType||"Post")}${workField("Scheduled Date","wfDate","date",item?.scheduledDate||"")}${workField("Scheduled Time","wfTime","time",item?.scheduledTime||"")}${workField("Status","wfStatus","text",item?.status||"Draft")}${workField("Media URL","wfMedia","url",item?.mediaAssetUrl||"")}${workField("Caption","wfCaption","textarea",item?.caption||"",true)}${workField("Hashtags","wfHash","text",item?.hashtags||"",true)}</div>`;
+    else if(type==="designs") f=`<div class="work-form-grid">${workField("Client Name","wfClient","text",item?.clientName||"")}${workField("Design Title *","wfTitle","text",item?.title||"",true,"required")}${workField("Category","wfType","text",item?.category||"Post")}${workField("Aspect Ratio","wfRatio","text",item?.aspectRatio||"4:5")}${workField("Designer","wfDesigner","text",item?.designer||"Unassigned")}${workField("Stage","wfStatus","text",item?.stage||"Brief")}${workField("Priority","wfPriority","text",item?.priority||"Medium")}${workField("Canva/Figma URL","wfMedia","url",item?.driveLinks?.figmaCanva||"")}${workField("Notes","wfNotes","textarea",item?.notes||"",true)}</div>`;
+    else f=`<div class="work-form-grid">${workField("Business Name","wfBusiness","text",item?.businessName||"")}${workField("Client Name","wfClient","text",item?.clientName||"")}${workField("Mobile","wfMobile","text",item?.clientMobile||"")}${workField("Plan","wfPlan","text",item?.plan||"₹299")}${workField("Amount","wfAmount","number",item?.amount||0)}${workField("Paid Amount","wfPaid","number",item?.paidAmount||0)}${workField("Payment Status","wfStatus","text",item?.paymentStatus||"Pending")}${workField("Delivery Status","wfDelivery","text",item?.deliveryStatus||"Pending")}${workField("Stage","wfStage","text",item?.stage||"New")}${workField("Drive Link","wfMedia","url",item?.driveLink||"")}${workField("Notes","wfNotes","textarea",item?.notes||"",true)}</div>`;
+    $("#workFormFields").innerHTML=f; $("#workModalOverlay").hidden=false;
+  }
+  function closeWorkModal(){ $("#workModalOverlay").hidden=true; state.workEditing=null; }
+  async function submitWorkForm(e){ e.preventDefault(); const type=$("#workEditType").value,id=$("#workEditId").value; const val=id=>$("#"+id)?.value||""; let d={};
+    if(type==="production") d={clientName:val("wfClient"),clientMobile:val("wfMobile"),contentTitle:val("wfTitle"),type:val("wfType"),shootCategory:val("wfShootCat"),platform:val("wfPlatform"),shootPlannedDate:val("wfShootDate"),shootBy:val("wfShootBy"),editor:val("wfEditor"),dueDate:val("wfDue"),priority:val("wfPriority"),aspectRatio:val("wfRatio"),notes:val("wfNotes")};
+    else if(type==="shoots") d={clientName:val("wfClient"),clientMobile:val("wfMobile"),title:val("wfTitle"),shootType:val("wfType"),shootDate:val("wfDate"),callTime:val("wfCall"),wrapTime:val("wfWrap"),location:val("wfLocation"),plannedDeliverables:{reelsCount:Number(val("wfCount"))||0,photosCount:0,longVideosCount:0,shotListNotes:val("wfNotes")},notes:val("wfNotes")};
+    else if(type==="social") d={clientName:val("wfClient"),title:val("wfTitle"),platform:val("wfPlatform"),contentType:val("wfType"),scheduledDate:val("wfDate"),scheduledTime:val("wfTime"),status:val("wfStatus"),mediaAssetUrl:val("wfMedia"),caption:val("wfCaption"),hashtags:val("wfHash")};
+    else if(type==="designs") d={clientName:val("wfClient"),title:val("wfTitle"),category:val("wfType"),aspectRatio:val("wfRatio"),designer:val("wfDesigner"),stage:val("wfStatus"),priority:val("wfPriority"),driveLinks:{figmaCanva:val("wfMedia")},notes:val("wfNotes")};
+    else {const amount=Number(val("wfAmount"))||0,paid=Number(val("wfPaid"))||0;d={businessName:val("wfBusiness"),clientName:val("wfClient"),clientMobile:val("wfMobile"),plan:val("wfPlan"),amount,paidAmount:paid,paymentStatus:val("wfStatus"),deliveryStatus:val("wfDelivery"),stage:val("wfStage"),driveLink:val("wfMedia"),notes:val("wfNotes")};}
+    try { if(type==="production") id?await Api.updateProduction(id,d):await Api.createProduction(d); else if(type==="shoots") id?await Api.updateShoot(id,d):await Api.createShoot(d); else if(type==="social") id?await Api.updateSocialPost(id,d):await Api.createSocialPost(d); else if(type==="designs") id?await Api.updateDesign(id,d):await Api.createDesign(d); else id?await Api.updateFestivalOrder(id,d):await Api.createFestivalOrder(d); closeWorkModal(); await renderWorkView(); showToast("Work saved successfully","success"); } catch(err){showToast(err.message,"error");}
+  }
+  async function workAction(action,id){ const item=state.workRows.find(x=>x.id===id); if(["addcycle"].includes(action)){} else if(["cycleNext","cyclePost","cycleReel"].includes(action)){ /* cycle action */ } else if(!item)return; try{
+    if(action==="addcycle"){ const client=prompt("Client name:"); if(client){ await Api.createCycle({clientName:client,month:new Date().toLocaleString("en-IN",{month:"long",year:"numeric"})}); await renderWorkView("social"); } return; }
+    if(action==="cycleNext"){ const c=(state.workCycles||[]).find(x=>x.id===id); const stages=["Plan","Create","Approval","Schedule","Publish","Report"]; const i=stages.indexOf(c?.stage); if(c){ await Api.updateCycle(id,{stage:stages[Math.min(stages.length-1,i+1)],status:i>=stages.length-2?"Completed":"Active"}); await renderWorkView("social"); } return; }
+    if(action==="cyclePost" || action==="cycleReel"){ const c=(state.workCycles||[]).find(x=>x.id===id); if(c){ const completed={...(c.completed||{})}; const k=action==="cyclePost"?"posts":"reels"; completed[k]=(completed[k]||0)+1; await Api.updateCycle(id,{completed}); await renderWorkView("social"); } return; }
+    if(action==="edit") openWorkModal(state.workTab,item);
+    else if(action==="delete"){openConfirm("Delete work?","Aa record delete karvu che?",async()=>{ if(state.workTab==="production")await Api.deleteProduction(id); else if(state.workTab==="shoots")await Api.deleteShoot(id); else if(state.workTab==="designs")await Api.deleteDesign(id); else if(state.workTab==="social")await Api.deleteSocialPost(id); else await Api.deleteFestivalOrder(id); await renderWorkView(); });}
+    else if(action==="duplicate"){await Api.duplicateProduction(id);await renderWorkView();showToast("Content duplicated","success");}
+    else if(action==="stage"){const stages=["Shoot Planned","Assigned to Editor","Upload","Revision","Completed"],i=stages.indexOf(item.stage);await Api.setProductionStage(id,stages[(i+1)%stages.length]);await renderWorkView();}
+    else if(action==="revision"){const feedback=prompt("Revision feedback:");if(feedback)await Api.addProductionRevision(id,{requestedBy:"Client",feedback});await renderWorkView();}
+    else if(action==="makecontent"){const count=Number(item.plannedDeliverables?.reelsCount)||1;await Api.createShootContent(id,{count});await renderWorkView();showToast(`${count} content item(s) created`,`success`);}
+  }catch(e){showToast(e.message,"error");} }
+  function initWorkModule(){
+    $("#workTabs")?.addEventListener("click",e=>{const b=e.target.closest("[data-worktab]");if(!b)return;state.workTab=b.dataset.worktab;state.socialPackageId=null;state.socialDashboard=null;window.location.hash=`work/${state.workTab}`;renderWorkView(state.workTab);});
+    $("#workRefreshBtn")?.addEventListener("click",()=>renderWorkView()); $("#workSearch")?.addEventListener("input",debounce(()=>loadWorkRows(),300)); $("#workStageFilter")?.addEventListener("change",()=>loadWorkRows());
+    $("#workAddBtn")?.addEventListener("click",()=>{if(state.workTab==="social"){if(state.socialPackageId)smOpenContentForm();else showToast("Pehla management package select karo","error");}else openWorkModal(state.workTab);}); $("#closeWorkModal")?.addEventListener("click",closeWorkModal); $("#cancelWorkModal")?.addEventListener("click",closeWorkModal); $("#workModalOverlay")?.addEventListener("click",e=>{if(e.target.id==="workModalOverlay")closeWorkModal();}); $("#workForm")?.addEventListener("submit",submitWorkForm);
+    $("#workList")?.addEventListener("click",e=>{const b=e.target.closest("[data-work-action]");if(b)workAction(b.dataset.workAction,b.dataset.id);});
   }
 
   /* ---- Roles: what this logged-in user may see ---- */
   const ROLE_LABEL = { owner: "Owner", manager: "Manager", sales: "Sales", finance: "Finance", editor: "Editor", designer: "Designer", shooter: "Shooter", sm: "Social media", viewer: "Viewer" };
   const TEAM_ROLES = ["manager", "sales", "finance", "editor", "designer", "shooter", "sm", "viewer"];
-  const VIEW_MODULE = { dashboard: "dashboard", calendar: "calendar", clients: "clients", leads: "leads", payments: "payments", expenses: "expenses", reports: "reports", categories: "payments", export: "reports", backup: "backup", settings: "settings", packages: "clients", "content-production": "contentProduction" };
+  const VIEW_MODULE = { dashboard: "dashboard", calendar: "calendar", clients: "clients", leads: "leads", payments: "payments", expenses: "expenses", reports: "reports", categories: "payments", export: "reports", backup: "backup", settings: "settings", packages: "clients", work: "work" };
   const can = (m) => !!(state.me && state.me.access && state.me.access[m]);
   const viewAllowed = (v) => !VIEW_MODULE[v] || can(VIEW_MODULE[v]);
   const firstAllowedView = () => ["dashboard", "calendar", "clients", "leads", "payments", "expenses", "reports"].find(viewAllowed) || "calendar";
@@ -4247,7 +4264,7 @@
     state.me = await Api.getMe();
     // Load only what this role may read, so one 403 can't break the whole app.
     const part = (ok, fn, empty) => (ok ? fn().catch(() => empty) : Promise.resolve(empty));
-    const [payments, categories, settings, expenses, expenseCategories, leads, platformOptions, contentProduction, clientProfiles] = await Promise.all([
+    const [payments, categories, settings, expenses, expenseCategories, leads, platformOptions, clientProfiles] = await Promise.all([
       part(can("payments"), Api.getPayments, []),
       part(true, Api.getCategories, []),
       part(true, Api.getSettings, {}),
@@ -4255,7 +4272,6 @@
       part(true, Api.getExpenseCategories, []),
       part(can("leads"), Api.getLeads, []),
       part(true, Api.getPlatformOptions, []),
-      part(can("contentProduction"), Api.getContentProduction, []),
       part(can("clients"), Api.getClientProfiles, {})
     ]);
     state.payments = payments;
@@ -4265,7 +4281,6 @@
     state.expenseCategories = expenseCategories;
     state.leads = leads;
     state.platformOptions = platformOptions;
-    state.contentProduction = contentProduction;
     state.clientProfiles = clientProfiles;
 
     applySettingsToUI();
@@ -4350,7 +4365,6 @@
   /* ------------------------------------------------------------------ */
   document.addEventListener("DOMContentLoaded", async () => {
     initNavigation();
-    initContentProduction();
     initSidebarToggle();
     initDarkModeToggle();
     initNotifications();
@@ -4381,6 +4395,7 @@
     initAddTypePicker();
     initClientPickerModal();
     initPackagesModule();
+    initWorkModule();
 
     try {
       await loadInitialData();

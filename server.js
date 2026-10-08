@@ -47,18 +47,18 @@ if (!process.env.SESSION_SECRET) {
 /* ---------- Roles & access (deny by default) -------------------------- */
 const F = "full";
 const V = "view";
-const CREATIVE = { calendar: F, clients: V, contentProduction: F }; // Editor / Designer / Shooter / SM
+const CREATIVE = { calendar: F, clients: V }; // Editor / Designer / Shooter / SM
 
 const ACCESS = {
-  owner:    { dashboard: F, calendar: F, clients: F, payments: F, leads: F, expenses: F, reports: F, backup: F, settings: F, team: F, activity: F, contentProduction: F },
-  manager:  { dashboard: F, calendar: F, clients: F, payments: F, leads: F, expenses: F, reports: F, activity: V, contentProduction: F },
-  sales:    { calendar: F, clients: F, leads: F, contentProduction: V },
-  finance:  { dashboard: F, calendar: V, clients: V, payments: F, expenses: F, reports: F, contentProduction: V },
-  editor:   { ...CREATIVE },
-  designer: { ...CREATIVE },
-  shooter:  { ...CREATIVE },
-  sm:       { ...CREATIVE },
-  viewer:   { calendar: V, clients: V, leads: V, contentProduction: V }
+  owner:    { dashboard: F, calendar: F, clients: F, payments: F, leads: F, expenses: F, reports: F, backup: F, settings: F, team: F, activity: F, work: F },
+  manager:  { dashboard: F, calendar: F, clients: F, payments: F, leads: F, expenses: F, reports: F, activity: V, work: F },
+  sales:    { calendar: F, clients: F, leads: F, work: V },
+  finance:  { dashboard: F, calendar: V, clients: V, payments: F, expenses: F, reports: F },
+  editor:   { ...CREATIVE, work: F },
+  designer: { ...CREATIVE, work: F },
+  shooter:  { ...CREATIVE, work: F },
+  sm:       { ...CREATIVE, work: F },
+  viewer:   { calendar: V, clients: V, leads: V, work: V }
 };
 const ROLES = Object.keys(ACCESS);
 
@@ -89,7 +89,6 @@ const ROUTE_RULES = [
   [/^\/calendar(-events)?(\/|$)/, () => "calendar"],
   [/^\/clients(\/|$)/, () => "clients"],
   [/^\/client-profiles(\/|$)/, () => "clients"],
-  [/^\/content-production(\/|$)/, getOrElse("contentProduction", "contentProduction")],
   [/^\/packages\/[^/]+\/activity$/, () => "activity"],
   // Posts/Reels/Stories work records: creative team + sales + manager can edit (no money access needed)
   [/^\/packages\/[^/]+\/works(\/|$)/, getOrElse("clients", "calendar")],
@@ -99,7 +98,8 @@ const ROUTE_RULES = [
   [/^\/export\//, () => "reports"],
   [/^\/(backup|restore)$/, () => "backup"],
   [/^\/activity$/, () => "activity"],
-  [/^\/users(\/|$)/, () => "team"]
+  [/^\/users(\/|$)/, () => "team"],
+  [/^\/(work|production|shoots|designs|social-media|social-management|monthly-cycles|festival-orders)(\/|$)/, getOrElse("work", "work")]
 ];
 
 function resolveModule(req) {
@@ -582,7 +582,7 @@ const DEFAULT_DATA = {
   calendarEvents: [],        // manual calendar events
   clientIds: {},             // keyed by mobile (or clientName fallback) -> permanent ID, e.g. "CLI-000124"
   platformOptions: ["Instagram", "Facebook", "YouTube", "LinkedIn", "Twitter/X", "Pinterest", "Other"],
-  contentProduction: []
+  contentProduction: [], shoots: [], designs: [], socialMediaPosts: [], monthlyCycles: [], festivalOrders: []
 };
 
 const dbq = () => (dbContext.getStore() || {}).client || pool;
@@ -609,7 +609,12 @@ async function loadData() {
     clientIds: raw.clientIds && typeof raw.clientIds === "object" ? raw.clientIds : {},
     calendarEvents: Array.isArray(raw.calendarEvents) ? raw.calendarEvents : [],
     platformOptions: Array.isArray(raw.platformOptions) ? raw.platformOptions : [...DEFAULT_DATA.platformOptions],
-    contentProduction: Array.isArray(raw.contentProduction) ? raw.contentProduction : []
+    contentProduction: Array.isArray(raw.contentProduction) ? raw.contentProduction : [],
+    shoots: Array.isArray(raw.shoots) ? raw.shoots : [],
+    designs: Array.isArray(raw.designs) ? raw.designs : [],
+    socialMediaPosts: Array.isArray(raw.socialMediaPosts) ? raw.socialMediaPosts : [],
+    monthlyCycles: Array.isArray(raw.monthlyCycles) ? raw.monthlyCycles : [],
+    festivalOrders: Array.isArray(raw.festivalOrders) ? raw.festivalOrders : []
   };
 
   // One-time migration: make sure the "Nasto" expense category exists on
@@ -736,192 +741,6 @@ function normalizeLead(input, existing = {}) {
     createdAt: existing.createdAt || new Date().toISOString()
   };
 }
-
-/* ---------------------------------------------------------------------- */
-/* Content Production — 4-stage creative pipeline                        */
-/* ---------------------------------------------------------------------- */
-const CP_STAGES = ["Shoot Planned", "Assigned to Editor", "Upload", "Completed"];
-const CP_TYPES = ["Reel", "Video", "Post", "Story", "Photo", "Other"];
-const CP_PRIORITIES = ["Low", "Normal", "High", "Urgent"];
-const CP_SHOOT_CATEGORIES = ["Delivery Shoot", "Patient Testimonial", "Informative Reel", "Festival Reel", "Doctor Reel", "Hospital Tour", "Procedure / Treatment", "Patient Education", "Service Promotion", "Offer / Advertisement", "Event Coverage", "Product Shoot", "Behind The Scenes", "Other"];
-
-function normalizeContentProduction(input, existing = {}) {
-  const title = (input.contentTitle ?? input.contentName ?? existing.contentTitle ?? "Untitled Content").toString().trim();
-  const now = new Date().toISOString();
-  const today = now.slice(0, 10);
-  const shootPlannedDate = input.shootPlannedDate ?? existing.shootPlannedDate ?? today;
-  const dueDate = input.dueDate ?? existing.dueDate ?? today;
-  return {
-    id: existing.id,
-    clientId: (input.clientId ?? existing.clientId ?? "").toString().trim(),
-    clientName: (input.clientName ?? existing.clientName ?? "").toString().trim(),
-    clientMobile: (input.clientMobile ?? existing.clientMobile ?? "").toString().trim(),
-    contentTitle: title,
-    contentName: title,
-    type: CP_TYPES.includes(input.type) ? input.type : (existing.type || "Reel"),
-    shootCategory: CP_SHOOT_CATEGORIES.includes(input.shootCategory) ? input.shootCategory : (existing.shootCategory || "Other"),
-    platform: (input.platform ?? existing.platform ?? "Instagram").toString().trim(),
-    stage: CP_STAGES.includes(input.stage) ? input.stage : (existing.stage || "Shoot Planned"),
-    shootPlannedDate,
-    shootDate: input.shootDate ?? existing.shootDate ?? "",
-    shootBy: (input.shootBy ?? existing.shootBy ?? "Dasev").toString().trim(),
-    editor: (input.editor ?? existing.editor ?? "").toString().trim(),
-    assignedDate: input.assignedDate ?? existing.assignedDate ?? "",
-    uploadDate: input.uploadDate ?? existing.uploadDate ?? "",
-    uploadedBy: (input.uploadedBy ?? existing.uploadedBy ?? "").toString().trim(),
-    completionDate: input.completionDate ?? existing.completionDate ?? "",
-    completedBy: (input.completedBy ?? existing.completedBy ?? "").toString().trim(),
-    dueDate,
-    priority: CP_PRIORITIES.includes(input.priority) ? input.priority : (existing.priority || "Normal"),
-    notes: (input.notes ?? existing.notes ?? "").toString().trim(),
-    editorNotes: (input.editorNotes ?? existing.editorNotes ?? "").toString().trim(),
-    aspectRatio: (input.aspectRatio ?? existing.aspectRatio ?? "9:16").toString().trim(),
-    reelNumber: (input.reelNumber ?? existing.reelNumber ?? "").toString().trim(),
-    driveLinks: { ...(existing.driveLinks || {}), ...(input.driveLinks || {}), finalDeliverable: input.finalDeliverableLink ?? input.driveLinks?.finalDeliverable ?? existing.driveLinks?.finalDeliverable ?? "" },
-    revisionHistory: Array.isArray(input.revisionHistory) ? input.revisionHistory : (Array.isArray(existing.revisionHistory) ? existing.revisionHistory : []),
-    activity: Array.isArray(existing.activity) ? existing.activity : [],
-    createdAt: existing.createdAt || today,
-    updatedAt: now
-  };
-}
-
-app.get("/api/content-production", async (req, res) => {
-  try {
-    const data = await loadData();
-    let list = [...data.contentProduction];
-    const q = String(req.query.search || "").trim().toLowerCase();
-    const stage = String(req.query.stage || "all");
-    const type = String(req.query.type || "all");
-    const platform = String(req.query.platform || "all");
-    const priority = String(req.query.priority || "all");
-    if (q) list = list.filter(x => [x.id,x.clientName,x.clientMobile,x.contentTitle,x.editor,x.shootBy,x.shootCategory,x.notes].some(v => String(v || "").toLowerCase().includes(q)));
-    if (stage !== "all") list = list.filter(x => x.stage === stage);
-    if (type !== "all") list = list.filter(x => x.type === type);
-    if (platform !== "all") list = list.filter(x => x.platform === platform);
-    if (priority !== "all") list = list.filter(x => x.priority === priority);
-    list.sort((a,b) => (a.stage === "Completed") - (b.stage === "Completed") || String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)));
-    res.json(list);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get("/api/content-production/:id", async (req, res) => {
-  const data = await loadData();
-  const item = data.contentProduction.find(x => x.id === req.params.id);
-  if (!item) return res.status(404).json({ error: "Content production item not found" });
-  res.json(item);
-});
-
-app.post("/api/content-production", async (req, res) => {
-  try {
-    const data = await loadData();
-    const item = normalizeContentProduction(req.body, {});
-    item.id = nextId(data.contentProduction, "CP");
-    const now = new Date().toISOString();
-    item.activity = [{ id: `ACT-${Date.now()}`, timestamp: now, action: `Content planned for shoot by ${item.shootBy}`, user: req.user.name, note: item.contentTitle }];
-    data.contentProduction.unshift(item);
-    await saveData(data);
-    await logActivity(dbq(), req.user, "content_create", "content-production", item.id, `Created ${item.contentTitle}`);
-    res.status(201).json(item);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.put("/api/content-production/:id", async (req, res) => {
-  try {
-    const data = await loadData();
-    const idx = data.contentProduction.findIndex(x => x.id === req.params.id);
-    if (idx < 0) return res.status(404).json({ error: "Content production item not found" });
-    const prev = data.contentProduction[idx];
-    const updated = normalizeContentProduction(req.body, prev);
-    updated.stage = prev.stage;
-    updated.activity = [...(prev.activity || []), { id: `ACT-${Date.now()}`, timestamp: new Date().toISOString(), action: "Content details updated", user: req.user.name }];
-    data.contentProduction[idx] = updated;
-    await saveData(data);
-    await logActivity(dbq(), req.user, "content_update", "content-production", updated.id, `Updated ${updated.contentTitle}`);
-    res.json(updated);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.patch("/api/content-production/:id/stage", async (req, res) => {
-  try {
-    const data = await loadData();
-    const idx = data.contentProduction.findIndex(x => x.id === req.params.id);
-    if (idx < 0) return res.status(404).json({ error: "Content production item not found" });
-    const item = data.contentProduction[idx];
-    const next = String(req.body.stage || "");
-    const allowed = { "Shoot Planned": "Assigned to Editor", "Assigned to Editor": "Upload", "Upload": "Completed" };
-    if (allowed[item.stage] !== next) return res.status(400).json({ error: `Invalid transition from ${item.stage}. Next stage: ${allowed[item.stage] || "None"}` });
-    const now = new Date().toISOString();
-    item.stage = next;
-    if (next === "Assigned to Editor") { item.editor = String(req.body.editor || item.editor || "Unassigned").trim(); item.assignedDate = req.body.assignedDate || now.slice(0,10); }
-    if (next === "Upload") { item.uploadDate = req.body.uploadDate || now.slice(0,10); item.uploadedBy = String(req.body.uploadedBy || req.user.name).trim(); }
-    if (next === "Completed") { item.completionDate = req.body.completionDate || now.slice(0,10); item.completedBy = String(req.body.completedBy || req.user.name).trim(); }
-    item.updatedAt = now;
-    item.activity = [{ id: `ACT-${Date.now()}`, timestamp: now, action: `Stage changed to ${next}`, user: req.user.name }, ...(item.activity || [])];
-    await saveData(data);
-    await logActivity(dbq(), req.user, "content_stage", "content-production", item.id, `${item.contentTitle} → ${next}`);
-    res.json(item);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post("/api/content-production/:id/duplicate", async (req, res) => {
-  try {
-    const data = await loadData();
-    const src = data.contentProduction.find(x => x.id === req.params.id);
-    if (!src) return res.status(404).json({ error: "Source content not found" });
-    const now = new Date().toISOString();
-    const copy = { ...src, id: nextId(data.contentProduction, "CP"), contentTitle: `${src.contentTitle} (Copy)`, contentName: `${src.contentTitle} (Copy)`, stage: "Shoot Planned", shootPlannedDate: now.slice(0,10), dueDate: now.slice(0,10), editor: "", assignedDate: "", uploadDate: "", uploadedBy: "", completionDate: "", completedBy: "", revisionHistory: [], activity: [{ id:`ACT-${Date.now()}`, timestamp:now, action:`Duplicated from ${src.id}`, user:req.user.name }], createdAt: now.slice(0,10), updatedAt: now };
-    data.contentProduction.unshift(copy);
-    await saveData(data);
-    res.status(201).json(copy);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post("/api/content-production/:id/revisions", async (req, res) => {
-  try {
-    const data = await loadData();
-    const idx = data.contentProduction.findIndex(x => x.id === req.params.id);
-    if (idx < 0) return res.status(404).json({ error: "Content production item not found" });
-    const item = data.contentProduction[idx];
-    const now = new Date().toISOString();
-    const rev = { id:`REV-${Date.now()}`, revisionNumber:(item.revisionHistory || []).length + 1, requestedAt:now.slice(0,10), requestedBy:String(req.body.requestedBy || "Client").trim(), feedback:String(req.body.feedback || "Revision requested").trim(), status:"Pending" };
-    item.revisionHistory = [rev, ...(item.revisionHistory || [])];
-    item.stage = item.stage === "Completed" ? "Upload" : item.stage;
-    item.updatedAt = now;
-    item.activity = [{ id:`ACT-${Date.now()}`, timestamp:now, action:`Revision #${rev.revisionNumber} recorded`, user:req.user.name, note:rev.feedback }, ...(item.activity || [])];
-    await saveData(data);
-    res.status(201).json(item);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.patch("/api/content-production/:id/revisions/:revId", async (req, res) => {
-  try {
-    const data = await loadData();
-    const idx = data.contentProduction.findIndex(x => x.id === req.params.id);
-    if (idx < 0) return res.status(404).json({ error: "Content production item not found" });
-    const item = data.contentProduction[idx];
-    const ri = (item.revisionHistory || []).findIndex(r => r.id === req.params.revId);
-    if (ri < 0) return res.status(404).json({ error: "Revision not found" });
-    const r = item.revisionHistory[ri];
-    if (req.body.status) r.status = req.body.status;
-    if (r.status === "Resolved") r.resolvedAt = req.body.resolvedAt || new Date().toISOString().slice(0,10);
-    if (req.body.resolvedNotes !== undefined) r.resolvedNotes = req.body.resolvedNotes;
-    item.updatedAt = new Date().toISOString();
-    await saveData(data);
-    res.json(item);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.delete("/api/content-production/:id", async (req, res) => {
-  try {
-    const data = await loadData();
-    const idx = data.contentProduction.findIndex(x => x.id === req.params.id);
-    if (idx < 0) return res.status(404).json({ error: "Content production item not found" });
-    const removed = data.contentProduction.splice(idx, 1)[0];
-    await saveData(data);
-    await logActivity(dbq(), req.user, "content_delete", "content-production", removed.id, `Deleted ${removed.contentTitle}`);
-    res.json({ message: "Content production item deleted successfully" });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
 
 /* ---------------------------------------------------------------------- */
 /* One-Time Jobs / Packages                                               */
@@ -2744,6 +2563,129 @@ app.get("/api/clients/:key/overview", async (req, res) => {
 });
 
 
+
+/* ---------------------------------------------------------------------- */
+/* WORK — migrated from legacy AgencyOS                                 */
+/* ---------------------------------------------------------------------- */
+const WORK_STAGES = ["Shoot Planned","Assigned to Editor","Upload","Revision","Completed"];
+const nextWorkId = (list, prefix) => {
+  let max = 1000;
+  for (const x of list || []) { const m = new RegExp(`^${prefix}-(\\d+)$`).exec(String(x.id || "")); if (m) max = Math.max(max, Number(m[1])); }
+  return `${prefix}-${max + 1}`;
+};
+const cleanText = (v, fallback="") => String(v ?? fallback).trim();
+
+app.get("/api/work/summary", async (req,res) => {
+  const d=await loadData();
+  const today=new Date().toISOString().slice(0,10);
+  res.json({
+    production:{total:d.contentProduction.length,active:d.contentProduction.filter(x=>x.stage!=="Completed").length,completed:d.contentProduction.filter(x=>x.stage==="Completed").length,overdue:d.contentProduction.filter(x=>x.stage!=="Completed" && (x.dueDate||"")<today && x.dueDate).length},
+    shoots:{total:d.shoots.length,planned:d.shoots.filter(x=>x.status==="Planned").length,completed:d.shoots.filter(x=>x.status==="Completed").length},
+    social:{posts:d.socialMediaPosts.length,published:d.socialMediaPosts.filter(x=>x.status==="Published").length,pending:d.socialMediaPosts.filter(x=>x.status!=="Published").length,cycles:d.monthlyCycles.length},
+    festival:{total:d.festivalOrders.length,pending:d.festivalOrders.filter(x=>x.stage!=="Completed").length,completed:d.festivalOrders.filter(x=>x.stage==="Completed").length}
+  });
+});
+
+app.get("/api/production", async (req,res)=>{
+  const d=await loadData(); let a=d.contentProduction.slice();
+  const q=cleanText(req.query.search).toLowerCase(), stage=cleanText(req.query.stage), editor=cleanText(req.query.editor);
+  if(q) a=a.filter(x=>[x.clientName,x.contentTitle,x.type,x.platform,x.shootCategory,x.editor,x.shootBy].some(v=>String(v||"").toLowerCase().includes(q)));
+  if(stage && stage!=="all") a=a.filter(x=>x.stage===stage);
+  if(editor && editor!=="all") a=a.filter(x=>(x.editor||"")===editor);
+  a.sort((x,y)=>String(y.createdAt||"").localeCompare(String(x.createdAt||"")));
+  res.json(a);
+});
+app.get("/api/production/:id", async (req,res)=>{ const d=await loadData(); const x=d.contentProduction.find(x=>x.id===req.params.id); if(!x)return res.status(404).json({error:"Content not found"}); res.json(x); });
+app.post("/api/production", async (req,res)=>{
+  const d=await loadData(), b=req.body||{}; const item={
+    id:nextWorkId(d.contentProduction,"CP"), clientId:cleanText(b.clientId), clientName:cleanText(b.clientName,"Unknown Client"), clientMobile:cleanText(b.clientMobile),
+    contentTitle:cleanText(b.contentTitle,"Untitled Content"), type:cleanText(b.type,"Reel"), shootCategory:cleanText(b.shootCategory,"Other"), platform:cleanText(b.platform,"Instagram"),
+    stage:WORK_STAGES.includes(b.stage)?b.stage:"Shoot Planned", shootPlannedDate:cleanText(b.shootPlannedDate), shootDate:cleanText(b.shootDate), shootBy:cleanText(b.shootBy,"Dasev"),
+    editor:cleanText(b.editor), assignedDate:cleanText(b.assignedDate), dueDate:cleanText(b.dueDate), priority:cleanText(b.priority,"Medium"), notes:cleanText(b.notes), aspectRatio:cleanText(b.aspectRatio,"9:16"), reelNumber:cleanText(b.reelNumber),
+    activity:[{id:`ACT-${Date.now()}`,timestamp:new Date().toISOString(),action:`Content created — ${cleanText(b.contentTitle,"Untitled Content")}`}], revisionHistory:[], createdAt:new Date().toISOString().slice(0,10)
+  }; d.contentProduction.unshift(item); await saveData(d); res.status(201).json(item);
+});
+app.put("/api/production/:id", async (req,res)=>{ const d=await loadData(), i=d.contentProduction.findIndex(x=>x.id===req.params.id); if(i<0)return res.status(404).json({error:"Content not found"}); const before=d.contentProduction[i]; d.contentProduction[i]={...before,...req.body,id:before.id,activity:before.activity||[],revisionHistory:before.revisionHistory||[]}; await saveData(d); res.json(d.contentProduction[i]); });
+app.patch("/api/production/:id/stage", async (req,res)=>{ const d=await loadData(), i=d.contentProduction.findIndex(x=>x.id===req.params.id); if(i<0)return res.status(404).json({error:"Content not found"}); const x=d.contentProduction[i], next=cleanText(req.body.stage); if(!WORK_STAGES.includes(next))return res.status(400).json({error:"Invalid stage"}); x.activity=[...(x.activity||[]),{id:`ACT-${Date.now()}`,timestamp:new Date().toISOString(),action:`Stage changed: ${x.stage} → ${next}`}]; x.stage=next; if(next==="Completed")x.completedDate=new Date().toISOString().slice(0,10); await saveData(d); res.json(x); });
+app.post("/api/production/:id/revisions", async (req,res)=>{ const d=await loadData(), i=d.contentProduction.findIndex(x=>x.id===req.params.id); if(i<0)return res.status(404).json({error:"Content not found"}); const x=d.contentProduction[i], r={id:`REV-${Date.now()}`,revisionNumber:(x.revisionHistory||[]).length+1,requestedBy:cleanText(req.body.requestedBy,"Client"),feedback:cleanText(req.body.feedback),status:"Open",createdAt:new Date().toISOString()}; x.revisionHistory=[...(x.revisionHistory||[]),r]; x.stage="Revision"; await saveData(d); res.status(201).json(r); });
+app.patch("/api/production/:id/revisions/:rid", async(req,res)=>{ const d=await loadData(), i=d.contentProduction.findIndex(x=>x.id===req.params.id); if(i<0)return res.status(404).json({error:"Content not found"}); const x=d.contentProduction[i],r=(x.revisionHistory||[]).find(r=>r.id===req.params.rid); if(!r)return res.status(404).json({error:"Revision not found"}); Object.assign(r,req.body); await saveData(d); res.json(r); });
+app.post("/api/production/:id/duplicate", async(req,res)=>{ const d=await loadData(), src=d.contentProduction.find(x=>x.id===req.params.id); if(!src)return res.status(404).json({error:"Content not found"}); const copy={...src,id:nextWorkId(d.contentProduction,"CP"),contentTitle:`${src.contentTitle} — Copy`,stage:"Shoot Planned",createdAt:new Date().toISOString().slice(0,10),activity:[],revisionHistory:[]}; d.contentProduction.unshift(copy); await saveData(d); res.status(201).json(copy); });
+app.delete("/api/production/:id", async(req,res)=>{ const d=await loadData(),i=d.contentProduction.findIndex(x=>x.id===req.params.id); if(i<0)return res.status(404).json({error:"Content not found"}); d.contentProduction.splice(i,1); await saveData(d); res.json({success:true}); });
+
+app.get("/api/shoots", async(req,res)=>{ const d=await loadData(); let a=d.shoots.slice(); const q=cleanText(req.query.search).toLowerCase(); if(q)a=a.filter(x=>[x.title,x.clientName,x.location,x.shootType].some(v=>String(v||"").toLowerCase().includes(q))); res.json(a.sort((x,y)=>String(y.shootDate||"").localeCompare(String(x.shootDate||"")))); });
+app.get("/api/shoots/:id", async(req,res)=>{ const d=await loadData(),x=d.shoots.find(x=>x.id===req.params.id); if(!x)return res.status(404).json({error:"Shoot not found"}); res.json({...x,linkedContentItems:d.contentProduction.filter(c=>c.shootId===x.id||(x.linkedContentIds||[]).includes(c.id))}); });
+app.post("/api/shoots", async(req,res)=>{ const d=await loadData(),b=req.body||{},x={id:nextWorkId(d.shoots,"SHT"),clientId:cleanText(b.clientId),clientName:cleanText(b.clientName,"Unknown Client"),clientMobile:cleanText(b.clientMobile),title:cleanText(b.title,"Content Shoot"),shootType:cleanText(b.shootType,"Reels Batch"),shootDate:cleanText(b.shootDate),callTime:cleanText(b.callTime),wrapTime:cleanText(b.wrapTime),location:cleanText(b.location),status:cleanText(b.status,"Planned"),crew:Array.isArray(b.crew)?b.crew:[],gearChecklist:Array.isArray(b.gearChecklist)?b.gearChecklist:[],plannedDeliverables:b.plannedDeliverables||{reelsCount:0,photosCount:0,longVideosCount:0,shotListNotes:""},driveLinks:b.driveLinks||{},expenses:Array.isArray(b.expenses)?b.expenses:[],linkedContentIds:[],notes:cleanText(b.notes),createdAt:new Date().toISOString().slice(0,10)}; d.shoots.unshift(x); await saveData(d); res.status(201).json(x); });
+app.put("/api/shoots/:id", async(req,res)=>{ const d=await loadData(),i=d.shoots.findIndex(x=>x.id===req.params.id); if(i<0)return res.status(404).json({error:"Shoot not found"}); d.shoots[i]={...d.shoots[i],...req.body,id:d.shoots[i].id}; await saveData(d); res.json(d.shoots[i]); });
+app.patch("/api/shoots/:id/status", async(req,res)=>{ const d=await loadData(),x=d.shoots.find(x=>x.id===req.params.id); if(!x)return res.status(404).json({error:"Shoot not found"}); x.status=cleanText(req.body.status,x.status); await saveData(d); res.json(x); });
+app.post("/api/shoots/:id/create-content-items", async(req,res)=>{ const d=await loadData(),x=d.shoots.find(x=>x.id===req.params.id); if(!x)return res.status(404).json({error:"Shoot not found"}); const titles=Array.isArray(req.body.titles)?req.body.titles:[]; const n=Math.max(titles.length,Number(req.body.count)||Number(x.plannedDeliverables?.reelsCount)||0); const made=[]; for(let i=0;i<n;i++){const c={id:nextWorkId([...d.contentProduction,...made],"CP"),clientId:x.clientId,clientName:x.clientName,clientMobile:x.clientMobile,contentTitle:titles[i]||`${x.title} - Reel #${i+1}`,type:"Reel",shootCategory:"Other",platform:"Instagram",stage:"Shoot Planned",shootPlannedDate:x.shootDate,shootDate:x.shootDate,shootBy:(x.crew?.[0]?.name)||"Dasev",editor:"",dueDate:"",priority:"Medium",notes:`Generated from Shoot ${x.id}`,aspectRatio:"9:16",reelNumber:`#${i+1}`,shootId:x.id,activity:[],revisionHistory:[],createdAt:new Date().toISOString().slice(0,10)}; d.contentProduction.unshift(c); made.push(c); x.linkedContentIds=[...(x.linkedContentIds||[]),c.id]; } await saveData(d); res.status(201).json({createdItems:made,shoot:x}); });
+app.delete("/api/shoots/:id", async(req,res)=>{ const d=await loadData(),i=d.shoots.findIndex(x=>x.id===req.params.id); if(i<0)return res.status(404).json({error:"Shoot not found"}); d.shoots.splice(i,1); await saveData(d); res.json({success:true}); });
+
+app.get("/api/designs", async(req,res)=>{ const d=await loadData(); let a=d.designs.slice(); const q=cleanText(req.query.search).toLowerCase(); if(q)a=a.filter(x=>[x.title,x.clientName,x.category,x.designer,x.stage].some(v=>String(v||"").toLowerCase().includes(q))); res.json(a); });
+app.post("/api/designs", async(req,res)=>{ const d=await loadData(),b=req.body||{},x={id:nextWorkId(d.designs,"DES"),clientId:cleanText(b.clientId),clientName:cleanText(b.clientName,"Unknown Client"),clientMobile:cleanText(b.clientMobile),title:cleanText(b.title,"Untitled Design"),category:cleanText(b.category,"Post"),aspectRatio:cleanText(b.aspectRatio,"4:5"),designer:cleanText(b.designer,"Unassigned"),stage:cleanText(b.stage,"Brief"),priority:cleanText(b.priority,"Medium"),dates:b.dates||{},driveLinks:b.driveLinks||{},revisions:Array.isArray(b.revisions)?b.revisions:[],waitingOn:cleanText(b.waitingOn,"None"),specifications:cleanText(b.specifications),notes:cleanText(b.notes),createdAt:new Date().toISOString().slice(0,10)}; d.designs.unshift(x); await saveData(d); res.status(201).json(x); });
+app.put("/api/designs/:id", async(req,res)=>{ const d=await loadData(),i=d.designs.findIndex(x=>x.id===req.params.id); if(i<0)return res.status(404).json({error:"Design not found"}); d.designs[i]={...d.designs[i],...req.body,id:d.designs[i].id}; await saveData(d); res.json(d.designs[i]); });
+app.delete("/api/designs/:id", async(req,res)=>{ const d=await loadData(),i=d.designs.findIndex(x=>x.id===req.params.id); if(i<0)return res.status(404).json({error:"Design not found"}); d.designs.splice(i,1); await saveData(d); res.json({success:true}); });
+
+app.get("/api/social-media/posts", async(req,res)=>{ const d=await loadData(); let a=d.socialMediaPosts.slice(); const q=cleanText(req.query.search).toLowerCase(); if(q)a=a.filter(x=>[x.title,x.clientName,x.platform,x.contentType,x.status].some(v=>String(v||"").toLowerCase().includes(q))); res.json(a); });
+app.post("/api/social-media/posts", async(req,res)=>{ const d=await loadData(),b=req.body||{},x={id:nextWorkId(d.socialMediaPosts,"SMP"),clientId:cleanText(b.clientId),clientName:cleanText(b.clientName,"Unknown Client"),clientMobile:cleanText(b.clientMobile),platform:cleanText(b.platform,"Instagram"),contentType:cleanText(b.contentType,"Post"),title:cleanText(b.title,"Untitled Post"),caption:cleanText(b.caption),hashtags:cleanText(b.hashtags),scheduledDate:cleanText(b.scheduledDate),scheduledTime:cleanText(b.scheduledTime),status:cleanText(b.status,"Draft"),linkedProductionId:cleanText(b.linkedProductionId),mediaAssetUrl:cleanText(b.mediaAssetUrl),accountManager:cleanText(b.accountManager),notes:cleanText(b.notes),createdAt:new Date().toISOString().slice(0,10)}; d.socialMediaPosts.unshift(x); await saveData(d); res.status(201).json(x); });
+app.put("/api/social-media/posts/:id", async(req,res)=>{ const d=await loadData(),i=d.socialMediaPosts.findIndex(x=>x.id===req.params.id); if(i<0)return res.status(404).json({error:"Social post not found"}); d.socialMediaPosts[i]={...d.socialMediaPosts[i],...req.body,id:d.socialMediaPosts[i].id}; await saveData(d); res.json(d.socialMediaPosts[i]); });
+app.delete("/api/social-media/posts/:id", async(req,res)=>{ const d=await loadData(),i=d.socialMediaPosts.findIndex(x=>x.id===req.params.id); if(i<0)return res.status(404).json({error:"Social post not found"}); d.socialMediaPosts.splice(i,1); await saveData(d); res.json({success:true}); });
+
+/* ---------------------------------------------------------------------- */
+/* Social Media Management — package-wise client tracking                 */
+/* ---------------------------------------------------------------------- */
+function smMonthKey(value){
+  const v=String(value||"").trim();
+  if(/^\d{4}-\d{2}$/.test(v)) return v;
+  const d=new Date(v);
+  if(!Number.isNaN(d.getTime())) return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+  const m=v.match(/^([A-Za-z]+)\s+(\d{4})$/);
+  if(m){ const n=new Date(`${m[1]} 1, ${m[2]}`); if(!Number.isNaN(n.getTime())) return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`; }
+  const now=new Date(); return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+}
+function smMonthLabel(key){ const [y,m]=smMonthKey(key).split("-").map(Number); return new Date(y,m-1,1).toLocaleString("en-IN",{month:"long",year:"numeric"}); }
+function smEnsureCycle(pkg, data, monthKey){
+  const key=smMonthKey(monthKey);
+  let c=(data.monthlyCycles||[]).find(x=>String(x.packageId||"")===String(pkg.id) && smMonthKey(x.monthKey||x.month)===key);
+  if(c) return c;
+  const pTargets=(pkg.platforms||[]).reduce((a,p)=>({posts:a.posts+Number(p.posts)||0,reels:a.reels+Number(p.reels)||0,stories:a.stories+Number(p.stories)||0}),{posts:0,reels:0,stories:0});
+  c={id:`CYC-SM-${Date.now()}`,packageId:pkg.id,packageName:pkg.name,clientId:pkg.clientId||"",clientName:pkg.clientName,clientMobile:pkg.clientMobile,monthKey:key,month:smMonthLabel(key),stage:"Plan",status:"Active",targets:{...pTargets,shoots:0},completed:{posts:0,reels:0,stories:0,shoots:0},adsIncluded:false,agencyAdFee:0,clientAdBudget:0,actualAdSpend:0,adCampaigns:[],contentItems:[],performance:{reach:0,impressions:0,messages:0,leads:0,profileVisits:0,engagements:0},activity:[],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
+  data.monthlyCycles.unshift(c); return c;
+}
+function smCycleStats(c){
+  const items=Array.isArray(c?.contentItems)?c.contentItems:[];
+  const by=(kind)=>{const a=items.filter(x=>String(x.contentType||"").toLowerCase()===kind); const published=a.filter(x=>x.status==="Published").length; return {total:Number(c?.targets?.[kind+"s"])||0,created:a.length,published,pending:Math.max(0,(Number(c?.targets?.[kind+"s"])||0)-published)};};
+  const posts=by("post"), reels=by("reel"), stories=by("story");
+  const ads=Array.isArray(c?.adCampaigns)?c.adCampaigns:[];
+  const spend=ads.reduce((n,a)=>n+(Number(a.actualSpend)||0),0);
+  return {posts,reels,stories,shoots:{total:Number(c?.targets?.shoots)||0,done:Number(c?.completed?.shoots)||0},published:posts.published+reels.published+stories.published,boosted:items.filter(x=>x.boosted).length,adSpend:spend,adBudget:Number(c?.clientAdBudget)||0,remainingAdBudget:Math.max(0,(Number(c?.clientAdBudget)||0)-spend),ads};
+}
+app.get("/api/social-management/packages", async(req,res)=>{
+  try{ const d=await loadData(); const month=smMonthKey(req.query.month); const list=d.packages.filter(p=>p.type==="Management" && (!req.query.search || `${p.clientName} ${p.name}`.toLowerCase().includes(String(req.query.search).toLowerCase()))).map(p=>{const c=smEnsureCycle(p,d,month); const st=smCycleStats(c); return {...p,monthKey:month,cycleId:c.id,stats:st};}); if(list.length) await saveData(d); res.json(list); }catch(e){res.status(500).json({error:e.message});}
+});
+app.get("/api/social-management/packages/:id/dashboard", async(req,res)=>{
+  try{ const d=await loadData(); const p=d.packages.find(x=>x.id===req.params.id && x.type==="Management"); if(!p)return res.status(404).json({error:"Management package not found"}); const month=smMonthKey(req.query.month); const c=smEnsureCycle(p,d,month); if(!c.contentItems) c.contentItems=[]; if(!c.adCampaigns)c.adCampaigns=[]; if(!c.performance)c.performance={reach:0,impressions:0,messages:0,leads:0,profileVisits:0,engagements:0}; if(!c.activity)c.activity=[]; const st=smCycleStats(c); if(st.adSpend!==Number(c.actualAdSpend||0))c.actualAdSpend=st.adSpend; await saveData(d); res.json({package:p,cycle:c,stats:st,history:d.monthlyCycles.filter(x=>x.packageId===p.id).sort((a,b)=>String(b.monthKey||b.month).localeCompare(String(a.monthKey||a.month))).map(x=>({monthKey:x.monthKey||smMonthKey(x.month),month:x.month,stage:x.stage,status:x.status,stats:smCycleStats(x)}))}); }catch(e){res.status(500).json({error:e.message});}
+});
+app.post("/api/social-management/packages/:id/cycles", async(req,res)=>{
+  try{const d=await loadData(); const p=d.packages.find(x=>x.id===req.params.id&&x.type==="Management"); if(!p)return res.status(404).json({error:"Management package not found"}); const key=smMonthKey(req.body.monthKey||req.body.month); const existing=d.monthlyCycles.find(x=>x.packageId===p.id&&smMonthKey(x.monthKey||x.month)===key); if(existing)return res.status(409).json({error:"Aa month nu cycle already exists"}); const c=smEnsureCycle({...p,platforms:p.platforms},d,key); c.targets={posts:Number(req.body.targets?.posts)||0,reels:Number(req.body.targets?.reels)||0,stories:Number(req.body.targets?.stories)||0,shoots:Number(req.body.targets?.shoots)||0}; c.clientAdBudget=Number(req.body.clientAdBudget)||0;c.agencyAdFee=Number(req.body.agencyAdFee)||0;c.adsIncluded=!!req.body.adsIncluded;c.notes=cleanText(req.body.notes);await saveData(d);res.status(201).json(c);}catch(e){res.status(500).json({error:e.message});}
+});
+app.put("/api/social-management/cycles/:id", async(req,res)=>{try{const d=await loadData();const c=d.monthlyCycles.find(x=>x.id===req.params.id);if(!c)return res.status(404).json({error:"Cycle not found"});Object.assign(c,req.body,{id:c.id,updatedAt:new Date().toISOString()});if(req.body.monthKey)c.month=smMonthLabel(req.body.monthKey);await saveData(d);res.json(c);}catch(e){res.status(500).json({error:e.message});}});
+app.post("/api/social-management/cycles/:id/content", async(req,res)=>{try{const d=await loadData();const c=d.monthlyCycles.find(x=>x.id===req.params.id);if(!c)return res.status(404).json({error:"Cycle not found"});const b=req.body||{};const type=["Post","Reel","Story"].includes(b.contentType)?b.contentType:"Post";const x={id:`SMC-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,clientId:c.clientId,clientName:c.clientName,packageId:c.packageId,cycleId:c.id,title:cleanText(b.title,"Untitled Content"),contentType:type,platform:cleanText(b.platform,"Instagram"),status:cleanText(b.status,"Planned"),scheduledDate:cleanText(b.scheduledDate),scheduledTime:cleanText(b.scheduledTime),assignedTo:cleanText(b.assignedTo),editor:cleanText(b.editor),mediaAssetUrl:cleanText(b.mediaAssetUrl),caption:cleanText(b.caption),hashtags:cleanText(b.hashtags),linkedProductionId:cleanText(b.linkedProductionId),boosted:!!b.boosted,boostSpend:Number(b.boostSpend)||0,notes:cleanText(b.notes),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};c.contentItems=Array.isArray(c.contentItems)?c.contentItems:[];c.contentItems.unshift(x);c.activity=Array.isArray(c.activity)?c.activity:[];c.activity.unshift({at:new Date().toISOString(),action:"Content added",summary:`${type}: ${x.title}`});await saveData(d);res.status(201).json(x);}catch(e){res.status(500).json({error:e.message});}});
+app.put("/api/social-management/content/:id", async(req,res)=>{try{const d=await loadData();let found;for(const c of d.monthlyCycles||[]){const i=(c.contentItems||[]).findIndex(x=>x.id===req.params.id);if(i>=0){c.contentItems[i]={...c.contentItems[i],...req.body,id:req.params.id,updatedAt:new Date().toISOString()};found=c.contentItems[i];break;}}if(!found)return res.status(404).json({error:"Content not found"});await saveData(d);res.json(found);}catch(e){res.status(500).json({error:e.message});}});
+app.delete("/api/social-management/content/:id", async(req,res)=>{try{const d=await loadData();for(const c of d.monthlyCycles||[]){const i=(c.contentItems||[]).findIndex(x=>x.id===req.params.id);if(i>=0){c.contentItems.splice(i,1);await saveData(d);return res.json({success:true});}}res.status(404).json({error:"Content not found"});}catch(e){res.status(500).json({error:e.message});}});
+app.post("/api/social-management/cycles/:id/ads", async(req,res)=>{try{const d=await loadData();const c=d.monthlyCycles.find(x=>x.id===req.params.id);if(!c)return res.status(404).json({error:"Cycle not found"});const b=req.body||{};const a={id:`ADS-${Date.now()}`,campaign:cleanText(b.campaign,"Untitled Campaign"),platform:cleanText(b.platform,"Instagram"),contentId:cleanText(b.contentId),objective:cleanText(b.objective,"Engagement"),startDate:cleanText(b.startDate),endDate:cleanText(b.endDate),plannedBudget:Number(b.plannedBudget)||0,actualSpend:Number(b.actualSpend)||0,status:cleanText(b.status,"Running"),reach:Number(b.reach)||0,impressions:Number(b.impressions)||0,messages:Number(b.messages)||0,leads:Number(b.leads)||0,profileVisits:Number(b.profileVisits)||0,engagements:Number(b.engagements)||0,notes:cleanText(b.notes),createdAt:new Date().toISOString()};c.adCampaigns=Array.isArray(c.adCampaigns)?c.adCampaigns:[];c.adCampaigns.unshift(a);c.actualAdSpend=c.adCampaigns.reduce((n,x)=>n+(Number(x.actualSpend)||0),0);await saveData(d);res.status(201).json(a);}catch(e){res.status(500).json({error:e.message});}});
+app.put("/api/social-management/ads/:id", async(req,res)=>{try{const d=await loadData();let found;for(const c of d.monthlyCycles||[]){const i=(c.adCampaigns||[]).findIndex(x=>x.id===req.params.id);if(i>=0){c.adCampaigns[i]={...c.adCampaigns[i],...req.body,id:req.params.id};c.actualAdSpend=c.adCampaigns.reduce((n,x)=>n+(Number(x.actualSpend)||0),0);found=c.adCampaigns[i];break;}}if(!found)return res.status(404).json({error:"Campaign not found"});await saveData(d);res.json(found);}catch(e){res.status(500).json({error:e.message});}});
+app.delete("/api/social-management/ads/:id", async(req,res)=>{try{const d=await loadData();for(const c of d.monthlyCycles||[]){const i=(c.adCampaigns||[]).findIndex(x=>x.id===req.params.id);if(i>=0){c.adCampaigns.splice(i,1);c.actualAdSpend=c.adCampaigns.reduce((n,x)=>n+(Number(x.actualSpend)||0),0);await saveData(d);return res.json({success:true});}}res.status(404).json({error:"Campaign not found"});}catch(e){res.status(500).json({error:e.message});}});
+app.put("/api/social-management/cycles/:id/performance", async(req,res)=>{try{const d=await loadData();const c=d.monthlyCycles.find(x=>x.id===req.params.id);if(!c)return res.status(404).json({error:"Cycle not found"});c.performance={...(c.performance||{}),reach:Number(req.body.reach)||0,impressions:Number(req.body.impressions)||0,messages:Number(req.body.messages)||0,leads:Number(req.body.leads)||0,profileVisits:Number(req.body.profileVisits)||0,engagements:Number(req.body.engagements)||0};await saveData(d);res.json(c.performance);}catch(e){res.status(500).json({error:e.message});}});
+
+app.get("/api/monthly-cycles", async(req,res)=>{ const d=await loadData(); res.json(d.monthlyCycles); });
+app.post("/api/monthly-cycles", async(req,res)=>{ const d=await loadData(),b=req.body||{},month=cleanText(b.month,new Date().toLocaleString("en-IN",{month:"long",year:"numeric"})); const x={id:`CYC-${month.replace(/[^0-9A-Za-z]/g,"")}-${Date.now().toString().slice(-4)}`,...b,month,status:b.status||"Active",stage:b.stage||"Plan",targets:b.targets||{posts:0,reels:0,stories:0,shoots:0},completed:b.completed||{posts:0,reels:0,stories:0,shoots:0},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}; d.monthlyCycles.unshift(x); await saveData(d); res.status(201).json(x); });
+app.put("/api/monthly-cycles/:id", async(req,res)=>{ const d=await loadData(),i=d.monthlyCycles.findIndex(x=>x.id===req.params.id); if(i<0)return res.status(404).json({error:"Cycle not found"}); d.monthlyCycles[i]={...d.monthlyCycles[i],...req.body,id:d.monthlyCycles[i].id,updatedAt:new Date().toISOString()}; await saveData(d); res.json(d.monthlyCycles[i]); });
+
+app.get("/api/festival-orders", async(req,res)=>{ const d=await loadData(); let a=d.festivalOrders.slice(); const q=cleanText(req.query.search).toLowerCase(); if(q)a=a.filter(x=>[x.clientName,x.businessName,x.clientMobile,x.stage,x.paymentStatus,x.deliveryStatus].some(v=>String(v||"").toLowerCase().includes(q))); res.json(a); });
+app.post("/api/festival-orders", async(req,res)=>{ const d=await loadData(),b=req.body||{},x={id:`FEST-${Date.now()}`,clientName:cleanText(b.clientName),businessName:cleanText(b.businessName),clientMobile:cleanText(b.clientMobile),instagram:cleanText(b.instagram),plan:cleanText(b.plan,"₹299"),amount:Number(b.amount)||0,paidAmount:Number(b.paidAmount)||0,pendingAmount:Math.max(0,(Number(b.amount)||0)-(Number(b.paidAmount)||0)),paymentStatus:cleanText(b.paymentStatus,"Pending"),deliveryStatus:cleanText(b.deliveryStatus,"Pending"),stage:cleanText(b.stage,"New"),createdDate:new Date().toISOString().slice(0,10),driveLink:cleanText(b.driveLink),sentDate:cleanText(b.sentDate),completedDate:cleanText(b.completedDate),notes:cleanText(b.notes),activity:[]}; d.festivalOrders.unshift(x); await saveData(d); res.status(201).json(x); });
+app.put("/api/festival-orders/:id", async(req,res)=>{ const d=await loadData(),i=d.festivalOrders.findIndex(x=>x.id===req.params.id); if(i<0)return res.status(404).json({error:"Festival order not found"}); const x={...d.festivalOrders[i],...req.body,id:d.festivalOrders[i].id}; x.pendingAmount=Math.max(0,(Number(x.amount)||0)-(Number(x.paidAmount)||0)); d.festivalOrders[i]=x; await saveData(d); res.json(x); });
+app.delete("/api/festival-orders/:id", async(req,res)=>{ const d=await loadData(),i=d.festivalOrders.findIndex(x=>x.id===req.params.id); if(i<0)return res.status(404).json({error:"Festival order not found"}); d.festivalOrders.splice(i,1); await saveData(d); res.json({success:true}); });
+
 /* ---------------------------------------------------------------------- */
 /* Categories                                                             */
 /* ---------------------------------------------------------------------- */
@@ -3003,8 +2945,7 @@ app.post("/api/restore", upload.single("backupFile"), reenterDb, async (req, res
       clientProfiles: parsed.clientProfiles && typeof parsed.clientProfiles === "object" ? parsed.clientProfiles : {},
       clientIds: parsed.clientIds && typeof parsed.clientIds === "object" ? parsed.clientIds : {},
       calendarEvents: Array.isArray(parsed.calendarEvents) ? parsed.calendarEvents : [],
-      platformOptions: Array.isArray(parsed.platformOptions) ? parsed.platformOptions : [...DEFAULT_DATA.platformOptions],
-      contentProduction: Array.isArray(parsed.contentProduction) ? parsed.contentProduction : []
+      platformOptions: Array.isArray(parsed.platformOptions) ? parsed.platformOptions : [...DEFAULT_DATA.platformOptions]
     };
     await saveData(restored);
     res.json({ success: true, message: "Backup restored successfully" });
