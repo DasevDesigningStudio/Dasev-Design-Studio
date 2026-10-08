@@ -47,13 +47,13 @@
     <div class="nav-group-label">Work</div>
     <button type="button" class="nav-item nav-parent open" data-toggle="navWork"><i class="fa-regular fa-building"></i><span>Work</span><i class="fa-solid fa-chevron-down nav-caret"></i></button>
     <div class="nav-sub open" id="navWork">
-      <span class="nav-item nav-soon" title="Aavnari"><i class="fa-solid fa-film"></i><span>Content Production</span><em>Soon</em></span>
-      <span class="nav-item nav-soon" title="Aavnari"><i class="fa-solid fa-share-nodes"></i><span>Social Media Mgmt</span><em>Soon</em></span>
+      <a href="#work/production" class="nav-item" data-view="work"><i class="fa-solid fa-film"></i><span>Content Production</span></a>
+      <a href="#work/social" class="nav-item" data-view="work"><i class="fa-solid fa-share-nodes"></i><span>Social Media Mgmt</span></a>
       <a href="#clients" class="nav-item" data-goto="clients" title="Client kholine One-Time Jobs jovo"><i class="fa-solid fa-box"></i><span>One-Time Jobs</span></a>
       <div class="nav-sub-label"><i class="fa-solid fa-cube"></i> Packages</div>
       <a href="#packages" class="nav-item nav-deep" data-view="packages"><i class="fa-solid fa-pen-ruler"></i><span>Design &amp; Reel</span></a>
       <a href="#clients" class="nav-item nav-deep" data-goto="clients"><i class="fa-solid fa-bars-progress"></i><span>Management</span></a>
-      <span class="nav-item nav-deep nav-soon" title="Aavnari"><i class="fa-solid fa-gift"></i><span>64 Festival Posts</span><em>Soon</em></span>
+      <a href="#work/festival" class="nav-item nav-deep" data-view="work"><i class="fa-solid fa-gift"></i><span>64 Festival Posts</span></a>
     </div>
 
     <div class="nav-group-label">Leads</div>
@@ -554,6 +554,40 @@
       <div id="pkDetailPage" hidden></div>
     </section>
 
+
+    <section class="view" id="view-work">
+      <div class="page-head">
+        <div><h1>Work</h1><p>Content Production · Social Media · Shoots · Designs · Festival Orders</p></div>
+        <div class="page-head-actions"><button class="btn btn-primary" id="workAddBtn"><i class="fa-solid fa-plus"></i> Add Work</button></div>
+      </div>
+      <div class="work-tabs" id="workTabs">
+        <button class="work-tab active" data-worktab="production">Content Production</button>
+        <button class="work-tab" data-worktab="social">Social Media</button>
+        <button class="work-tab" data-worktab="shoots">Shoots</button>
+        <button class="work-tab" data-worktab="designs">Design Projects</button>
+        <button class="work-tab" data-worktab="festival">64 Festival Posts</button>
+      </div>
+      <div id="workSummary" class="work-summary-grid"></div>
+      <div class="card work-panel">
+        <div class="work-toolbar">
+          <div class="toolbar-search"><i class="fa-solid fa-magnifying-glass"></i><input id="workSearch" placeholder="Search client, title, status…"></div>
+          <select id="workStageFilter"><option value="all">All Status</option><option>Shoot Planned</option><option>Assigned to Editor</option><option>Upload</option><option>Revision</option><option>Completed</option></select>
+          <button class="btn btn-ghost" id="workRefreshBtn"><i class="fa-solid fa-rotate"></i> Refresh</button>
+        </div>
+        <div id="workList"></div>
+      </div>
+    </section>
+
+    <div class="modal-overlay" id="workModalOverlay" hidden>
+      <div class="modal modal-lg">
+        <div class="modal-head"><h2 id="workModalTitle">Add Work</h2><button class="icon-btn" id="closeWorkModal"><i class="fa-solid fa-xmark"></i></button></div>
+        <form class="modal-body" id="workForm">
+          <input type="hidden" id="workEditId"><input type="hidden" id="workEditType">
+          <div id="workFormFields"></div>
+          <div class="modal-foot"><button type="button" class="btn btn-ghost" id="cancelWorkModal">Cancel</button><button class="btn btn-primary" type="submit">Save</button></div>
+        </form>
+      </div>
+    </div>
     <section class="view" id="view-reports">
       <div class="view-header">
         <div>

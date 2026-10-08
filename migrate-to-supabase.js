@@ -38,7 +38,19 @@ const data = {
     themeColor: "teal",
     darkMode: false,
     ...(raw.settings && typeof raw.settings === "object" ? raw.settings : {})
-  }
+  },
+  oneTimeJobs: Array.isArray(raw.oneTimeJobs) ? raw.oneTimeJobs : [],
+  packages: Array.isArray(raw.packages) ? raw.packages : [],
+  clientProfiles: raw.clientProfiles && typeof raw.clientProfiles === "object" ? raw.clientProfiles : {},
+  clientIds: raw.clientIds && typeof raw.clientIds === "object" ? raw.clientIds : {},
+  calendarEvents: Array.isArray(raw.calendarEvents) ? raw.calendarEvents : [],
+  platformOptions: Array.isArray(raw.platformOptions) ? raw.platformOptions : ["Instagram","Facebook","YouTube","LinkedIn","Twitter/X","Pinterest","Other"],
+  contentProduction: Array.isArray(raw.contentProduction) ? raw.contentProduction : [],
+  shoots: Array.isArray(raw.shoots) ? raw.shoots : [],
+  designs: Array.isArray(raw.designs) ? raw.designs : [],
+  socialMediaPosts: Array.isArray(raw.socialMediaPosts) ? raw.socialMediaPosts : [],
+  monthlyCycles: Array.isArray(raw.monthlyCycles) ? raw.monthlyCycles : [],
+  festivalOrders: Array.isArray(raw.festivalOrders) ? raw.festivalOrders : []
 };
 
 const pool = new Pool({
