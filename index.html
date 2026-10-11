@@ -48,8 +48,6 @@
     <button type="button" class="nav-item nav-parent open" data-toggle="navWork"><i class="fa-regular fa-building"></i><span>Work</span><i class="fa-solid fa-chevron-down nav-caret"></i></button>
     <div class="nav-sub open" id="navWork">
       <a href="#content-production" class="nav-item" data-view="content-production"><i class="fa-solid fa-film"></i><span>Content Production</span></a>
-      <a href="#work/social" class="nav-item" data-view="work"><i class="fa-solid fa-share-nodes"></i><span>Social Media Mgmt</span></a>
-      <a href="#clients" class="nav-item" data-goto="clients" title="Client kholine One-Time Jobs jovo"><i class="fa-solid fa-box"></i><span>One-Time Jobs</span></a>
       <div class="nav-sub-label"><i class="fa-solid fa-cube"></i> Packages</div>
       <a href="#packages" class="nav-item nav-deep" data-view="packages"><i class="fa-solid fa-pen-ruler"></i><span>Design &amp; Reel</span></a>
       <a href="#management" class="nav-item nav-deep" data-view="management"><i class="fa-solid fa-bars-progress"></i><span>Management</span></a>
@@ -1795,6 +1793,35 @@
       <p class="muted" style="margin-top:10px;">Keep 0 where there is no fixed target. Progress bars show only where a target is set.</p>
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" id="mpTargetCancel">Cancel</button>
+        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Management: add / edit ad -->
+<div class="modal-overlay" id="mpAdOverlay" hidden>
+  <div class="modal modal-lg">
+    <div class="modal-head"><h2 id="mpAdTitle">Add Ad</h2>
+      <button class="icon-btn" type="button" id="mpAdClose"><i class="fa-solid fa-xmark"></i></button></div>
+    <form id="mpAdForm" class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label>Type</label><select id="mpaType"></select></div>
+        <div class="form-group"><label>Platform</label><select id="mpaPlatform"></select></div>
+        <div class="form-group full"><label>Ad name *</label><input type="text" id="mpaTitle" required placeholder="e.g. Diwali offer reel boost" /></div>
+        <div class="form-group full"><label>Linked reel / post</label><input type="text" id="mpaLinked" placeholder="Reel name or link" /></div>
+        <div class="form-group"><label>Start date</label><input type="date" id="mpaStart" /></div>
+        <div class="form-group"><label>End date</label><input type="date" id="mpaEnd" /></div>
+        <div class="form-group"><label>Budget (₹)</label><input type="number" id="mpaBudget" min="0" step="1" value="0" /></div>
+        <div class="form-group"><label>Spent so far (₹)</label><input type="number" id="mpaSpent" min="0" step="1" value="0" /></div>
+        <div class="form-group"><label>Reach</label><input type="number" id="mpaReach" min="0" value="0" /></div>
+        <div class="form-group"><label>Clicks</label><input type="number" id="mpaClicks" min="0" value="0" /></div>
+        <div class="form-group"><label>Leads / messages</label><input type="number" id="mpaLeads" min="0" value="0" /></div>
+        <div class="form-group"><label>Status</label><select id="mpaStatus"></select></div>
+        <div class="form-group full"><label>Note</label><input type="text" id="mpaNote" /></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="mpAdCancel">Cancel</button>
         <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save</button>
       </div>
     </form>

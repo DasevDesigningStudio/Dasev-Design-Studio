@@ -91,7 +91,7 @@ const ROUTE_RULES = [
   [/^\/client-profiles(\/|$)/, () => "clients"],
   [/^\/packages\/[^/]+\/activity$/, () => "activity"],
   // Posts/Reels/Stories work records: creative team + sales + manager can edit (no money access needed)
-  [/^\/packages\/[^/]+\/(works|uploads)(\/|$)/, getOrElse("clients", "calendar")],
+  [/^\/packages\/[^/]+\/(works|uploads|ads)(\/|$)/, getOrElse("clients", "calendar")],
   [/^\/(one-time-jobs|packages)(\/|$)/, getOrElse("clients", "payments")],
   [/^\/leads(\/|$)/, () => "leads"],
   [/^\/reports(\/|$)/, () => "reports"],
@@ -108,7 +108,7 @@ function resolveModule(req) {
 }
 
 /* ---------- Money hide (jene paisa na jova joie) ----------------------- */
-const MONEY_KEYS = new Set([
+const MONEY_KEYS = new Set(["budget", "spent",
   "totalBusiness", "totalReceived", "totalPending", "payments",
   "totalAmount", "paidAmount", "pendingAmount", "paymentHistory", "paymentStatus"
 ]);
@@ -976,6 +976,34 @@ function normalizeUpload(input, existing = {}) {
   };
 }
 
+const AD_TYPES = ["Reel Boost", "Post Boost", "Ad Campaign"];
+const AD_PLATFORMS = ["Meta (Instagram & Facebook)", "Instagram", "Facebook", "YouTube", "Google"];
+const AD_STATUSES = ["Scheduled", "Running", "Paused", "Completed"];
+
+// One ad / boost the agency runs for the client (e.g. Meta reel boost).
+function normalizeAd(input, existing = {}) {
+  const str = (v) => (v ?? "").toString().trim();
+  const num = (k) => Math.max(Number(input[k] ?? existing[k]) || 0, 0);
+  return {
+    id: existing.id || input.id || "",
+    type: AD_TYPES.includes(input.type) ? input.type : (existing.type || "Reel Boost"),
+    platform: AD_PLATFORMS.includes(input.platform) ? input.platform : (existing.platform || AD_PLATFORMS[0]),
+    title: str(input.title ?? existing.title),
+    linkedTo: str(input.linkedTo ?? existing.linkedTo),
+    startDate: str(input.startDate ?? existing.startDate),
+    endDate: str(input.endDate ?? existing.endDate),
+    budget: num("budget"),
+    spent: num("spent"),
+    reach: num("reach"),
+    clicks: num("clicks"),
+    leads: num("leads"),
+    status: AD_STATUSES.includes(input.status) ? input.status : (existing.status || "Scheduled"),
+    note: str(input.note ?? existing.note),
+    addedBy: existing.addedBy || str(input.addedBy),
+    createdAt: existing.createdAt || new Date().toISOString()
+  };
+}
+
 const uploadCount = (uploads, platform, kind) =>
   (uploads || []).filter((u) => u.platform === platform && u.kind === kind).reduce((n, u) => n + (u.count || 1), 0);
 
@@ -1041,7 +1069,8 @@ function normalizePackage(input, existing = {}) {
     const tIn = input.targets || {};
     const tEx = existing.targets || {};
     const t = (k) => Math.max(Number(tIn[k] ?? tEx[k]) || 0, 0);
-    return { ...base, platforms, uploads, targets: { posts: t("posts"), reels: t("reels"), stories: t("stories") } };
+    const ads = Array.isArray(input.ads) ? input.ads.map((a) => normalizeAd(a, a)) : (Array.isArray(existing.ads) ? existing.ads : []);
+    return { ...base, platforms, uploads, ads, targets: { posts: t("posts"), reels: t("reels"), stories: t("stories") } };
   }
 
   // PostReel type. "done" is derived from the real work records
@@ -1103,7 +1132,15 @@ function computePackageProgress(pkg) {
     const months = [...byMonth.values()].sort((a, b) => b.month.localeCompare(a.month));
     const nowKey = new Date().toISOString().slice(0, 7);
     const thisMonth = byMonth.get(nowKey) || { month: nowKey, posts: 0, reels: 0, stories: 0, total: 0 };
-    return { type: "Management", ...totals, totalUploaded: totals.posts + totals.reels + totals.stories, months, thisMonth, targets: pkg.targets || { posts: 0, reels: 0, stories: 0 } };
+    const adList = pkg.ads || [];
+    const adSummary = {
+      total: adList.length,
+      running: adList.filter((a) => a.status === "Running").length,
+      budget: adList.reduce((n, a) => n + (a.budget || 0), 0),
+      spent: adList.reduce((n, a) => n + (a.spent || 0), 0),
+      leads: adList.reduce((n, a) => n + (a.leads || 0), 0)
+    };
+    return { type: "Management", ...totals, totalUploaded: totals.posts + totals.reels + totals.stories, ads: adSummary, months, thisMonth, targets: pkg.targets || { posts: 0, reels: 0, stories: 0 } };
   }
   const kind = (c) => {
     const total = Number(c && c.total) || 0;
@@ -1769,6 +1806,17 @@ function buildActivity(req, res, before, relPath) {
       else text = `${k} updated: ${w.name}`;
       return { action: "work_" + req.method.toLowerCase(), entity: "package", entityId: id, summary: text, details: { work: w.name, kind: w.kind, status: w.status } };
     }
+    if (sub === "ads") {
+      const adId = segs[3] ? decodeURIComponent(segs[3]) : null;
+      const list = (pkgBody && pkgBody.ads) || [];
+      const a = adId ? list.find((x) => x.id === adId) : list[list.length - 1];
+      const b = ((before && before.ads) || []).find((x) => x.id === adId);
+      const ad = a || b || {};
+      const label = `${ad.type || "Ad"}${ad.title ? ": " + ad.title : ""}`;
+      let text = req.method === "POST" ? `Ad added — ${label}` : req.method === "DELETE" ? `Ad removed — ${label}` : `Ad updated — ${label}`;
+      if (req.method === "PUT" && b && a && b.status !== a.status) text = `Ad ${a.status.toLowerCase()} — ${label}`;
+      return { action: "ad_" + req.method.toLowerCase(), entity: "package", entityId: id, summary: text, details: null };
+    }
     if (sub === "uploads") {
       const upId = segs[3] ? decodeURIComponent(segs[3]) : null;
       const list = (pkgBody && pkgBody.uploads) || [];
@@ -2003,13 +2051,37 @@ app.post("/api/leads", async (req, res) => {
     const lead = normalizeLead(req.body, {});
     lead.id = nextLeadId(data.leads);
     lead.createdAt = new Date().toISOString();
+    const payment = ensurePendingPaymentForLead(data, lead);
     data.leads.push(lead);
     await saveData(data);
-    res.json(lead);
+    res.json(payment ? { ...lead, createdPayment: payment } : lead);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
+// When a lead becomes "Converted", its payment must show up as PENDING in Payments.
+function ensurePendingPaymentForLead(data, lead) {
+  if (lead.status !== "Converted") return null;
+  if (lead.convertedPaymentId && data.payments.some((p) => p.id === lead.convertedPaymentId)) return null;
+  const payment = normalizePayment({
+    clientName: lead.name,
+    mobile: lead.mobile,
+    businessName: lead.businessName,
+    instagram: lead.instagram,
+    workDetails: lead.businessName ? `Lead converted: ${lead.businessName}` : "Lead converted",
+    category: "Other",
+    date: new Date().toISOString().slice(0, 10),
+    totalAmount: lead.expectedValue,
+    paidAmount: 0,
+    notes: lead.notes
+  }, {});
+  payment.id = nextPaymentId(data.payments);
+  payment.createdAt = new Date().toISOString();
+  data.payments.push(payment);
+  lead.convertedPaymentId = payment.id;
+  return payment;
+}
 
 app.put("/api/leads/:id", async (req, res) => {
   try {
@@ -2020,9 +2092,10 @@ app.put("/api/leads/:id", async (req, res) => {
     }
     const updated = normalizeLead(req.body, data.leads[idx]);
     updated.id = data.leads[idx].id;
+    const payment = ensurePendingPaymentForLead(data, updated);
     data.leads[idx] = updated;
     await saveData(data);
-    res.json(updated);
+    res.json(payment ? { ...updated, createdPayment: payment } : updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2534,6 +2607,42 @@ async function mutateUploads(req, res, fn) {
     res.status(500).json({ error: err.message });
   }
 }
+
+async function mutateAds(req, res, fn) {
+  try {
+    const data = await loadData();
+    const idx = data.packages.findIndex((p) => p.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Package not found" });
+    const pkg = data.packages[idx];
+    if (pkg.type !== "Management") return res.status(400).json({ error: "Aa Management package nathi." });
+    const ads = fn(pkg, data);
+    if (!ads) return res.status(404).json({ error: "Ad not found" });
+    data.packages[idx] = normalizePackage({ ...pkg, ads }, pkg);
+    await saveData(data);
+    res.json(enrichPackage(data.packages[idx]));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+app.post("/api/packages/:id/ads", (req, res) => mutateAds(req, res, (pkg, data) => {
+  const a = normalizeAd({ ...req.body, addedBy: (req.user && req.user.name) || "" }, {});
+  a.id = nextId(data.packages.flatMap((p) => p.ads || []), "ADS");
+  return [...(pkg.ads || []), a];
+}));
+
+app.put("/api/packages/:id/ads/:aid", (req, res) => mutateAds(req, res, (pkg) => {
+  const list = (pkg.ads || []).slice();
+  const i = list.findIndex((a) => a.id === req.params.aid);
+  if (i === -1) return null;
+  list[i] = normalizeAd(req.body, list[i]);
+  return list;
+}));
+
+app.delete("/api/packages/:id/ads/:aid", (req, res) => mutateAds(req, res, (pkg) => {
+  const list = pkg.ads || [];
+  return list.some((a) => a.id === req.params.aid) ? list.filter((a) => a.id !== req.params.aid) : null;
+}));
 
 app.post("/api/packages/:id/uploads", (req, res) => mutateUploads(req, res, (pkg, data) => {
   const u = normalizeUpload({ ...req.body, addedBy: (req.user && req.user.name) || "" }, {});

@@ -1476,3 +1476,9 @@ body.no-money .cl-money { display: none; }/* Work module */
 .mp-quick { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
 .mp-month-row { cursor: pointer; }
 .mp-month-row.active td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+
+/* ---- Management: Ads ---- */
+.pk-st-running { color: var(--success); background: var(--success-bg); border-color: transparent; }
+.pk-st-scheduled { color: var(--blue, #3b82f6); background: color-mix(in srgb, var(--blue, #3b82f6) 14%, transparent); border-color: transparent; }
+.pk-st-paused { color: var(--warning); background: var(--warning-bg); border-color: transparent; }
+.pk-ad-res { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }

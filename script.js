@@ -150,6 +150,9 @@
     updatePackageWork: (id, workId, data) => api(`/api/packages/${id}/works/${workId}`, { method: "PUT", body: JSON.stringify(data) }),
     deletePackageWork: (id, workId) => api(`/api/packages/${id}/works/${workId}`, { method: "DELETE" }),
     getPackageActivity: (id) => api(`/api/packages/${id}/activity`),
+    addPackageAd: (id, data) => api(`/api/packages/${id}/ads`, { method: "POST", body: JSON.stringify(data) }),
+    updatePackageAd: (id, aid, data) => api(`/api/packages/${id}/ads/${aid}`, { method: "PUT", body: JSON.stringify(data) }),
+    deletePackageAd: (id, aid) => api(`/api/packages/${id}/ads/${aid}`, { method: "DELETE" }),
     addPackageUpload: (id, data) => api(`/api/packages/${id}/uploads`, { method: "POST", body: JSON.stringify(data) }),
     updatePackageUpload: (id, uid, data) => api(`/api/packages/${id}/uploads/${uid}`, { method: "PUT", body: JSON.stringify(data) }),
     deletePackageUpload: (id, uid) => api(`/api/packages/${id}/uploads/${uid}`, { method: "DELETE" }),
@@ -1997,11 +2000,17 @@
       const id = $("#leadId").value;
       try {
         if (id) {
-          await Api.updateLead(id, data);
-          showToast("Lead updated", "success");
+          const saved = await Api.updateLead(id, data);
+          if (saved && saved.createdPayment) {
+            state.payments = await Api.getPayments();
+            showToast(`Lead converted — ₹${Number(saved.createdPayment.totalAmount || 0).toLocaleString("en-IN")} pending payment ma add thayu`, "success");
+          } else showToast("Lead updated", "success");
         } else {
-          await Api.createLead(data);
-          showToast("Lead added", "success");
+          const created = await Api.createLead(data);
+          if (created && created.createdPayment) {
+            state.payments = await Api.getPayments();
+            showToast("Lead added — pending payment ma add thayu", "success");
+          } else showToast("Lead added", "success");
         }
         closeLeadModal();
         await refreshLeadsData();
@@ -4381,7 +4390,10 @@
   /* List → View → Overview | Platforms | Monthly Work | Finance |      */
   /* Activity. A Management package is an ongoing monthly service.      */
   /* ================================================================== */
-  Object.assign(PK_ACTION_LABEL, { upload_post: "Upload logged", upload_put: "Upload updated", upload_delete: "Upload removed" });
+  Object.assign(PK_ACTION_LABEL, { upload_post: "Upload logged", upload_put: "Upload updated", upload_delete: "Upload removed", ad_post: "Ad added", ad_put: "Ad updated", ad_delete: "Ad removed" });
+  const MP_AD_TYPES = ["Reel Boost", "Post Boost", "Ad Campaign"];
+  const MP_AD_PLATFORMS = ["Meta (Instagram & Facebook)", "Instagram", "Facebook", "YouTube", "Google"];
+  const MP_AD_STATUSES = ["Scheduled", "Running", "Paused", "Completed"];
 
   const MP = {
     list: [], current: null, tab: "overview", month: "",
@@ -4487,7 +4499,7 @@
   /* ------------------------------ detail ---------------------------- */
   function renderMpDetail() {
     const p = MP.current;
-    const tabs = [["overview", "Overview"], ["platforms", "Platforms"], ["work", "Monthly Work"]];
+    const tabs = [["overview", "Overview"], ["platforms", "Platforms"], ["work", "Monthly Work"], ["ads", "Ads"]];
     if (can("payments")) tabs.push(["finance", "Finance"]);
     if (can("activity")) tabs.push(["activity", "Activity"]);
     if (!tabs.some((t) => t[0] === MP.tab)) MP.tab = "overview";
@@ -4521,6 +4533,7 @@
     if (MP.tab === "overview") body.innerHTML = mpOverviewHtml(p);
     else if (MP.tab === "platforms") body.innerHTML = mpPlatformsHtml(p);
     else if (MP.tab === "work") body.innerHTML = mpWorkHtml(p);
+    else if (MP.tab === "ads") body.innerHTML = mpAdsHtml(p);
     else if (MP.tab === "finance") body.innerHTML = mpFinanceHtml(p);
     else { body.innerHTML = `<p class="muted">Loading…</p>`; mpLoadActivity(p); }
   }
@@ -4598,6 +4611,63 @@
         </tbody></table></div>
         ${uploads.length ? "" : `<p class="muted" style="padding:16px 0 2px;">No uploads logged for this month.</p>`}
       </div>`;
+  }
+
+  function mpAdsHtml(p) {
+    const ads = (p.ads || []).slice().sort((a, b) => (b.startDate || b.createdAt || "").localeCompare(a.startDate || a.createdAt || ""));
+    const money = can("payments");
+    const editable = canFull("calendar");
+    const sm = (p.progress && p.progress.ads) || { total: 0, running: 0, budget: 0, spent: 0, leads: 0 };
+    const stCls = (s) => ({ Running: "pk-st-active", Scheduled: "pk-st-upcoming", Paused: "pk-st-on-hold", Completed: "pk-st-completed" }[s] || "");
+    const num = (n) => Number(n || 0).toLocaleString("en-IN");
+    const rows = ads.map((a) => {
+      const cpl = money && a.leads > 0 && a.spent > 0 ? `<div class="pk-sub">₹${num(Math.round(a.spent / a.leads))} / lead</div>` : "";
+      return `<tr>
+        <td><b>${escapeHtml(a.title)}</b><div class="pk-sub">${escapeHtml(a.type)}${a.linkedTo ? " · " + escapeHtml(a.linkedTo) : ""}</div></td>
+        <td>${escapeHtml(a.platform)}</td>
+        <td><div>${a.startDate ? escapeHtml(fmtDate(a.startDate)) : "—"}</div><div class="pk-sub">${a.endDate ? "to " + escapeHtml(fmtDate(a.endDate)) : ""}</div></td>
+        ${money ? `<td class="cell-amount">${escapeHtml(fmtMoney(a.budget))}</td><td class="cell-amount">${escapeHtml(fmtMoney(a.spent))}</td>` : ""}
+        <td><div class="pk-ad-res"><span>${num(a.reach)} reach</span><span>${num(a.clicks)} clicks</span><span><b>${num(a.leads)}</b> leads</span></div>${cpl}</td>
+        <td><span class="pk-work ${stCls(a.status)}">${escapeHtml(a.status)}</span></td>
+        ${editable ? `<td class="pk-row-actions">
+          <button class="icon-btn-sm" title="Edit" data-mp-act="edit-ad" data-id="${escapeHtml(a.id)}"><i class="fa-solid fa-pen"></i></button>
+          <button class="icon-btn-sm" title="Delete" data-mp-act="delete-ad" data-id="${escapeHtml(a.id)}"><i class="fa-solid fa-trash"></i></button></td>` : ""}
+      </tr>`;
+    }).join("");
+    return `<div class="pk-fin">
+        <div class="card pk-fin-card"><span>Running ads</span><b>${sm.running}</b></div>
+        <div class="card pk-fin-card"><span>Total ads</span><b>${sm.total}</b></div>
+        ${money ? `<div class="card pk-fin-card"><span>Total spent</span><b>${escapeHtml(fmtMoney(sm.spent))}</b></div>` : ""}
+        <div class="card pk-fin-card"><span>Leads from ads</span><b class="pk-green">${num(sm.leads)}</b></div>
+      </div>
+      <div class="card table-card">
+        <div class="pk-tab-head"><div><h3>Ads &amp; Boosts</h3><div class="pk-summary"><span>Reel boosts and Meta ads run for this client.</span></div></div>
+          ${editable ? `<button class="btn btn-primary btn-sm" data-mp-act="add-ad"><i class="fa-solid fa-plus"></i> Add Ad</button>` : ""}</div>
+        <div class="table-scroll"><table class="data-table"><thead><tr><th>Ad</th><th>Platform</th><th>Dates</th>${money ? "<th>Budget</th><th>Spent</th>" : ""}<th>Results</th><th>Status</th>${editable ? "<th></th>" : ""}</tr></thead>
+        <tbody>${rows}</tbody></table></div>
+        ${ads.length ? "" : `<p class="muted" style="padding:16px 0 2px;">No ads added yet. Add each reel boost or Meta ad you run for this client.</p>`}
+      </div>`;
+  }
+
+  function openMpAd(ad = null) {
+    MP.editingAdId = ad ? ad.id : null;
+    $("#mpAdTitle").textContent = ad ? "Edit Ad" : "Add Ad";
+    $("#mpaType").innerHTML = pkOpts(MP_AD_TYPES, ad ? ad.type : "Reel Boost");
+    $("#mpaPlatform").innerHTML = pkOpts(MP_AD_PLATFORMS, ad ? ad.platform : MP_AD_PLATFORMS[0]);
+    $("#mpaStatus").innerHTML = pkOpts(MP_AD_STATUSES, ad ? ad.status : "Running");
+    $("#mpaTitle").value = ad ? ad.title : "";
+    $("#mpaLinked").value = ad ? ad.linkedTo : "";
+    $("#mpaStart").value = ad ? ad.startDate : pkTodayStr();
+    $("#mpaEnd").value = ad ? ad.endDate : "";
+    const money = can("payments");
+    $("#mpaBudget").value = ad ? ad.budget || 0 : 0;
+    $("#mpaSpent").value = ad ? ad.spent || 0 : 0;
+    $("#mpaBudget").disabled = !money; $("#mpaSpent").disabled = !money;
+    $("#mpaReach").value = ad ? ad.reach || 0 : 0;
+    $("#mpaClicks").value = ad ? ad.clicks || 0 : 0;
+    $("#mpaLeads").value = ad ? ad.leads || 0 : 0;
+    $("#mpaNote").value = ad ? ad.note : "";
+    $("#mpAdOverlay").hidden = false;
   }
 
   // Payments are grouped by the month they are FOR (falls back to the date received)
@@ -4721,6 +4791,24 @@
       ["#mpPlatformCancel", "#mpPlatformOverlay"], ["#mpTargetClose", "#mpTargetOverlay"], ["#mpTargetCancel", "#mpTargetOverlay"],
       ["#mpPayClose", "#mpPayOverlay"], ["#mpPayCancel", "#mpPayOverlay"]].forEach(([b, o]) => $(b).addEventListener("click", closeAll(o)));
 
+    $("#mpAdClose").addEventListener("click", () => { $("#mpAdOverlay").hidden = true; });
+    $("#mpAdCancel").addEventListener("click", () => { $("#mpAdOverlay").hidden = true; });
+    $("#mpAdForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = { type: $("#mpaType").value, platform: $("#mpaPlatform").value, title: $("#mpaTitle").value.trim(),
+        linkedTo: $("#mpaLinked").value.trim(), startDate: $("#mpaStart").value, endDate: $("#mpaEnd").value,
+        reach: Number($("#mpaReach").value) || 0, clicks: Number($("#mpaClicks").value) || 0, leads: Number($("#mpaLeads").value) || 0,
+        status: $("#mpaStatus").value, note: $("#mpaNote").value.trim() };
+      if (can("payments")) { body.budget = Number($("#mpaBudget").value) || 0; body.spent = Number($("#mpaSpent").value) || 0; }
+      try {
+        const p = MP.current;
+        const updated = MP.editingAdId ? await Api.updatePackageAd(p.id, MP.editingAdId, body) : await Api.addPackageAd(p.id, body);
+        $("#mpAdOverlay").hidden = true;
+        showToast("Ad saved", "success");
+        mpApply(updated);
+      } catch (err) { showToast("Save na thayu: " + err.message, "error"); }
+    });
+
     $("#mpUploadForm").addEventListener("submit", async (e) => {
       e.preventDefault();
       const body = { kind: $("#mpuKind").value, platform: $("#mpuPlatform").value, date: $("#mpuDate").value,
@@ -4789,6 +4877,12 @@
           mpApply(await Api.addPackageUpload(p.id, { kind: btn.dataset.kind, platform: active.length === 1 ? active[0].name : "", date: pkTodayStr() }));
           showToast(`${btn.dataset.kind[0].toUpperCase() + btn.dataset.kind.slice(1)} logged for today`, "success");
         } catch (err) { fail("Log na thayu: ")(err); }
+      } else if (act === "add-ad") openMpAd(null);
+      else if (act === "edit-ad") { const a = (p.ads || []).find((x) => x.id === btn.dataset.id); if (a) openMpAd(a); }
+      else if (act === "delete-ad") {
+        openConfirm("Delete Ad", "Aa ad record delete karvo che?", async () => {
+          try { mpApply(await Api.deletePackageAd(p.id, btn.dataset.id)); showToast("Deleted", "success"); } catch (err) { fail("Delete na thayu: ")(err); }
+        });
       } else if (act === "add-upload") openMpUpload(null);
       else if (act === "edit-upload") { const u = (p.uploads || []).find((x) => x.id === btn.dataset.id); if (u) openMpUpload(u); }
       else if (act === "delete-upload") {
