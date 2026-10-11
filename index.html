@@ -52,7 +52,7 @@
       <a href="#clients" class="nav-item" data-goto="clients" title="Client kholine One-Time Jobs jovo"><i class="fa-solid fa-box"></i><span>One-Time Jobs</span></a>
       <div class="nav-sub-label"><i class="fa-solid fa-cube"></i> Packages</div>
       <a href="#packages" class="nav-item nav-deep" data-view="packages"><i class="fa-solid fa-pen-ruler"></i><span>Design &amp; Reel</span></a>
-      <a href="#clients" class="nav-item nav-deep" data-goto="clients"><i class="fa-solid fa-bars-progress"></i><span>Management</span></a>
+      <a href="#management" class="nav-item nav-deep" data-view="management"><i class="fa-solid fa-bars-progress"></i><span>Management</span></a>
       <a href="#work/festival" class="nav-item nav-deep" data-view="work"><i class="fa-solid fa-gift"></i><span>64 Festival Posts</span></a>
     </div>
 
@@ -764,6 +764,39 @@
     </section>
 
     
+    <!-- ================= Packages → Management ================= -->
+    <section class="view" id="view-management">
+      <div id="mpListPage">
+        <div class="view-header">
+          <div>
+            <h1>Management Packages</h1>
+            <p class="view-subtitle">Social media management services handled for clients, month by month.</p>
+          </div>
+          <button class="btn btn-primary" id="mpAddBtn"><i class="fa-solid fa-plus"></i> Add Package</button>
+        </div>
+        <div class="toolbar card pk-toolbar">
+          <div class="toolbar-search">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="mpSearch" placeholder="Search client, client ID, package name or ID…" />
+          </div>
+          <div class="chip-filters pk-chips" id="mpStatusChips"></div>
+        </div>
+        <div class="card table-card">
+          <div class="table-scroll">
+            <table class="data-table pk-table">
+              <thead><tr>
+                <th>Client</th><th>Package Name</th><th>Platforms</th><th>Duration</th>
+                <th>Amount</th><th>This Month</th><th>Status</th><th></th>
+              </tr></thead>
+              <tbody id="mpTableBody"></tbody>
+            </table>
+          </div>
+          <p class="muted" id="mpEmpty" hidden style="padding:18px 0 4px;">No Management packages found.</p>
+        </div>
+      </div>
+      <div id="mpDetailPage" hidden></div>
+    </section>
+
 <section class="view" id="view-reports">
       <div class="view-header">
         <div>
@@ -1699,6 +1732,91 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" id="pkPayCancel">Cancel</button>
+        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Add Payment</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Management: log upload -->
+<div class="modal-overlay" id="mpUploadOverlay" hidden>
+  <div class="modal">
+    <div class="modal-head"><h2 id="mpUploadTitle">Log Upload</h2>
+      <button class="icon-btn" type="button" id="mpUploadClose"><i class="fa-solid fa-xmark"></i></button></div>
+    <form id="mpUploadForm" class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label>Type</label>
+          <select id="mpuKind"><option value="post">Post</option><option value="reel">Reel</option><option value="story">Story</option></select></div>
+        <div class="form-group"><label>Platform</label><select id="mpuPlatform"></select></div>
+        <div class="form-group"><label>Date</label><input type="date" id="mpuDate" required /></div>
+        <div class="form-group"><label>How many</label><input type="number" id="mpuCount" min="1" max="100" value="1" /></div>
+        <div class="form-group full"><label>Note</label><input type="text" id="mpuNote" placeholder="e.g. Diwali greeting post" /></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="mpUploadCancel">Cancel</button>
+        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Management: add / edit platform -->
+<div class="modal-overlay" id="mpPlatformOverlay" hidden>
+  <div class="modal">
+    <div class="modal-head"><h2 id="mpPlatformTitle">Add Platform</h2>
+      <button class="icon-btn" type="button" id="mpPlatformClose"><i class="fa-solid fa-xmark"></i></button></div>
+    <form id="mpPlatformForm" class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label>Platform</label><select id="mppName"></select></div>
+        <div class="form-group"><label>Status</label>
+          <select id="mppActive"><option value="1">Active</option><option value="0">Paused</option></select></div>
+        <div class="form-group full"><label>Page link / handle</label><input type="text" id="mppHandle" placeholder="@pagename or https://…" /></div>
+      </div>
+      <p class="muted" style="margin-top:10px;">Don't store passwords here. Only the page name or link.</p>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="mpPlatformCancel">Cancel</button>
+        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Management: monthly targets -->
+<div class="modal-overlay" id="mpTargetOverlay" hidden>
+  <div class="modal">
+    <div class="modal-head"><h2>Monthly Targets</h2>
+      <button class="icon-btn" type="button" id="mpTargetClose"><i class="fa-solid fa-xmark"></i></button></div>
+    <form id="mpTargetForm" class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label>Posts / month</label><input type="number" id="mptPosts" min="0" value="0" /></div>
+        <div class="form-group"><label>Reels / month</label><input type="number" id="mptReels" min="0" value="0" /></div>
+        <div class="form-group"><label>Stories / month</label><input type="number" id="mptStories" min="0" value="0" /></div>
+      </div>
+      <p class="muted" style="margin-top:10px;">Keep 0 where there is no fixed target. Progress bars show only where a target is set.</p>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="mpTargetCancel">Cancel</button>
+        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Management: add payment -->
+<div class="modal-overlay" id="mpPayOverlay" hidden>
+  <div class="modal">
+    <div class="modal-head"><h2>Add Payment</h2>
+      <button class="icon-btn" type="button" id="mpPayClose"><i class="fa-solid fa-xmark"></i></button></div>
+    <form id="mpPayForm" class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label>Payment for month</label><select id="mppmMonth"></select></div>
+        <div class="form-group"><label>Date received *</label><input type="date" id="mppmDate" required /></div>
+        <div class="form-group"><label>Amount *</label><input type="number" id="mppmAmount" min="1" step="1" required /></div>
+        <div class="form-group"><label>Method</label>
+          <select id="mppmMethod"><option>UPI</option><option>Cash</option><option>Bank Transfer</option><option>Cheque</option><option>Other</option></select></div>
+        <div class="form-group full"><label>Reference</label><input type="text" id="mppmRef" placeholder="UTR / receipt no." /></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="mpPayCancel">Cancel</button>
         <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Add Payment</button>
       </div>
     </form>

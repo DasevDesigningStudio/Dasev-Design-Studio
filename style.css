@@ -1465,3 +1465,14 @@ body.no-money .cl-money { display: none; }/* Work module */
 @media(max-width:1200px){#view-work.social-mode #workSummary{grid-template-columns:repeat(3,1fr)}.sm-package-layout{grid-template-columns:290px minmax(0,1fr)}.sm-overview-grid-new{grid-template-columns:1fr}.sm-wide,.sm-performance-card{grid-column:auto}}
 @media(max-width:800px){#view-work.social-mode #workSummary{grid-template-columns:repeat(2,1fr)}.sm-package-layout{grid-template-columns:1fr}.sm-welcome-card{min-height:300px}.sm-detail-client-head{grid-template-columns:1fr}.sm-head-actions{justify-content:flex-start;flex-wrap:wrap}.sm-mini-grid{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:560px){#view-work.social-mode #workSummary{grid-template-columns:1fr}.sm-page-toolbar{align-items:flex-start;flex-direction:column}.sm-month-control{width:100%}.sm-month-control input{flex:1}.sm-mini-grid{grid-template-columns:repeat(2,1fr)}.sm-performance-mini{grid-template-columns:repeat(2,1fr)}}
+
+/* ---- Packages → Management ---- */
+.mp-plats { display: flex; flex-wrap: wrap; gap: 6px; }
+.mp-plat { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 7px; font-size: 12px; font-weight: 600; background: var(--card-alt); border: 1px solid var(--border); }
+.mp-plat i { color: var(--accent); }
+.mp-plat.off { opacity: .5; text-decoration: line-through; }
+.mp-row { display: grid; grid-template-columns: 62px 1fr 56px; align-items: center; gap: 10px; }
+.mp-nobar { height: 7px; border-radius: 4px; background: repeating-linear-gradient(90deg, var(--border) 0 4px, transparent 4px 8px); opacity: .6; }
+.mp-quick { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+.mp-month-row { cursor: pointer; }
+.mp-month-row.active td { background: color-mix(in srgb, var(--accent) 8%, transparent); }

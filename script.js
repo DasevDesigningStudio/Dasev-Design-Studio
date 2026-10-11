@@ -150,6 +150,9 @@
     updatePackageWork: (id, workId, data) => api(`/api/packages/${id}/works/${workId}`, { method: "PUT", body: JSON.stringify(data) }),
     deletePackageWork: (id, workId) => api(`/api/packages/${id}/works/${workId}`, { method: "DELETE" }),
     getPackageActivity: (id) => api(`/api/packages/${id}/activity`),
+    addPackageUpload: (id, data) => api(`/api/packages/${id}/uploads`, { method: "POST", body: JSON.stringify(data) }),
+    updatePackageUpload: (id, uid, data) => api(`/api/packages/${id}/uploads/${uid}`, { method: "PUT", body: JSON.stringify(data) }),
+    deletePackageUpload: (id, uid) => api(`/api/packages/${id}/uploads/${uid}`, { method: "DELETE" }),
 
     getPlatformOptions: () => api("/api/platform-options"),
     getContentProduction: (params = {}) => { const q = new URLSearchParams(); Object.entries(params).forEach(([k,v]) => { if (v && v !== "all") q.set(k, v); }); return api(`/api/production${q.toString() ? `?${q.toString()}` : ""}`); },
@@ -343,6 +346,7 @@
     if (view === "export") { populateInvoiceSelect(); populatePdfMonthSelect(); }
     if (view === "settings") { renderSettingsForm(); renderTeamCard(); }
     if (view === "packages") renderPackagesView(arg);
+    if (view === "management") renderManagementView(arg);
     if (view === "calendar") renderCalendarView();
     if (view === "work") renderWorkView(arg);
     if (view === "content-production") renderContentProductionView();
@@ -3514,6 +3518,7 @@
           await refreshClientTabData();
           await refreshClientsGridIfVisible();
         }
+        await refreshManagementIfVisible();
       } catch (err) {
         showToast("Failed to save package: " + err.message, "error");
       }
@@ -4371,10 +4376,460 @@
     $("#workList")?.addEventListener("click",e=>{const b=e.target.closest("[data-work-action]");if(b)workAction(b.dataset.workAction,b.dataset.id);});
   }
 
+  /* ================================================================== */
+  /* Packages → Management                                              */
+  /* List → View → Overview | Platforms | Monthly Work | Finance |      */
+  /* Activity. A Management package is an ongoing monthly service.      */
+  /* ================================================================== */
+  Object.assign(PK_ACTION_LABEL, { upload_post: "Upload logged", upload_put: "Upload updated", upload_delete: "Upload removed" });
+
+  const MP = {
+    list: [], current: null, tab: "overview", month: "",
+    filters: { q: "", status: "" },
+    editingUploadId: null, editingPlatform: null
+  };
+  const MP_KINDS = [["post", "Post", "posts"], ["reel", "Reel", "reels"], ["story", "Story", "stories"]];
+
+  const mpMonthKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const mpMonthLabel = (key) => {
+    const [y, m] = String(key).split("-").map(Number);
+    return y ? new Date(y, m - 1, 1).toLocaleString("en-IN", { month: "long", year: "numeric" }) : "";
+  };
+  const mpMonthsBetween = (startKey, endKey) => {
+    const out = [];
+    let [y, m] = startKey.split("-").map(Number);
+    const [ey, em] = endKey.split("-").map(Number);
+    while ((y < ey || (y === ey && m <= em)) && out.length < 36) {
+      out.push(`${y}-${String(m).padStart(2, "0")}`);
+      m++; if (m > 12) { m = 1; y++; }
+    }
+    return out;
+  };
+  const mpIcon = (name) => {
+    const n = String(name).toLowerCase();
+    const map = [["instagram", "fa-brands fa-instagram"], ["facebook", "fa-brands fa-facebook"], ["youtube", "fa-brands fa-youtube"],
+      ["linkedin", "fa-brands fa-linkedin"], ["twitter", "fa-brands fa-x-twitter"], ["x", "fa-brands fa-x-twitter"], ["whatsapp", "fa-brands fa-whatsapp"]];
+    const hit = map.find(([k]) => n.includes(k));
+    return `<i class="${hit ? hit[1] : "fa-solid fa-globe"}"></i>`;
+  };
+  const mpPlatformChips = (p) => (p.platforms || []).length
+    ? `<div class="mp-plats">${p.platforms.map((x) => `<span class="mp-plat ${x.active ? "" : "off"}" title="${escapeHtml(x.handle || x.name)}">${mpIcon(x.name)} ${escapeHtml(x.name)}</span>`).join("")}</div>`
+    : `<span class="pk-sub">No platforms</span>`;
+
+  // "Posts 4 / 12" with a bar only where a monthly target exists
+  function mpTargetRows(p, compact) {
+    const pr = p.progress || {};
+    const tm = pr.thisMonth || { posts: 0, reels: 0, stories: 0 };
+    const tg = pr.targets || { posts: 0, reels: 0, stories: 0 };
+    return `<div class="pk-mini">${MP_KINDS.map(([, label, key]) => {
+      const done = tm[key] || 0, target = tg[key] || 0;
+      const pct = target ? Math.min(100, Math.floor((done / target) * 100)) : 0;
+      if (compact && !target && !done) return "";
+      return `<div class="mp-row"><span class="pk-mini-label">${label}s</span>
+        ${target ? `<div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>` : `<div class="mp-nobar"></div>`}
+        <span class="pk-mini-count">${done}${target ? ` / ${target}` : ""}</span></div>`;
+    }).join("")}</div>`;
+  }
+
+  async function renderManagementView(arg) {
+    const listPage = $("#mpListPage"), detail = $("#mpDetailPage");
+    if (!listPage || !detail) return;
+    try {
+      MP.list = (await Api.getPackages()).filter((p) => p.type === "Management");
+    } catch (err) {
+      MP.list = [];
+      showToast("Packages load na thaya: " + err.message, "error");
+    }
+    if (arg) {
+      const pkg = MP.list.find((p) => p.id === arg);
+      if (!pkg) { showToast("Package malyu nahi", "error"); window.location.hash = "management"; return; }
+      MP.current = pkg;
+      if (!MP.month) MP.month = mpMonthKey();
+      listPage.hidden = true; detail.hidden = false;
+      renderMpDetail();
+      return;
+    }
+    MP.current = null;
+    detail.hidden = true; listPage.hidden = false;
+    $("#mpAddBtn").style.display = canFull("payments") ? "" : "none";
+    renderMpChips();
+    renderMpList();
+  }
+  const refreshManagementIfVisible = async () => {
+    const v = $("#view-management");
+    if (v && v.classList.contains("active")) await renderManagementView(parseHash().arg);
+  };
+
+  function renderMpChips() {
+    $("#mpStatusChips").innerHTML = ["", ...PK_STATUSES].map((st) =>
+      `<button type="button" class="chip ${st === MP.filters.status ? "active" : ""}" data-mp-status="${escapeHtml(st)}">${st || "All"}</button>`).join("");
+    $("#mpSearch").value = MP.filters.q;
+  }
+
+  function renderMpList() {
+    const q = MP.filters.q.trim().toLowerCase();
+    const rows = MP.list.filter((p) =>
+      (!q || [p.clientName, p.clientId, p.name, p.id].some((v) => (v || "").toLowerCase().includes(q))) &&
+      (!MP.filters.status || p.status === MP.filters.status));
+    $("#mpEmpty").hidden = rows.length > 0;
+    $("#mpTableBody").innerHTML = rows.map((p) => `<tr>
+      <td><b>${escapeHtml(p.clientName)}</b><div class="pk-sub">${escapeHtml(p.clientId || "")}</div></td>
+      <td><b>${escapeHtml(p.name)}</b><div class="pk-sub">${escapeHtml(p.id)}</div></td>
+      <td>${mpPlatformChips(p)}</td>
+      <td><div>${escapeHtml(fmtDate(p.startDate))}</div><div class="pk-sub">${p.endDate ? "Renews / ends " + escapeHtml(fmtDate(p.endDate)) : "Ongoing"}</div></td>
+      <td class="cell-amount">${escapeHtml(pkAmountLabel(p))}</td>
+      <td>${mpTargetRows(p, true) || ""}</td>
+      <td><span class="pk-status ${pkStatusClass(p.status)}">${escapeHtml(p.status)}</span></td>
+      <td><button class="btn btn-outline btn-sm" data-mp-view="${escapeHtml(p.id)}">View</button></td>
+    </tr>`).join("");
+  }
+
+  /* ------------------------------ detail ---------------------------- */
+  function renderMpDetail() {
+    const p = MP.current;
+    const tabs = [["overview", "Overview"], ["platforms", "Platforms"], ["work", "Monthly Work"]];
+    if (can("payments")) tabs.push(["finance", "Finance"]);
+    if (can("activity")) tabs.push(["activity", "Activity"]);
+    if (!tabs.some((t) => t[0] === MP.tab)) MP.tab = "overview";
+    const editable = canFull("payments");
+    $("#mpDetailPage").innerHTML = `
+      <a href="#management" class="pk-back"><i class="fa-solid fa-arrow-left"></i> Management Packages</a>
+      <div class="view-header pk-detail-head">
+        <div>
+          <h1>Management Package</h1>
+          <p class="view-subtitle"><b>${escapeHtml(p.clientName)}</b></p>
+          <div class="pk-meta"><span class="pk-id">${escapeHtml(p.id)}</span>
+            <span class="pk-status ${pkStatusClass(p.status)}">${escapeHtml(p.status)}</span>
+            <span class="pk-sub">${escapeHtml(p.name)}</span></div>
+        </div>
+        ${editable ? `<div class="pk-actions">
+          <button class="btn btn-primary" data-mp-act="edit"><i class="fa-solid fa-pen"></i> Edit Package</button>
+          <details class="pk-more"><summary class="btn btn-ghost">More <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="pk-more-menu"><button type="button" data-mp-act="delete-pkg"><i class="fa-solid fa-trash"></i> Delete Package</button></div>
+          </details></div>` : ""}
+      </div>
+      <div class="tabs pk-tabs">${tabs.map(([k, l]) => `<button class="tab-btn ${k === MP.tab ? "active" : ""}" data-mp-tab="${k}">${l}</button>`).join("")}</div>
+      <div id="mpTabBody"></div>`;
+    renderMpTab();
+  }
+
+  function renderMpTab() {
+    const body = $("#mpTabBody");
+    if (!body) return;
+    $$("#mpDetailPage [data-mp-tab]").forEach((b) => b.classList.toggle("active", b.dataset.mpTab === MP.tab));
+    const p = MP.current;
+    if (MP.tab === "overview") body.innerHTML = mpOverviewHtml(p);
+    else if (MP.tab === "platforms") body.innerHTML = mpPlatformsHtml(p);
+    else if (MP.tab === "work") body.innerHTML = mpWorkHtml(p);
+    else if (MP.tab === "finance") body.innerHTML = mpFinanceHtml(p);
+    else { body.innerHTML = `<p class="muted">Loading…</p>`; mpLoadActivity(p); }
+  }
+
+  function mpOverviewHtml(p) {
+    const info = [["Package Name", escapeHtml(p.name)], ["Client", escapeHtml(p.clientName)], ["Client ID", escapeHtml(p.clientId)],
+      ["Package ID", escapeHtml(p.id)], ["Start Date", escapeHtml(fmtDate(p.startDate))],
+      ["Renewal / End Date", p.endDate ? escapeHtml(fmtDate(p.endDate)) : "Ongoing"], ["Billing Cycle", escapeHtml(p.billingCycle || "Monthly")]];
+    if (can("payments")) info.push(["Amount", escapeHtml(pkAmountLabel(p))]);
+    info.push(["Status", `<span class="pk-status ${pkStatusClass(p.status)}">${escapeHtml(p.status)}</span>`],
+      ["Account Manager", escapeHtml(p.accountManager)], ["Notes", escapeHtml(p.notes)]);
+    const quick = canFull("calendar") && p.status !== "Cancelled";
+    return `<div class="pk-grid">
+      <div class="card pk-card"><h3>Package Information</h3>${pkDl(info)}</div>
+      <div class="card pk-card"><h3>This Month · ${escapeHtml(mpMonthLabel(mpMonthKey()))}</h3>
+        ${mpTargetRows(p, false)}
+        ${quick ? `<div class="mp-quick">${MP_KINDS.map(([k, label]) => `<button type="button" class="btn btn-outline btn-sm" data-mp-act="quick" data-kind="${k}"><i class="fa-solid fa-plus"></i> ${label}</button>`).join("")}</div>
+          <p class="pk-sub" style="margin-top:8px;">One click logs 1 upload for today.</p>` : ""}
+      </div></div>
+      <h3 class="pk-sec">Platforms</h3>
+      <div class="card pk-card">${mpPlatformChips(p)}</div>`;
+  }
+
+  function mpPlatformsHtml(p) {
+    const editable = canFull("payments");
+    const rows = (p.platforms || []).map((x) => `<tr>
+      <td><b>${mpIcon(x.name)} ${escapeHtml(x.name)}</b></td>
+      <td>${x.handle ? escapeHtml(x.handle) : "—"}</td>
+      <td><span class="pk-work ${x.active ? "pk-st-active" : "pk-st-on-hold"}">${x.active ? "Active" : "Paused"}</span></td>
+      <td>${x.posts || 0}</td><td>${x.reels || 0}</td><td>${x.stories || 0}</td>
+      ${editable ? `<td class="pk-row-actions">
+        <button class="icon-btn-sm" title="Edit" data-mp-act="edit-platform" data-name="${escapeHtml(x.name)}"><i class="fa-solid fa-pen"></i></button>
+        <button class="icon-btn-sm" title="Remove" data-mp-act="remove-platform" data-name="${escapeHtml(x.name)}"><i class="fa-solid fa-trash"></i></button></td>` : ""}
+    </tr>`).join("");
+    return `<div class="card table-card">
+      <div class="pk-tab-head"><div><h3>Platforms</h3><div class="pk-summary"><span>Pages handled for this client. Counts are all-time uploads.</span></div></div>
+        ${editable ? `<button class="btn btn-primary btn-sm" data-mp-act="add-platform"><i class="fa-solid fa-plus"></i> Add Platform</button>` : ""}</div>
+      <div class="table-scroll"><table class="data-table"><thead><tr><th>Platform</th><th>Page link / handle</th><th>Status</th><th>Posts</th><th>Reels</th><th>Stories</th>${editable ? "<th></th>" : ""}</tr></thead>
+      <tbody>${rows}</tbody></table></div>
+      ${(p.platforms || []).length ? "" : `<p class="muted" style="padding:16px 0 2px;">No platforms added yet.</p>`}
+    </div>`;
+  }
+
+  function mpWorkHtml(p) {
+    const pr = p.progress || {};
+    const tg = pr.targets || {};
+    const nowKey = mpMonthKey();
+    const monthsMap = new Map((pr.months || []).map((m) => [m.month, m]));
+    if (!monthsMap.has(nowKey)) monthsMap.set(nowKey, { month: nowKey, posts: 0, reels: 0, stories: 0, total: 0 });
+    const months = [...monthsMap.values()].sort((a, b) => b.month.localeCompare(a.month));
+    if (!months.some((m) => m.month === MP.month)) MP.month = nowKey;
+    const editable = canFull("calendar");
+    const cell = (v, t) => `${v}${t ? ` <span class="pk-sub">/ ${t}</span>` : ""}`;
+    const hit = (m) => (tg.posts || tg.reels || tg.stories)
+      ? ((!tg.posts || m.posts >= tg.posts) && (!tg.reels || m.reels >= tg.reels) && (!tg.stories || m.stories >= tg.stories)
+        ? `<span class="pk-work pk-st-completed">Target met</span>` : `<span class="pk-work pk-st-pending">In progress</span>`) : "—";
+    const uploads = (p.uploads || []).filter((u) => (u.date || "").startsWith(MP.month)).sort((a, b) => b.date.localeCompare(a.date));
+    return `<div class="card table-card">
+        <div class="pk-tab-head"><div><h3>Month by month</h3><div class="pk-summary">
+          <span>Target / month: <b>${tg.posts || 0}</b> posts · <b>${tg.reels || 0}</b> reels · <b>${tg.stories || 0}</b> stories</span></div></div>
+          ${canFull("payments") ? `<button class="btn btn-outline btn-sm" data-mp-act="targets"><i class="fa-solid fa-bullseye"></i> Set Targets</button>` : ""}</div>
+        <div class="table-scroll"><table class="data-table mp-months"><thead><tr><th>Month</th><th>Posts</th><th>Reels</th><th>Stories</th><th>Total</th><th>Target</th></tr></thead><tbody>
+        ${months.map((m) => `<tr class="mp-month-row ${m.month === MP.month ? "active" : ""}" data-mp-month="${m.month}">
+          <td><b>${escapeHtml(mpMonthLabel(m.month))}</b></td><td>${cell(m.posts, tg.posts)}</td><td>${cell(m.reels, tg.reels)}</td><td>${cell(m.stories, tg.stories)}</td>
+          <td><b>${m.total}</b></td><td>${hit(m)}</td></tr>`).join("")}</tbody></table></div></div>
+      <div class="card table-card" style="margin-top:18px;">
+        <div class="pk-tab-head"><div><h3>Uploads · ${escapeHtml(mpMonthLabel(MP.month))}</h3></div>
+          ${editable ? `<button class="btn btn-primary btn-sm" data-mp-act="add-upload"><i class="fa-solid fa-plus"></i> Add Upload</button>` : ""}</div>
+        <div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Platform</th><th>Type</th><th>Count</th><th>Note</th><th>Added By</th>${editable ? "<th></th>" : ""}</tr></thead><tbody>
+        ${uploads.map((u) => `<tr><td>${escapeHtml(fmtDate(u.date))}</td><td>${u.platform ? mpIcon(u.platform) + " " + escapeHtml(u.platform) : "—"}</td>
+          <td>${escapeHtml(u.kind[0].toUpperCase() + u.kind.slice(1))}</td><td><b>${u.count || 1}</b></td><td>${escapeHtml(u.note) || "—"}</td><td>${escapeHtml(u.addedBy) || "—"}</td>
+          ${editable ? `<td class="pk-row-actions">
+            <button class="icon-btn-sm" title="Edit" data-mp-act="edit-upload" data-id="${escapeHtml(u.id)}"><i class="fa-solid fa-pen"></i></button>
+            <button class="icon-btn-sm" title="Delete" data-mp-act="delete-upload" data-id="${escapeHtml(u.id)}"><i class="fa-solid fa-trash"></i></button></td>` : ""}</tr>`).join("")}
+        </tbody></table></div>
+        ${uploads.length ? "" : `<p class="muted" style="padding:16px 0 2px;">No uploads logged for this month.</p>`}
+      </div>`;
+  }
+
+  // Payments are grouped by the month they are FOR (falls back to the date received)
+  function mpMonthlyFinance(p) {
+    const startKey = (p.startDate || "").slice(0, 7) || mpMonthKey();
+    const endKey = mpMonthKey();
+    const keys = mpMonthsBetween(startKey <= endKey ? startKey : endKey, endKey);
+    const fee = Number(p.totalAmount) || 0;
+    const paidBy = {};
+    (p.paymentHistory || []).forEach((h) => {
+      const k = h.forMonth || (h.date || "").slice(0, 7);
+      paidBy[k] = (paidBy[k] || 0) + (Number(h.amount) || 0);
+    });
+    return keys.map((k) => {
+      const paid = paidBy[k] || 0;
+      return { month: k, fee, paid, pending: Math.max(fee - paid, 0), status: paid <= 0 ? "Pending" : paid >= fee ? "Paid" : "Partial" };
+    }).reverse();
+  }
+
+  function mpFinanceHtml(p) {
+    const monthly = p.billingCycle === "Monthly" ? mpMonthlyFinance(p) : [];
+    const totalPaid = Number(p.paidAmount) || 0;
+    const pendingMonths = monthly.reduce((n, m) => n + m.pending, 0);
+    const cur = monthly[0];
+    const hist = (p.paymentHistory || []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    const editable = canFull("payments");
+    const st = (s) => `<span class="pk-work ${s === "Paid" ? "pk-st-completed" : s === "Partial" ? "pk-st-in-progress" : "pk-st-pending"}">${s}</span>`;
+    return `<div class="pk-fin">
+        <div class="card pk-fin-card"><span>Fee</span><b>${escapeHtml(pkAmountLabel(p))}</b></div>
+        <div class="card pk-fin-card"><span>Total Paid</span><b class="pk-green">${escapeHtml(fmtMoney(totalPaid))}</b></div>
+        <div class="card pk-fin-card"><span>${monthly.length ? "Pending (all months)" : "Pending"}</span><b class="pk-red">${escapeHtml(fmtMoney(monthly.length ? pendingMonths : p.pendingAmount))}</b></div>
+        <div class="card pk-fin-card"><span>${monthly.length ? "This Month" : "Payment Status"}</span><b>${monthly.length && cur ? st(cur.status) : `<span class="badge ${escapeHtml(p.paymentStatus)}">${escapeHtml(p.paymentStatus)}</span>`}</b></div>
+      </div>
+      ${monthly.length ? `<div class="card table-card" style="margin-bottom:18px;"><div class="pk-tab-head"><h3>Monthly Payments</h3></div>
+        <div class="table-scroll"><table class="data-table"><thead><tr><th>Month</th><th>Fee</th><th>Paid</th><th>Pending</th><th>Status</th></tr></thead><tbody>
+        ${monthly.map((m) => `<tr><td><b>${escapeHtml(mpMonthLabel(m.month))}</b></td><td>${escapeHtml(fmtMoney(m.fee))}</td>
+          <td class="amount-paid">${escapeHtml(fmtMoney(m.paid))}</td><td class="amount-pending">${escapeHtml(fmtMoney(m.pending))}</td><td>${st(m.status)}</td></tr>`).join("")}
+        </tbody></table></div></div>` : ""}
+      <div class="card table-card">
+        <div class="pk-tab-head"><h3>Payment Transactions</h3>
+          ${editable ? `<button class="btn btn-primary btn-sm" data-mp-act="add-payment"><i class="fa-solid fa-plus"></i> Add Payment</button>` : ""}</div>
+        <div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>For Month</th><th>Amount</th><th>Method</th><th>Reference</th><th>Added By</th>${editable ? "<th></th>" : ""}</tr></thead><tbody>
+        ${hist.map((h) => `<tr><td>${escapeHtml(fmtDate(h.date))}</td><td>${escapeHtml(mpMonthLabel(h.forMonth || (h.date || "").slice(0, 7)) || "—")}</td>
+          <td class="cell-amount amount-paid">${escapeHtml(fmtMoney(h.amount))}</td><td>${escapeHtml(h.method) || "—"}</td><td>${escapeHtml(h.reference) || "—"}</td><td>${escapeHtml(h.addedBy) || "—"}</td>
+          ${editable ? `<td class="pk-row-actions"><button class="icon-btn-sm" title="Delete" data-mp-act="delete-payment" data-id="${escapeHtml(h.id)}"><i class="fa-solid fa-trash"></i></button></td>` : ""}</tr>`).join("")}
+        </tbody></table></div>
+        ${hist.length ? "" : `<p class="muted" style="padding:16px 0 2px;">No payments recorded yet.</p>`}
+      </div>`;
+  }
+
+  async function mpLoadActivity(p) {
+    const body = $("#mpTabBody");
+    try {
+      const rows = await Api.getPackageActivity(p.id);
+      if (MP.tab !== "activity" || !MP.current || MP.current.id !== p.id) return;
+      body.innerHTML = `<div class="card table-card"><div class="pk-tab-head"><h3>Activity</h3></div>
+        <div class="table-scroll"><table class="data-table"><thead><tr><th>Activity</th><th>User</th><th>Date / Time</th><th>Action</th></tr></thead><tbody>
+        ${rows.map((a) => `<tr><td>${pkActivityText(a)}</td><td>${escapeHtml(a.user_name || "—")}</td>
+          <td>${escapeHtml(new Date(a.at).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }))}</td>
+          <td>${escapeHtml(PK_ACTION_LABEL[a.action] || a.action)}</td></tr>`).join("")}</tbody></table></div>
+        ${rows.length ? "" : `<p class="muted" style="padding:16px 0 2px;">No activity recorded for this package yet.</p>`}</div>`;
+    } catch (err) {
+      body.innerHTML = `<p class="muted">Activity load na thayu: ${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  function mpApply(updated) {
+    const i = MP.list.findIndex((x) => x.id === updated.id);
+    if (i > -1) MP.list[i] = updated;
+    MP.current = updated;
+    renderMpDetail();
+  }
+  const mpSave = (pkg, patch) => Api.updatePackage(pkg.id, { ...pkg, ...patch });
+
+  /* ------------------------------ modals ---------------------------- */
+  function openMpUpload(upload = null, kind = "post") {
+    const p = MP.current;
+    MP.editingUploadId = upload ? upload.id : null;
+    $("#mpUploadTitle").textContent = upload ? "Edit Upload" : "Log Upload";
+    $("#mpuKind").value = upload ? upload.kind : kind;
+    const names = (p.platforms || []).map((x) => x.name);
+    $("#mpuPlatform").innerHTML = pkOpts(names, upload ? upload.platform : (names.length === 1 ? names[0] : ""), "— Not specified —");
+    $("#mpuDate").value = upload ? upload.date : (MP.month === mpMonthKey() ? pkTodayStr() : MP.month + "-01");
+    $("#mpuCount").value = upload ? upload.count : 1;
+    $("#mpuNote").value = upload ? upload.note : "";
+    $("#mpUploadOverlay").hidden = false;
+  }
+
+  function openMpPlatform(name = null) {
+    const p = MP.current;
+    MP.editingPlatform = name;
+    const row = name ? (p.platforms || []).find((x) => x.name === name) : null;
+    const taken = (p.platforms || []).map((x) => x.name);
+    const options = name ? [name] : (state.platformOptions || []).filter((n) => !taken.includes(n));
+    $("#mpPlatformTitle").textContent = name ? "Edit Platform" : "Add Platform";
+    $("#mppName").innerHTML = pkOpts(options.length ? options : ["Other"], name || options[0]);
+    $("#mppName").disabled = !!name;
+    $("#mppHandle").value = row ? row.handle || "" : "";
+    $("#mppActive").value = row && !row.active ? "0" : "1";
+    $("#mpPlatformOverlay").hidden = false;
+  }
+
+  function initManagementModule() {
+    if (!$("#view-management")) return;
+    $("#mpSearch").addEventListener("input", (e) => { MP.filters.q = e.target.value; renderMpList(); });
+    $("#mpStatusChips").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-mp-status]");
+      if (!b) return;
+      MP.filters.status = b.dataset.mpStatus;
+      $$("#mpStatusChips .chip").forEach((x) => x.classList.toggle("active", x === b));
+      renderMpList();
+    });
+    $("#mpAddBtn").addEventListener("click", () => { state.addFlowTarget = "management"; openClientPickerModal(); });
+    $("#mpTableBody").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-mp-view]");
+      if (b) { MP.tab = "overview"; MP.month = ""; window.location.hash = "management/" + b.dataset.mpView; }
+    });
+
+    const closeAll = (id) => () => { $(id).hidden = true; };
+    [["#mpUploadClose", "#mpUploadOverlay"], ["#mpUploadCancel", "#mpUploadOverlay"], ["#mpPlatformClose", "#mpPlatformOverlay"],
+      ["#mpPlatformCancel", "#mpPlatformOverlay"], ["#mpTargetClose", "#mpTargetOverlay"], ["#mpTargetCancel", "#mpTargetOverlay"],
+      ["#mpPayClose", "#mpPayOverlay"], ["#mpPayCancel", "#mpPayOverlay"]].forEach(([b, o]) => $(b).addEventListener("click", closeAll(o)));
+
+    $("#mpUploadForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = { kind: $("#mpuKind").value, platform: $("#mpuPlatform").value, date: $("#mpuDate").value,
+        count: Number($("#mpuCount").value) || 1, note: $("#mpuNote").value.trim() };
+      try {
+        const p = MP.current;
+        const updated = MP.editingUploadId ? await Api.updatePackageUpload(p.id, MP.editingUploadId, body) : await Api.addPackageUpload(p.id, body);
+        $("#mpUploadOverlay").hidden = true;
+        showToast("Upload saved", "success");
+        mpApply(updated);
+      } catch (err) { showToast("Save na thayu: " + err.message, "error"); }
+    });
+
+    $("#mpPlatformForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const p = MP.current;
+      const row = { name: $("#mppName").value, handle: $("#mppHandle").value.trim(), active: $("#mppActive").value === "1" };
+      const rows = (p.platforms || []).map((x) => ({ ...x }));
+      const i = rows.findIndex((x) => x.name === row.name);
+      if (i > -1) rows[i] = { ...rows[i], ...row }; else rows.push({ ...row, posts: 0, reels: 0, stories: 0 });
+      try {
+        mpApply(await mpSave(p, { platforms: rows }));
+        $("#mpPlatformOverlay").hidden = true;
+        showToast("Platform saved", "success");
+      } catch (err) { showToast("Save na thayu: " + err.message, "error"); }
+    });
+
+    $("#mpTargetForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        mpApply(await mpSave(MP.current, { targets: { posts: Number($("#mptPosts").value) || 0, reels: Number($("#mptReels").value) || 0, stories: Number($("#mptStories").value) || 0 } }));
+        $("#mpTargetOverlay").hidden = true;
+        showToast("Targets saved", "success");
+      } catch (err) { showToast("Save na thayu: " + err.message, "error"); }
+    });
+
+    $("#mpPayForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        const updated = await Api.addPackagePayment(MP.current.id, { date: $("#mppmDate").value, amount: Number($("#mppmAmount").value) || 0,
+          method: $("#mppmMethod").value, reference: $("#mppmRef").value.trim(), forMonth: $("#mppmMonth").value, type: "Payment" });
+        $("#mpPayOverlay").hidden = true;
+        showToast("Payment added", "success");
+        mpApply(updated);
+        state.payments = await Api.getPayments();
+      } catch (err) { showToast("Payment add na thayu: " + err.message, "error"); }
+    });
+
+    $("#mpDetailPage").addEventListener("click", async (e) => {
+      const tab = e.target.closest("[data-mp-tab]");
+      if (tab) { MP.tab = tab.dataset.mpTab; renderMpTab(); return; }
+      const row = e.target.closest("[data-mp-month]");
+      if (row) { MP.month = row.dataset.mpMonth; renderMpTab(); return; }
+      const btn = e.target.closest("[data-mp-act]");
+      if (!btn || !MP.current) return;
+      const p = MP.current;
+      const act = btn.dataset.mpAct;
+      const fail = (msg) => (err) => showToast(msg + err.message, "error");
+      if (act === "edit") {
+        state.currentClient = { clientName: p.clientName, mobile: p.clientMobile, clientId: p.clientId };
+        state.currentClientKey = p.clientId || p.clientMobile || p.clientName;
+        openManagementPackageModal(p);
+      } else if (act === "quick") {
+        const active = (p.platforms || []).filter((x) => x.active);
+        try {
+          mpApply(await Api.addPackageUpload(p.id, { kind: btn.dataset.kind, platform: active.length === 1 ? active[0].name : "", date: pkTodayStr() }));
+          showToast(`${btn.dataset.kind[0].toUpperCase() + btn.dataset.kind.slice(1)} logged for today`, "success");
+        } catch (err) { fail("Log na thayu: ")(err); }
+      } else if (act === "add-upload") openMpUpload(null);
+      else if (act === "edit-upload") { const u = (p.uploads || []).find((x) => x.id === btn.dataset.id); if (u) openMpUpload(u); }
+      else if (act === "delete-upload") {
+        openConfirm("Delete Upload", "Aa upload record delete karvo che?", async () => {
+          try { mpApply(await Api.deletePackageUpload(p.id, btn.dataset.id)); showToast("Deleted", "success"); } catch (err) { fail("Delete na thayu: ")(err); }
+        });
+      } else if (act === "add-platform") openMpPlatform(null);
+      else if (act === "edit-platform") openMpPlatform(btn.dataset.name);
+      else if (act === "remove-platform") {
+        openConfirm("Remove Platform", `${btn.dataset.name} ne aa package mathi kadhvu che?`, async () => {
+          try { mpApply(await mpSave(p, { platforms: (p.platforms || []).filter((x) => x.name !== btn.dataset.name) })); showToast("Removed", "success"); } catch (err) { fail("Remove na thayu: ")(err); }
+        });
+      } else if (act === "targets") {
+        const t = (p.progress && p.progress.targets) || {};
+        $("#mptPosts").value = t.posts || 0; $("#mptReels").value = t.reels || 0; $("#mptStories").value = t.stories || 0;
+        $("#mpTargetOverlay").hidden = false;
+      } else if (act === "add-payment") {
+        const startKey = (p.startDate || "").slice(0, 7) || mpMonthKey();
+        const keys = mpMonthsBetween(startKey <= mpMonthKey() ? startKey : mpMonthKey(), mpMonthKey()).reverse();
+        $("#mppmMonth").innerHTML = keys.map((k) => `<option value="${k}">${escapeHtml(mpMonthLabel(k))}</option>`).join("");
+        $("#mpPayForm").reset();
+        $("#mppmMonth").value = mpMonthKey();
+        $("#mppmDate").value = pkTodayStr();
+        $("#mppmAmount").value = p.totalAmount || "";
+        $("#mpPayOverlay").hidden = false;
+      } else if (act === "delete-payment") {
+        openConfirm("Delete Payment", "Aa payment entry delete karvi che?", async () => {
+          try { mpApply(await Api.deletePackagePayment(p.id, btn.dataset.id)); state.payments = await Api.getPayments(); showToast("Payment deleted", "success"); } catch (err) { fail("Delete na thayu: ")(err); }
+        });
+      } else if (act === "delete-pkg") {
+        openConfirm("Delete Package", "Aa package ane tena badha records delete karvu che?", async () => {
+          try { await Api.deletePackage(p.id); state.payments = await Api.getPayments(); showToast("Package deleted", "success"); window.location.hash = "management"; } catch (err) { fail("Delete na thayu: ")(err); }
+        });
+      }
+    });
+  }
+
   /* ---- Roles: what this logged-in user may see ---- */
   const ROLE_LABEL = { owner: "Owner", manager: "Manager", sales: "Sales", finance: "Finance", editor: "Editor", designer: "Designer", shooter: "Shooter", sm: "Social media", viewer: "Viewer" };
   const TEAM_ROLES = ["manager", "sales", "finance", "editor", "designer", "shooter", "sm", "viewer"];
-  const VIEW_MODULE = { dashboard: "dashboard", calendar: "calendar", clients: "clients", leads: "leads", payments: "payments", expenses: "expenses", reports: "reports", categories: "payments", export: "reports", backup: "backup", settings: "settings", packages: "clients", work: "work", "content-production": "work" };
+  const VIEW_MODULE = { dashboard: "dashboard", calendar: "calendar", clients: "clients", leads: "leads", payments: "payments", expenses: "expenses", reports: "reports", categories: "payments", export: "reports", backup: "backup", settings: "settings", packages: "clients", management: "clients", work: "work", "content-production": "work" };
   const can = (m) => !!(state.me && state.me.access && state.me.access[m]);
   const viewAllowed = (v) => !VIEW_MODULE[v] || can(VIEW_MODULE[v]);
   const firstAllowedView = () => ["dashboard", "calendar", "clients", "leads", "payments", "expenses", "reports"].find(viewAllowed) || "calendar";
@@ -4541,6 +4996,7 @@
     initAddTypePicker();
     initClientPickerModal();
     initPackagesModule();
+    initManagementModule();
     initWorkModule();
 
     try {

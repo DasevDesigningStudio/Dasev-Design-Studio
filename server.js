@@ -91,7 +91,7 @@ const ROUTE_RULES = [
   [/^\/client-profiles(\/|$)/, () => "clients"],
   [/^\/packages\/[^/]+\/activity$/, () => "activity"],
   // Posts/Reels/Stories work records: creative team + sales + manager can edit (no money access needed)
-  [/^\/packages\/[^/]+\/works(\/|$)/, getOrElse("clients", "calendar")],
+  [/^\/packages\/[^/]+\/(works|uploads)(\/|$)/, getOrElse("clients", "calendar")],
   [/^\/(one-time-jobs|packages)(\/|$)/, getOrElse("clients", "payments")],
   [/^\/leads(\/|$)/, () => "leads"],
   [/^\/reports(\/|$)/, () => "reports"],
@@ -864,6 +864,7 @@ function normalizePaymentHistoryEntry(input, existing = {}) {
     amount: Number(input.amount ?? existing.amount ?? 0) || 0,
     type: (input.type ?? existing.type ?? "Advance").toString().trim() || "Advance",
     note: (input.note ?? existing.note ?? "").toString().trim(),
+    forMonth: /^\d{4}-\d{2}$/.test(input.forMonth ?? existing.forMonth ?? "") ? (input.forMonth ?? existing.forMonth) : "",
     method: (input.method ?? existing.method ?? "").toString().trim(),
     reference: (input.reference ?? existing.reference ?? "").toString().trim(),
     addedBy: (input.addedBy ?? existing.addedBy ?? "").toString().trim()
@@ -947,12 +948,36 @@ function normalizeWork(input, existing = {}) {
 function normalizePlatformRow(input) {
   return {
     name: (input.name || "").toString().trim() || "Other",
+    handle: (input.handle || "").toString().trim(),
     active: input.active !== false,
     posts: Number(input.posts) || 0,
     reels: Number(input.reels) || 0,
-    stories: Number(input.stories) || 0
+    stories: Number(input.stories) || 0,
+    legacyPosts: Number(input.legacyPosts),
+    legacyReels: Number(input.legacyReels),
+    legacyStories: Number(input.legacyStories)
   };
 }
+
+// One upload/post a team member logged for a Management package.
+function normalizeUpload(input, existing = {}) {
+  const str = (v) => (v ?? "").toString().trim();
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(input.date ?? existing.date ?? "") ? (input.date ?? existing.date) : new Date().toISOString().slice(0, 10);
+  const count = Math.min(Math.max(parseInt(input.count ?? existing.count ?? 1, 10) || 1, 1), 100);
+  return {
+    id: existing.id || input.id || "",
+    kind: WORK_KINDS.includes(input.kind) ? input.kind : (existing.kind || "post"),
+    platform: str(input.platform ?? existing.platform),
+    date,
+    count,
+    note: str(input.note ?? existing.note),
+    addedBy: existing.addedBy || str(input.addedBy),
+    createdAt: existing.createdAt || new Date().toISOString()
+  };
+}
+
+const uploadCount = (uploads, platform, kind) =>
+  (uploads || []).filter((u) => u.platform === platform && u.kind === kind).reduce((n, u) => n + (u.count || 1), 0);
 
 // PACKAGE — flat, belongs directly to a Client. type = "PostReel" tracks
 // fixed Posts/Reels/Stories counts; type = "Management" tracks per-platform
@@ -989,10 +1014,34 @@ function normalizePackage(input, existing = {}) {
   };
 
   if (type === "Management") {
-    const platforms = Array.isArray(input.platforms)
-      ? input.platforms.map(normalizePlatformRow)
-      : (Array.isArray(existing.platforms) ? existing.platforms : []);
-    return { ...base, platforms };
+    const uploads = Array.isArray(input.uploads)
+      ? input.uploads.map((u) => normalizeUpload(u, u))
+      : (Array.isArray(existing.uploads) ? existing.uploads : []);
+    const prevUploads = Array.isArray(existing.uploads) ? existing.uploads : [];
+    const exRows = Array.isArray(existing.platforms) ? existing.platforms : [];
+    const rows = Array.isArray(input.platforms) ? input.platforms.map(normalizePlatformRow) : exRows;
+
+    // Platform counters = logged uploads + any older manually entered number (legacy).
+    const platforms = rows.map((row) => {
+      const ex = exRows.find((e) => e.name === row.name) || {};
+      const out = { ...row };
+      [["posts", "post", "legacyPosts"], ["reels", "reel", "legacyReels"], ["stories", "story", "legacyStories"]].forEach(([key, kind, lk]) => {
+        const nowCount = uploadCount(uploads, row.name, kind);
+        let legacy = Number(ex[lk]);
+        if (!Number.isFinite(legacy)) legacy = Math.max((Number(ex[key]) || 0) - uploadCount(prevUploads, row.name, kind), 0);
+        if (Array.isArray(input.platforms) && Number(row[key]) !== (Number(ex[key]) || 0)) {
+          legacy = Math.max((Number(row[key]) || 0) - nowCount, 0);
+        }
+        out[lk] = legacy;
+        out[key] = nowCount + legacy;
+      });
+      return out;
+    });
+
+    const tIn = input.targets || {};
+    const tEx = existing.targets || {};
+    const t = (k) => Math.max(Number(tIn[k] ?? tEx[k]) || 0, 0);
+    return { ...base, platforms, uploads, targets: { posts: t("posts"), reels: t("reels"), stories: t("stories") } };
   }
 
   // PostReel type. "done" is derived from the real work records
@@ -1040,7 +1089,21 @@ function computePackageProgress(pkg) {
       acc.stories += Number(p.stories) || 0;
       return acc;
     }, { posts: 0, reels: 0, stories: 0 });
-    return { type: "Management", ...totals, totalUploaded: totals.posts + totals.reels + totals.stories };
+    const uploads = pkg.uploads || [];
+    const byMonth = new Map();
+    uploads.forEach((u) => {
+      const key = (u.date || "").slice(0, 7);
+      if (!key) return;
+      const m = byMonth.get(key) || { month: key, posts: 0, reels: 0, stories: 0, total: 0 };
+      const n = u.count || 1;
+      m[u.kind === "reel" ? "reels" : u.kind === "story" ? "stories" : "posts"] += n;
+      m.total += n;
+      byMonth.set(key, m);
+    });
+    const months = [...byMonth.values()].sort((a, b) => b.month.localeCompare(a.month));
+    const nowKey = new Date().toISOString().slice(0, 7);
+    const thisMonth = byMonth.get(nowKey) || { month: nowKey, posts: 0, reels: 0, stories: 0, total: 0 };
+    return { type: "Management", ...totals, totalUploaded: totals.posts + totals.reels + totals.stories, months, thisMonth, targets: pkg.targets || { posts: 0, reels: 0, stories: 0 } };
   }
   const kind = (c) => {
     const total = Number(c && c.total) || 0;
@@ -1705,6 +1768,18 @@ function buildActivity(req, res, before, relPath) {
       else if (wBefore && wAfter && wBefore.status !== wAfter.status) text = wAfter.status === "Completed" ? `${k} completed: ${w.name}` : `${k} marked ${wAfter.status}: ${w.name}`;
       else text = `${k} updated: ${w.name}`;
       return { action: "work_" + req.method.toLowerCase(), entity: "package", entityId: id, summary: text, details: { work: w.name, kind: w.kind, status: w.status } };
+    }
+    if (sub === "uploads") {
+      const upId = segs[3] ? decodeURIComponent(segs[3]) : null;
+      const list = (pkgBody && pkgBody.uploads) || [];
+      const a = upId ? list.find((u) => u.id === upId) : list[list.length - 1];
+      const b = ((before && before.uploads) || []).find((u) => u.id === upId);
+      const u = a || b || {};
+      const k = KIND[u.kind] || "Upload";
+      const where = u.platform ? ` on ${u.platform}` : "";
+      const text = req.method === "POST" ? `${k} uploaded${where} (${u.count || 1})`
+        : req.method === "DELETE" ? `${k} upload removed${where}` : `${k} upload updated${where}`;
+      return { action: "upload_" + req.method.toLowerCase(), entity: "package", entityId: id, summary: text, details: null };
     }
     if (sub === "payments") {
       const last = pkgBody && (pkgBody.paymentHistory || []).slice(-1)[0];
@@ -2441,6 +2516,43 @@ app.get("/api/packages/:id/activity", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ---- Upload log inside a Management package ----
+async function mutateUploads(req, res, fn) {
+  try {
+    const data = await loadData();
+    const idx = data.packages.findIndex((p) => p.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Package not found" });
+    const pkg = data.packages[idx];
+    if (pkg.type !== "Management") return res.status(400).json({ error: "Aa Management package nathi." });
+    const uploads = fn(pkg, data);
+    if (!uploads) return res.status(404).json({ error: "Upload not found" });
+    data.packages[idx] = normalizePackage({ ...pkg, uploads }, pkg);
+    await saveData(data);
+    res.json(enrichPackage(data.packages[idx]));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+app.post("/api/packages/:id/uploads", (req, res) => mutateUploads(req, res, (pkg, data) => {
+  const u = normalizeUpload({ ...req.body, addedBy: (req.user && req.user.name) || "" }, {});
+  u.id = nextId(data.packages.flatMap((p) => p.uploads || []), "UPL");
+  return [...(pkg.uploads || []), u];
+}));
+
+app.put("/api/packages/:id/uploads/:uid", (req, res) => mutateUploads(req, res, (pkg) => {
+  const list = (pkg.uploads || []).slice();
+  const i = list.findIndex((u) => u.id === req.params.uid);
+  if (i === -1) return null;
+  list[i] = normalizeUpload(req.body, list[i]);
+  return list;
+}));
+
+app.delete("/api/packages/:id/uploads/:uid", (req, res) => mutateUploads(req, res, (pkg) => {
+  const list = pkg.uploads || [];
+  return list.some((u) => u.id === req.params.uid) ? list.filter((u) => u.id !== req.params.uid) : null;
+}));
 
 // ---- Work records (posts / reels / stories) inside a Post & Reel package ----
 app.post("/api/packages/:id/works", async (req, res) => {
