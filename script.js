@@ -140,6 +140,10 @@
     getDesigns: () => api("/api/designs"), createDesign:(d)=>api("/api/designs",{method:"POST",body:JSON.stringify(d)}), updateDesign:(id,d)=>api(`/api/designs/${id}`,{method:"PUT",body:JSON.stringify(d)}), deleteDesign:(id)=>api(`/api/designs/${id}`,{method:"DELETE"}),
     getSocialPosts:()=>api("/api/social-media/posts"), createSocialPost:(d)=>api("/api/social-media/posts",{method:"POST",body:JSON.stringify(d)}), updateSocialPost:(id,d)=>api(`/api/social-media/posts/${id}`,{method:"PUT",body:JSON.stringify(d)}), deleteSocialPost:(id)=>api(`/api/social-media/posts/${id}`,{method:"DELETE"}), getCycles:()=>api("/api/monthly-cycles"), createCycle:(d)=>api("/api/monthly-cycles",{method:"POST",body:JSON.stringify(d)}), updateCycle:(id,d)=>api(`/api/monthly-cycles/${id}`,{method:"PUT",body:JSON.stringify(d)}), getSMPackages:(month)=>api(`/api/social-management/packages?month=${encodeURIComponent(month||"")}`), getSMDashboard:(id,month)=>api(`/api/social-management/packages/${id}/dashboard?month=${encodeURIComponent(month||"")}`), createSMCycle:(id,d)=>api(`/api/social-management/packages/${id}/cycles`,{method:"POST",body:JSON.stringify(d)}), updateSMCycle:(id,d)=>api(`/api/social-management/cycles/${id}`,{method:"PUT",body:JSON.stringify(d)}), addSMContent:(id,d)=>api(`/api/social-management/cycles/${id}/content`,{method:"POST",body:JSON.stringify(d)}), updateSMContent:(id,d)=>api(`/api/social-management/content/${id}`,{method:"PUT",body:JSON.stringify(d)}), deleteSMContent:(id)=>api(`/api/social-management/content/${id}`,{method:"DELETE"}), addSMAd:(id,d)=>api(`/api/social-management/cycles/${id}/ads`,{method:"POST",body:JSON.stringify(d)}), updateSMAd:(id,d)=>api(`/api/social-management/ads/${id}`,{method:"PUT",body:JSON.stringify(d)}), deleteSMAd:(id)=>api(`/api/social-management/ads/${id}`,{method:"DELETE"}), updateSMPerformance:(id,d)=>api(`/api/social-management/cycles/${id}/performance`,{method:"PUT",body:JSON.stringify(d)}),
     getFestivalOrders:()=>api("/api/festival-orders"), createFestivalOrder:(d)=>api("/api/festival-orders",{method:"POST",body:JSON.stringify(d)}), updateFestivalOrder:(id,d)=>api(`/api/festival-orders/${id}`,{method:"PUT",body:JSON.stringify(d)}), deleteFestivalOrder:(id)=>api(`/api/festival-orders/${id}`,{method:"DELETE"}),
+    setFestivalStage:(id,stage,reason)=>api(`/api/festival-orders/${id}/stage`,{method:"PATCH",body:JSON.stringify({stage,reason})}),
+    addFestivalPayment:(id,d)=>api(`/api/festival-orders/${id}/payment`,{method:"POST",body:JSON.stringify(d)}),
+    removeFestivalPayment:(id,entryId)=>api(`/api/festival-orders/${id}/payment/${entryId}`,{method:"DELETE"}),
+    addFestivalPosts:(id,count)=>api(`/api/festival-orders/${id}/posts`,{method:"POST",body:JSON.stringify({count})}),
     getPackage: (id) => api(`/api/packages/${id}`),
     createPackage: (data) => api("/api/packages", { method: "POST", body: JSON.stringify(data) }),
     updatePackage: (id, data) => api(`/api/packages/${id}`, { method: "PUT", body: JSON.stringify(data) }),
@@ -4323,9 +4327,10 @@
     $$(".work-tab").forEach(b=>b.classList.toggle("active", b.dataset.worktab===state.workTab));
     const view=$("#view-work"); view?.classList.toggle("social-mode", state.workTab==="social");
     if(state.workTab!=="social"){ const head=view?.querySelector(".page-head"); if(head){head.querySelector("h1").textContent="Work";head.querySelector("p").textContent="Content Production · Social Media · Shoots · Designs · Festival Orders";} $("#workTabs")?.classList.remove("social-hidden"); const addBtn=$("#workAddBtn"); if(addBtn) addBtn.innerHTML='<i class="fa-solid fa-plus"></i> Add Work'; }
+    festPrepareToolbar();
     try { if(state.workTab==="social"){ await renderSocialManagement(); return; } state.workSummary = await Api.getWorkSummary(); renderWorkSummary(); await loadWorkRows(); } catch(e){ showToast("Work load na thayu: "+e.message,"error"); }
   }
-  function renderWorkSummary(){ const s=state.workSummary||{}; const cards=[
+  function renderWorkSummary(){ if(state.workTab==="festival") return; const s=state.workSummary||{}; const cards=[
     ["Content Production",s.production?.active||0,`${s.production?.completed||0} completed`],["Shoots",s.shoots?.planned||0,`${s.shoots?.completed||0} completed`],["Social Media",s.social?.pending||0,`${s.social?.published||0} published`],["Festival Orders",s.festival?.pending||0,`${s.festival?.completed||0} completed`]
   ]; $("#workSummary").innerHTML=cards.map(x=>`<div class="work-summary-card"><div class="lbl">${escW(x[0])}</div><div class="num">${x[1]}</div><div class="work-sub">${escW(x[2])}</div></div>`).join(""); }
   async function loadWorkRows(){
@@ -4340,6 +4345,7 @@
   function workBtn(action,id,label,icon="fa-pen"){ return `<button class="btn btn-ghost btn-sm" data-work-action="${action}" data-id="${escW(id)}"><i class="fa-solid ${icon}"></i>${label}</button>`; }
   function renderWorkRows(){
     const rows=state.workRows||[], box=$("#workList"); if(!box)return;
+    if(state.workTab==="festival"){ renderFestivalBoard(rows); return; }
     if(!rows.length){box.innerHTML='<div class="work-empty"><i class="fa-regular fa-folder-open"></i><br>No work records found.</div>';return;}
     if(state.workTab==="production") box.innerHTML=`<div style="overflow:auto"><table class="work-table"><thead><tr><th>Content</th><th>Client</th><th>Stage</th><th>Editor</th><th>Due</th><th>Priority</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>`<tr><td><div class="work-title">${escW(x.contentTitle)}</div><div class="work-sub">${escW(x.type)} · ${escW(x.platform)}</div></td><td>${escW(x.clientName)}<div class="work-sub">${escW(x.clientMobile)}</div></td><td><span class="work-badge">${escW(x.stage)}</span></td><td>${escW(x.editor||"Unassigned")}</td><td>${escW(x.dueDate||"—")}</td><td>${escW(x.priority||"Medium")}</td><td class="work-actions">${workBtn("edit",x.id,"Edit")} ${workBtn("stage",x.id,"Next","fa-forward")} ${workBtn("revision",x.id,"Revision","fa-message")} ${workBtn("duplicate",x.id,"Copy","fa-copy")} ${workBtn("delete",x.id,"Delete","fa-trash")}</td></tr>`).join("")}</tbody></table></div>`;
     else if(state.workTab==="social") box.innerHTML=`<div style="overflow:auto"><table class="work-table"><thead><tr><th>Post</th><th>Client</th><th>Platform</th><th>Schedule</th><th>Status</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>`<tr><td><div class="work-title">${escW(x.title)}</div><div class="work-sub">${escW(x.contentType)}</div></td><td>${escW(x.clientName)}</td><td>${escW(x.platform)}</td><td>${escW(x.scheduledDate||"—")} ${escW(x.scheduledTime||"")}</td><td><span class="work-badge">${escW(x.status)}</span></td><td class="work-actions">${workBtn("edit",x.id,"Edit")} ${workBtn("delete",x.id,"Delete","fa-trash")}</td></tr>`).join("")}</tbody></table></div><div style="padding:18px;border-top:1px solid var(--border)"><div class="drawer-section-head"><h3>Monthly Execution Cycles</h3><button class="btn btn-primary btn-sm" data-work-action="addcycle">+ Add Cycle</button></div><div style="overflow:auto"><table class="work-table"><thead><tr><th>Client</th><th>Month</th><th>Stage</th><th>Delivery</th><th>Targets</th><th>Actions</th></tr></thead><tbody>${(state.workCycles||[]).map(c=>`<tr><td>${escW(c.clientName||"—")}</td><td>${escW(c.month)}</td><td><span class="work-badge">${escW(c.stage)}</span></td><td>${Number(c.completed?.posts||0)}P · ${Number(c.completed?.reels||0)}R · ${Number(c.completed?.stories||0)}S · ${Number(c.completed?.shoots||0)} Sh</td><td>${Number(c.targets?.posts||0)}P · ${Number(c.targets?.reels||0)}R · ${Number(c.targets?.stories||0)}S · ${Number(c.targets?.shoots||0)} Sh</td><td class="work-actions">${workBtn("cycleNext",c.id,"Next","fa-forward")}${workBtn("cyclePost",c.id,"+ Post","fa-plus")}${workBtn("cycleReel",c.id,"+ Reel","fa-plus")}</td></tr>`).join("")||'<tr><td colspan="6">No monthly cycles yet.</td></tr>'}</tbody></table></div></div>`;
@@ -4347,6 +4353,149 @@
     else if(state.workTab==="designs") box.innerHTML=`<div style="overflow:auto"><table class="work-table"><thead><tr><th>Design</th><th>Client</th><th>Designer</th><th>Stage</th><th>Priority</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>`<tr><td><div class="work-title">${escW(x.title)}</div><div class="work-sub">${escW(x.category)} · ${escW(x.aspectRatio)}</div></td><td>${escW(x.clientName)}</td><td>${escW(x.designer)}</td><td><span class="work-badge">${escW(x.stage)}</span></td><td>${escW(x.priority)}</td><td class="work-actions">${workBtn("edit",x.id,"Edit")} ${workBtn("delete",x.id,"Delete","fa-trash")}</td></tr>`).join("")}</tbody></table></div>`;
     else box.innerHTML=`<div style="overflow:auto"><table class="work-table"><thead><tr><th>Business</th><th>Client</th><th>Plan</th><th>Payment</th><th>Delivery</th><th>Stage</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>`<tr><td><div class="work-title">${escW(x.businessName)}</div><div class="work-sub">${escW(x.instagram||"")}</div></td><td>${escW(x.clientName)}<div class="work-sub">${escW(x.clientMobile)}</div></td><td>${escW(x.plan)} · ₹${Number(x.amount||0).toLocaleString("en-IN")}</td><td><span class="work-badge">${escW(x.paymentStatus)}</span></td><td>${escW(x.deliveryStatus)}</td><td>${escW(x.stage)}</td><td class="work-actions">${workBtn("edit",x.id,"Edit")} ${workBtn("delete",x.id,"Delete","fa-trash")}</td></tr>`).join("")}</tbody></table></div>`;
   }
+  /* =====================================================================
+     64 Festival Posts — sales pipeline board
+     Lead → Interested → Details Done → Demo Done → Payment Done →
+     Posts Sending (64) → Completed.  Payment aavta Payments ma auto jaay.
+     ===================================================================== */
+  const FEST_STAGES = ["Lead","Interested","Details Done","Demo Done","Payment Done","Posts Sending","Completed"];
+  const FEST_META = {
+    "Lead":          { icon:"fa-user-plus",           sub:"Navo lead aavyo" },
+    "Interested":    { icon:"fa-thumbs-up",           sub:"Process samjavi · interested" },
+    "Details Done":  { icon:"fa-clipboard-check",     sub:"Business details malya" },
+    "Demo Done":     { icon:"fa-circle-play",         sub:"Demo batavyo · payment baki" },
+    "Payment Done":  { icon:"fa-indian-rupee-sign",   sub:"Payment aavi gayu" },
+    "Posts Sending": { icon:"fa-paper-plane",         sub:"64 posts mokalay che" },
+    "Completed":     { icon:"fa-flag-checkered",      sub:"Badha 64 moklya" },
+    "Lost":          { icon:"fa-circle-xmark",        sub:"Na thayu" }
+  };
+  const FEST_NEXT_LABEL = { "Lead":"Interested ✓", "Interested":"Details Done ✓", "Details Done":"Demo Done ✓" };
+  const WORK_STAGE_DEFAULT_OPTIONS = '<option value="all">All Status</option><option>Shoot Planned</option><option>Assigned to Editor</option><option>Upload</option><option>Revision</option><option>Completed</option>';
+
+  function festPrepareToolbar(){
+    const sel=$("#workStageFilter"), search=$("#workSearch");
+    if(state.workTab!=="social"){ const ab=$("#workAddBtn"); if(ab) ab.onclick=null; }
+    if(state.workTab==="festival"){
+      const head=$("#view-work")?.querySelector(".page-head");
+      if(head){ head.querySelector("h1").textContent="64 Festival Posts"; head.querySelector("p").textContent="Lead → Interested → Details → Demo → Payment → 64 Posts"; }
+      const ab=$("#workAddBtn"); if(ab) ab.innerHTML='<i class="fa-solid fa-plus"></i> New Order';
+      if(sel && !sel.dataset.fest){ sel.innerHTML='<option value="all">All Stages</option>'+FEST_STAGES.concat(["Lost"]).map(s=>`<option>${s}</option>`).join(""); sel.dataset.fest="1"; }
+      if(search) search.placeholder="Search business, client, mobile, Instagram…";
+    } else if(sel && sel.dataset.fest){
+      sel.innerHTML=WORK_STAGE_DEFAULT_OPTIONS; delete sel.dataset.fest;
+      if(search) search.placeholder="Search client, title, status…";
+    }
+  }
+
+  function festBtn(action,id,label,icon,kind="ghost"){ return `<button class="btn btn-${kind} btn-sm" data-fest-action="${action}" data-id="${escW(id)}"><i class="fa-solid ${icon}"></i> ${label}</button>`; }
+
+  function festCard(o){
+    const idx=FEST_STAGES.indexOf(o.stage), pre=idx>=0 && idx<=3, lost=o.stage==="Lost";
+    const hasMoney=o.amount!==undefined, canPay=can("payments");
+    const sent=Number(o.postsSent)||0, total=Number(o.postsTotal)||64, remaining=total-sent;
+    let main="";
+    if(lost) main=festBtn("reopen",o.id,"Pacho Kholo","fa-rotate-left");
+    else if(o.stage==="Demo Done") main=canPay?festBtn("pay",o.id,(o.paidAmount>0?`Baki Lo ${smFmt(o.pendingAmount)}`:"Payment Lo"),"fa-indian-rupee-sign","primary"):'<span class="fest-wait"><i class="fa-regular fa-clock"></i> Payment baki</span>';
+    else if(pre) main=festBtn("next",o.id,FEST_NEXT_LABEL[o.stage],"fa-check","primary");
+    else if(o.stage==="Payment Done"||o.stage==="Posts Sending") main=festBtn("posts",o.id,"+ Posts","fa-paper-plane","primary")+festBtn("postsall",o.id,`Badha (${remaining})`,"fa-check-double");
+    else main='<span class="fest-wait ok"><i class="fa-solid fa-circle-check"></i> Delivered</span>';
+    const sec=[];
+    if(pre && idx>0 && !(o.paidAmount>0)) sec.push(festBtn("back",o.id,"Pachi","fa-arrow-left"));
+    if(pre && !(o.paidAmount>0)) sec.push(festBtn("lost",o.id,"Lost","fa-ban"));
+    const money=hasMoney?`<div class="fest-money"><b>${smFmt(o.amount)}</b>${o.paidAmount>0?` <span>· Paid ${smFmt(o.paidAmount)}${o.pendingAmount>0?` · Baki ${smFmt(o.pendingAmount)}`:""}</span>`:""}</div>`:"";
+    const prog=idx>=4?`<div class="fest-prog"><div class="sm-progress"><i class="teal" style="width:${smPct(sent,total)}%"></i></div><small>${sent} / ${total} posts moklya</small></div>`:"";
+    return `<div class="fest-card ${lost?"lost":""}">
+      <div class="fest-card-top"><div><b>${escW(o.businessName||o.clientName||"—")}</b><small>${escW(o.clientName||"")}${o.clientMobile?" · "+escW(o.clientMobile):""}</small></div>${o.leadId?`<span class="fest-chip" title="${escW(o.leadId)}">Lead</span>`:""}</div>
+      ${money}${prog}${o.stage==="Lost"&&o.lostReason?`<small class="fest-reason">${escW(o.lostReason)}</small>`:""}
+      <div class="fest-actions">${main}</div>
+      <div class="fest-actions sec">${sec.join("")}${festBtn("detail",o.id,"Details","fa-list-check")}${workBtn("edit",o.id,"","fa-pen")}${workBtn("delete",o.id,"","fa-trash")}</div>
+    </div>`;
+  }
+
+  function renderFestivalBoard(all){
+    const box=$("#workList"); if(!box) return;
+    const q=($("#workSearch")?.value||"").trim().toLowerCase(), sf=$("#workStageFilter")?.value||"all";
+    const rows=all.filter(o=>(sf==="all"||o.stage===sf) && (!q||[o.businessName,o.clientName,o.clientMobile,o.instagram,o.stage].some(v=>String(v||"").toLowerCase().includes(q))));
+    const count=(st)=>all.filter(o=>st.includes(o.stage));
+    const active=all.filter(o=>!["Completed","Lost"].includes(o.stage));
+    const demo=count(["Demo Done"]), toSend=count(["Payment Done","Posts Sending"]);
+    const pendingAmt=demo.reduce((n,o)=>n+(Number(o.pendingAmount)||0),0);
+    const postsLeft=toSend.reduce((n,o)=>n+((Number(o.postsTotal)||64)-(Number(o.postsSent)||0)),0);
+    const card=(l,n,s)=>`<div class="work-summary-card"><div class="lbl">${l}</div><div class="num">${n}</div><div class="work-sub">${s}</div></div>`;
+    $("#workSummary").innerHTML=card("Active Orders",active.length,`${count(["Lead"]).length} navi lead · ${count(["Interested","Details Done"]).length} process ma`)
+      +card("Payment Baki",demo.length,all.some(o=>o.amount===undefined)?"Demo pachi payment":`${smFmt(pendingAmt)} aavvana baki`)
+      +card("Posts Moklva Na",toSend.length,`${postsLeft} posts baki`)
+      +card("Completed",count(["Completed"]).length,"64 / 64 delivered");
+    const cols=FEST_STAGES.concat(all.some(o=>o.stage==="Lost")?["Lost"]:[]);
+    box.innerHTML=`<div class="fest-board">${cols.map(st=>{
+      const list=rows.filter(o=>o.stage===st), m=FEST_META[st];
+      return `<div class="fest-col ${st==="Lost"?"lost":""}"><div class="fest-col-head"><i class="fa-solid ${m.icon}"></i><div><b>${st}</b><small>${m.sub}</small></div><span class="fest-count">${list.length}</span></div><div class="fest-col-body">${list.map(festCard).join("")||'<div class="fest-empty">—</div>'}</div></div>`;
+    }).join("")}</div>`;
+    box.onclick=(e)=>{ const b=e.target.closest("[data-fest-action]"); if(b) festAction(b.dataset.festAction,b.dataset.id); };
+  }
+
+  async function festAction(action,id){
+    const o=(state.workRows||[]).find(x=>x.id===id); if(!o) return;
+    const remaining=(Number(o.postsTotal)||64)-(Number(o.postsSent)||0);
+    try{
+      if(action==="detail") return openFestDetail(id);
+      if(action==="next"){ await Api.setFestivalStage(id,FEST_STAGES[FEST_STAGES.indexOf(o.stage)+1]); }
+      else if(action==="back"){ await Api.setFestivalStage(id,FEST_STAGES[FEST_STAGES.indexOf(o.stage)-1]); }
+      else if(action==="reopen"){ await Api.setFestivalStage(id,"Lead"); }
+      else if(action==="lost"){ const reason=prompt("Kem na thayu? (optional)",""); if(reason===null) return; await Api.setFestivalStage(id,"Lost",reason); }
+      else if(action==="pay"){
+        if(!(Number(o.amount)>0)) return showToast("Pehla Edit ma order ni amount nakho","error");
+        const v=prompt(`Payment amount (baki ${smFmt(o.pendingAmount)})`,o.pendingAmount); if(v===null) return;
+        const amount=Number(v); if(!(amount>0)) return showToast("Sachi amount nakho","error");
+        const method=prompt("Payment method (UPI / Cash / Bank)","UPI"); if(method===null) return;
+        await Api.addFestivalPayment(id,{amount,method,date:workToday()});
+        showToast("Payment Payments tab ma add thai gayu ✓","success");
+      }
+      else if(action==="posts"){
+        const v=prompt(`Ketla posts moklya? (baki ${remaining})`,Math.min(5,remaining)); if(v===null) return;
+        const count=parseInt(v,10); if(!count) return showToast("Sacho number nakho","error");
+        await Api.addFestivalPosts(id,count);
+      }
+      else if(action==="postsall"){ if(remaining>0) await Api.addFestivalPosts(id,remaining); }
+      const ov=$("#festDetailOverlay"); if(ov) ov.hidden=true;
+      await loadWorkRows();
+    }catch(e){ showToast(e.message,"error"); }
+  }
+
+  function openFestDetail(id){
+    const o=(state.workRows||[]).find(x=>x.id===id); if(!o) return;
+    let ov=$("#festDetailOverlay");
+    if(!ov){
+      ov=document.createElement("div"); ov.id="festDetailOverlay"; ov.className="modal-overlay"; ov.hidden=true; document.body.appendChild(ov);
+      ov.addEventListener("click",(e)=>{
+        if(e.target===ov||e.target.closest("[data-fest-close]")){ ov.hidden=true; return; }
+        const rm=e.target.closest("[data-fest-rmpay]"); if(!rm) return;
+        openConfirm("Payment entry kadhvi?","Aa payment entry kadhi nakhvi che? Payments tab ma pan update thase.",async()=>{
+          try{ await Api.removeFestivalPayment(rm.dataset.id,rm.dataset.entry); ov.hidden=true; await loadWorkRows(); showToast("Payment entry kadhi","success"); }catch(err){ showToast(err.message,"error"); }
+        });
+      });
+    }
+    const idx=FEST_STAGES.indexOf(o.stage);
+    const steps=FEST_STAGES.map((s,i)=>`<div class="fest-step ${i<idx?"done":i===idx?"now":""}"><i class="fa-solid ${i<idx?"fa-check":FEST_META[s].icon}"></i><b>${s}</b><small>${escW((o.stageDates||{})[s]||"")}</small></div>`).join("");
+    const pays=(o.paymentHistory||[]).map(h=>`<div class="fest-row"><span>${escW(h.date)}</span><b>${smFmt(h.amount)}</b><span>${escW(h.method||"")}</span><span>${escW(h.addedBy||"")}</span>${can("payments")&&!(o.postsSent>0)?`<button class="btn btn-ghost btn-sm" data-fest-rmpay data-id="${escW(o.id)}" data-entry="${escW(h.id)}"><i class="fa-solid fa-trash"></i></button>`:""}</div>`).join("")||'<div class="fest-empty">Haju payment nathi aavyu.</div>';
+    const act=(o.activity||[]).slice().reverse().slice(0,15).map(a=>`<div class="fest-row"><span>${escW(String(a.at||"").slice(0,10))}</span><span class="grow">${escW(a.text)}</span><span>${escW(a.by||"")}</span></div>`).join("")||'<div class="fest-empty">—</div>';
+    ov.innerHTML=`<div class="modal modal-lg"><div class="modal-head"><h2>${escW(o.businessName||o.clientName)} <small class="fest-chip">${escW(o.stage)}</small></h2><button class="icon-btn" data-fest-close><i class="fa-solid fa-xmark"></i></button></div>
+      <div class="modal-body fest-detail"><div class="fest-steps">${steps}</div>
+      <div class="fest-info"><div><label>Client</label>${escW(o.clientName||"—")}</div><div><label>Mobile</label>${escW(o.clientMobile||"—")}</div><div><label>Instagram</label>${escW(o.instagram||"—")}</div><div><label>Plan</label>${escW(o.plan||"—")}${o.amount!==undefined?" · "+smFmt(o.amount):""}</div><div><label>Posts</label>${o.postsSent||0} / ${o.postsTotal||64}</div><div><label>Drive</label>${o.driveLink?`<a href="${escW(o.driveLink)}" target="_blank" rel="noopener">Open</a>`:"—"}</div></div>
+      ${o.amount!==undefined?`<h4>Payments</h4>${pays}`:""}<h4>History</h4>${act}</div></div>`;
+    ov.hidden=false;
+  }
+
+  async function festLoadLeadOptions(){
+    const sel=$("#wfLead"); if(!sel) return;
+    try{
+      const leads=await Api.getLeads(); const used=new Set((state.workRows||[]).map(x=>x.leadId).filter(Boolean));
+      const open=leads.filter(l=>!["Converted","Lost"].includes(l.status)&&!used.has(l.id));
+      sel.innerHTML='<option value="">— Lead vagar (navo client) —</option>'+open.map(l=>`<option value="${escW(l.id)}">${escW(l.name)}${l.businessName?" · "+escW(l.businessName):""}${l.mobile?" · "+escW(l.mobile):""}</option>`).join("");
+      sel.onchange=()=>{ const l=open.find(x=>x.id===sel.value); if(!l) return; const set=(i,v)=>{ const el=$("#"+i); if(el&&!el.value) el.value=v||""; }; set("wfClient",l.name); set("wfBusiness",l.businessName); set("wfMobile",l.mobile); set("wfInsta",l.instagram); if(l.expectedValue){ const a=$("#wfAmount"); if(a&&(!a.value||a.value==="299")) a.value=l.expectedValue; } };
+    }catch(_){ sel.closest("div").remove(); }
+  }
+
   function workField(label,id,type="text",value="",full=false,extra=""){ return `<div class="${full?'full':''}"><label>${escW(label)}</label>${type==="textarea"?`<textarea id="${id}" ${extra}>${escW(value)}</textarea>`:`<input id="${id}" type="${type}" value="${escW(value)}" ${extra}>`}</div>`; }
   function openWorkModal(type="production",item=null){
     state.workEditing=item?{type,item}:null; $("#workEditId").value=item?.id||""; $("#workEditType").value=type; $("#workModalTitle").textContent=(item?"Edit ":"Add ")+WORK_TAB_LABELS[type];
@@ -4355,8 +4504,8 @@
     else if(type==="shoots") f=`<div class="work-form-grid">${workField("Client Name","wfClient","text",item?.clientName||"")}${workField("Client Mobile","wfMobile","text",item?.clientMobile||"")}${workField("Shoot Title *","wfTitle","text",item?.title||"",true,"required")}${workField("Shoot Type","wfType","text",item?.shootType||"Reels Batch")}${workField("Shoot Date","wfDate","date",item?.shootDate||"")}${workField("Call Time","wfCall","text",item?.callTime||"")}${workField("Wrap Time","wfWrap","text",item?.wrapTime||"")}${workField("Location","wfLocation","text",item?.location||"",true)}${workField("Reels Count","wfCount","number",item?.plannedDeliverables?.reelsCount||0)}${workField("Shot List / Notes","wfNotes","textarea",item?.plannedDeliverables?.shotListNotes||item?.notes||"",true)}</div>`;
     else if(type==="social") f=`<div class="work-form-grid">${workField("Client Name","wfClient","text",item?.clientName||"")}${workField("Title *","wfTitle","text",item?.title||"",true,"required")}${workField("Platform","wfPlatform","text",item?.platform||"Instagram")}${workField("Content Type","wfType","text",item?.contentType||"Post")}${workField("Scheduled Date","wfDate","date",item?.scheduledDate||"")}${workField("Scheduled Time","wfTime","time",item?.scheduledTime||"")}${workField("Status","wfStatus","text",item?.status||"Draft")}${workField("Media URL","wfMedia","url",item?.mediaAssetUrl||"")}${workField("Caption","wfCaption","textarea",item?.caption||"",true)}${workField("Hashtags","wfHash","text",item?.hashtags||"",true)}</div>`;
     else if(type==="designs") f=`<div class="work-form-grid">${workField("Client Name","wfClient","text",item?.clientName||"")}${workField("Design Title *","wfTitle","text",item?.title||"",true,"required")}${workField("Category","wfType","text",item?.category||"Post")}${workField("Aspect Ratio","wfRatio","text",item?.aspectRatio||"4:5")}${workField("Designer","wfDesigner","text",item?.designer||"Unassigned")}${workField("Stage","wfStatus","text",item?.stage||"Brief")}${workField("Priority","wfPriority","text",item?.priority||"Medium")}${workField("Canva/Figma URL","wfMedia","url",item?.driveLinks?.figmaCanva||"")}${workField("Notes","wfNotes","textarea",item?.notes||"",true)}</div>`;
-    else f=`<div class="work-form-grid">${workField("Business Name","wfBusiness","text",item?.businessName||"")}${workField("Client Name","wfClient","text",item?.clientName||"")}${workField("Mobile","wfMobile","text",item?.clientMobile||"")}${workField("Plan","wfPlan","text",item?.plan||"₹299")}${workField("Amount","wfAmount","number",item?.amount||0)}${workField("Paid Amount","wfPaid","number",item?.paidAmount||0)}${workField("Payment Status","wfStatus","text",item?.paymentStatus||"Pending")}${workField("Delivery Status","wfDelivery","text",item?.deliveryStatus||"Pending")}${workField("Stage","wfStage","text",item?.stage||"New")}${workField("Drive Link","wfMedia","url",item?.driveLink||"")}${workField("Notes","wfNotes","textarea",item?.notes||"",true)}</div>`;
-    $("#workFormFields").innerHTML=f; $("#workModalOverlay").hidden=false;
+    else f=`<div class="work-form-grid">${!item&&can("leads")?'<div class="full"><label>Lead mathi lo (optional)</label><select id="wfLead"><option value="">Loading…</option></select></div>':""}${workField("Business Name","wfBusiness","text",item?.businessName||"")}${workField("Client Name","wfClient","text",item?.clientName||"")}${workField("Mobile","wfMobile","text",item?.clientMobile||"")}${workField("Instagram","wfInsta","text",item?.instagram||"")}${workField("Plan","wfPlan","text",item?.plan||"₹299")}${can("payments")?workField("Amount (₹)","wfAmount","number",item?item.amount:299):""}${workField("Drive Link (posts)","wfMedia","url",item?.driveLink||"",true)}${workField("Notes","wfNotes","textarea",item?.notes||"",true)}</div>`;
+    $("#workFormFields").innerHTML=f; $("#workModalOverlay").hidden=false; if(type==="festival") festLoadLeadOptions();
   }
   function closeWorkModal(){ $("#workModalOverlay").hidden=true; state.workEditing=null; }
   async function submitWorkForm(e){ e.preventDefault(); const type=$("#workEditType").value,id=$("#workEditId").value; const val=id=>$("#"+id)?.value||""; let d={};
@@ -4364,7 +4513,7 @@
     else if(type==="shoots") d={clientName:val("wfClient"),clientMobile:val("wfMobile"),title:val("wfTitle"),shootType:val("wfType"),shootDate:val("wfDate"),callTime:val("wfCall"),wrapTime:val("wfWrap"),location:val("wfLocation"),plannedDeliverables:{reelsCount:Number(val("wfCount"))||0,photosCount:0,longVideosCount:0,shotListNotes:val("wfNotes")},notes:val("wfNotes")};
     else if(type==="social") d={clientName:val("wfClient"),title:val("wfTitle"),platform:val("wfPlatform"),contentType:val("wfType"),scheduledDate:val("wfDate"),scheduledTime:val("wfTime"),status:val("wfStatus"),mediaAssetUrl:val("wfMedia"),caption:val("wfCaption"),hashtags:val("wfHash")};
     else if(type==="designs") d={clientName:val("wfClient"),title:val("wfTitle"),category:val("wfType"),aspectRatio:val("wfRatio"),designer:val("wfDesigner"),stage:val("wfStatus"),priority:val("wfPriority"),driveLinks:{figmaCanva:val("wfMedia")},notes:val("wfNotes")};
-    else {const amount=Number(val("wfAmount"))||0,paid=Number(val("wfPaid"))||0;d={businessName:val("wfBusiness"),clientName:val("wfClient"),clientMobile:val("wfMobile"),plan:val("wfPlan"),amount,paidAmount:paid,paymentStatus:val("wfStatus"),deliveryStatus:val("wfDelivery"),stage:val("wfStage"),driveLink:val("wfMedia"),notes:val("wfNotes")};}
+    else { d={leadId:val("wfLead"),businessName:val("wfBusiness"),clientName:val("wfClient"),clientMobile:val("wfMobile"),instagram:val("wfInsta"),plan:val("wfPlan"),driveLink:val("wfMedia"),notes:val("wfNotes")}; if($("#wfAmount")) d.amount=Number(val("wfAmount"))||0; }
     try { if(type==="production") id?await Api.updateProduction(id,d):await Api.createProduction(d); else if(type==="shoots") id?await Api.updateShoot(id,d):await Api.createShoot(d); else if(type==="social") id?await Api.updateSocialPost(id,d):await Api.createSocialPost(d); else if(type==="designs") id?await Api.updateDesign(id,d):await Api.createDesign(d); else id?await Api.updateFestivalOrder(id,d):await Api.createFestivalOrder(d); closeWorkModal(); await renderWorkView(); showToast("Work saved successfully","success"); } catch(err){showToast(err.message,"error");}
   }
   async function workAction(action,id){ const item=state.workRows.find(x=>x.id===id); if(["addcycle"].includes(action)){} else if(["cycleNext","cyclePost","cycleReel"].includes(action)){ /* cycle action */ } else if(!item)return; try{

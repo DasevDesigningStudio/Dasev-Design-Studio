@@ -99,6 +99,7 @@ const ROUTE_RULES = [
   [/^\/(backup|restore)$/, () => "backup"],
   [/^\/activity$/, () => "activity"],
   [/^\/users(\/|$)/, () => "team"],
+  [/^\/festival-orders\/[^/]+\/payment(\/|$)/, () => "payments"],
   [/^\/(work|production|shoots|designs|social-media|social-management|monthly-cycles|festival-orders)(\/|$)/, getOrElse("work", "work")]
 ];
 
@@ -110,7 +111,7 @@ function resolveModule(req) {
 /* ---------- Money hide (jene paisa na jova joie) ----------------------- */
 const MONEY_KEYS = new Set(["budget", "spent",
   "totalBusiness", "totalReceived", "totalPending", "payments",
-  "totalAmount", "paidAmount", "pendingAmount", "paymentHistory", "paymentStatus"
+  "totalAmount", "paidAmount", "pendingAmount", "paymentHistory", "paymentStatus", "amount"
 ]);
 function stripKeys(v) {
   if (Array.isArray(v)) return v.map(stripKeys);
@@ -1663,7 +1664,7 @@ app.use("/api", (req, res, next) => {
     return res.status(403).json({ error: "Aa kaam mate tamari pase permission nathi." });
   }
   // Jene paisa no access nathi, tena response maanthi paisa na fields kadhi nakho.
-  if (!canMoney(role) && /^\/(clients|packages|one-time-jobs|calendar)/.test(req.path)) {
+  if (!canMoney(role) && /^\/(clients|packages|one-time-jobs|calendar|festival-orders)/.test(req.path)) {
     const orig = res.json.bind(res);
     res.json = (body) => orig(stripMoney(req.path, body));
   }
@@ -1747,11 +1748,11 @@ const ENTITY_LABEL = {
   payments: "payment", expenses: "expense", leads: "lead", "one-time-jobs": "one-time job",
   packages: "package", "calendar-events": "calendar event", categories: "category",
   "lead-sources": "lead source", "expense-categories": "expense category",
-  clients: "client", "client-profiles": "client profile", settings: "settings", restore: "backup"
+  clients: "client", "festival-orders": "festival order", "client-profiles": "client profile", settings: "settings", restore: "backup"
 };
 const LIST_OF = {
   payments: "payments", expenses: "expenses", leads: "leads", "one-time-jobs": "oneTimeJobs",
-  packages: "packages", "calendar-events": "calendarEvents"
+  packages: "packages", "calendar-events": "calendarEvents", "festival-orders": "festivalOrders"
 };
 const inr = (n) => "₹" + Number(n || 0).toLocaleString("en-IN");
 
@@ -1844,6 +1845,19 @@ function buildActivity(req, res, before, relPath) {
       });
       return { action: "update", entity: "package", entityId: id, summary: "Package updated", details: Object.keys(ch).length ? { changes: ch } : null };
     }
+  }
+
+  if (key === "festival-orders") {
+    const o = ((req.method === "DELETE" && !sub ? before : body) || before || {});
+    const who = o.businessName || o.clientName || id || "";
+    let text;
+    if (sub === "stage") text = `Festival ${who}: stage → ${o.stage}`;
+    else if (sub === "payment") text = req.method === "DELETE" ? `Festival ${who}: payment entry removed` : `Festival ${who}: payment ${inr(req.body && req.body.amount)} received`;
+    else if (sub === "posts") text = `Festival ${who}: posts ${o.postsSent}/${o.postsTotal}`;
+    else if (req.method === "POST") text = `Festival order created: ${who}`;
+    else if (req.method === "DELETE") text = `Festival order deleted: ${who}`;
+    else text = `Festival order updated: ${who}`;
+    return { action: "festival_" + (sub || req.method.toLowerCase()), entity: "festival order", entityId: o.id || id, summary: text, details: null };
   }
 
   let action, entityId = id, shown = before;
@@ -2389,10 +2403,10 @@ function syncMirroredPayment(data, entity, sourceType) {
     clientId: entity.clientId || (idx >= 0 ? data.payments[idx].clientId : "") || "",
     clientName: entity.clientName,
     mobile: entity.clientMobile,
-    businessName: idx >= 0 ? data.payments[idx].businessName : "",
-    instagram: idx >= 0 ? data.payments[idx].instagram : "",
+    businessName: entity.businessName || (idx >= 0 ? data.payments[idx].businessName : ""),
+    instagram: entity.instagram || (idx >= 0 ? data.payments[idx].instagram : ""),
     workDetails: entity.name,
-    category: sourceType === "one-time-job" ? (entity.category || "Other") : (entity.type === "Management" ? "Management" : "Post"),
+    category: sourceType === "festival" ? "Festival Posts" : sourceType === "one-time-job" ? (entity.category || "Other") : (entity.type === "Management" ? "Management" : "Post"),
     date: entity.startDate,
     totalAmount: entity.totalAmount,
     paidAmount: entity.paidAmount,
@@ -2803,7 +2817,7 @@ app.get("/api/work/summary", async (req,res) => {
     production:{total:d.contentProduction.length,active:d.contentProduction.filter(x=>x.stage!=="Completed").length,completed:d.contentProduction.filter(x=>x.stage==="Completed").length,overdue:d.contentProduction.filter(x=>x.stage!=="Completed" && (x.dueDate||"")<today && x.dueDate).length},
     shoots:{total:d.shoots.length,planned:d.shoots.filter(x=>x.status==="Planned").length,completed:d.shoots.filter(x=>x.status==="Completed").length},
     social:{posts:d.socialMediaPosts.length,published:d.socialMediaPosts.filter(x=>x.status==="Published").length,pending:d.socialMediaPosts.filter(x=>x.status!=="Published").length,cycles:d.monthlyCycles.length},
-    festival:{total:d.festivalOrders.length,pending:d.festivalOrders.filter(x=>x.stage!=="Completed").length,completed:d.festivalOrders.filter(x=>x.stage==="Completed").length}
+    festival:{total:d.festivalOrders.length,pending:d.festivalOrders.filter(x=>!["Completed","Lost"].includes(festUpgrade(x).stage)).length,completed:d.festivalOrders.filter(x=>festUpgrade(x).stage==="Completed").length}
   });
 });
 
@@ -2902,10 +2916,262 @@ app.get("/api/monthly-cycles", async(req,res)=>{ const d=await loadData(); res.j
 app.post("/api/monthly-cycles", async(req,res)=>{ const d=await loadData(),b=req.body||{},month=cleanText(b.month,new Date().toLocaleString("en-IN",{month:"long",year:"numeric"})); const x={id:`CYC-${month.replace(/[^0-9A-Za-z]/g,"")}-${Date.now().toString().slice(-4)}`,...b,month,status:b.status||"Active",stage:b.stage||"Plan",targets:b.targets||{posts:0,reels:0,stories:0,shoots:0},completed:b.completed||{posts:0,reels:0,stories:0,shoots:0},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}; d.monthlyCycles.unshift(x); await saveData(d); res.status(201).json(x); });
 app.put("/api/monthly-cycles/:id", async(req,res)=>{ const d=await loadData(),i=d.monthlyCycles.findIndex(x=>x.id===req.params.id); if(i<0)return res.status(404).json({error:"Cycle not found"}); d.monthlyCycles[i]={...d.monthlyCycles[i],...req.body,id:d.monthlyCycles[i].id,updatedAt:new Date().toISOString()}; await saveData(d); res.json(d.monthlyCycles[i]); });
 
-app.get("/api/festival-orders", async(req,res)=>{ const d=await loadData(); let a=d.festivalOrders.slice(); const q=cleanText(req.query.search).toLowerCase(); if(q)a=a.filter(x=>[x.clientName,x.businessName,x.clientMobile,x.stage,x.paymentStatus,x.deliveryStatus].some(v=>String(v||"").toLowerCase().includes(q))); res.json(a); });
-app.post("/api/festival-orders", async(req,res)=>{ const d=await loadData(),b=req.body||{},x={id:`FEST-${Date.now()}`,clientName:cleanText(b.clientName),businessName:cleanText(b.businessName),clientMobile:cleanText(b.clientMobile),instagram:cleanText(b.instagram),plan:cleanText(b.plan,"₹299"),amount:Number(b.amount)||0,paidAmount:Number(b.paidAmount)||0,pendingAmount:Math.max(0,(Number(b.amount)||0)-(Number(b.paidAmount)||0)),paymentStatus:cleanText(b.paymentStatus,"Pending"),deliveryStatus:cleanText(b.deliveryStatus,"Pending"),stage:cleanText(b.stage,"New"),createdDate:new Date().toISOString().slice(0,10),driveLink:cleanText(b.driveLink),sentDate:cleanText(b.sentDate),completedDate:cleanText(b.completedDate),notes:cleanText(b.notes),activity:[]}; d.festivalOrders.unshift(x); await saveData(d); res.status(201).json(x); });
-app.put("/api/festival-orders/:id", async(req,res)=>{ const d=await loadData(),i=d.festivalOrders.findIndex(x=>x.id===req.params.id); if(i<0)return res.status(404).json({error:"Festival order not found"}); const x={...d.festivalOrders[i],...req.body,id:d.festivalOrders[i].id}; x.pendingAmount=Math.max(0,(Number(x.amount)||0)-(Number(x.paidAmount)||0)); d.festivalOrders[i]=x; await saveData(d); res.json(x); });
-app.delete("/api/festival-orders/:id", async(req,res)=>{ const d=await loadData(),i=d.festivalOrders.findIndex(x=>x.id===req.params.id); if(i<0)return res.status(404).json({error:"Festival order not found"}); d.festivalOrders.splice(i,1); await saveData(d); res.json({success:true}); });
+/* ---------------------------------------------------------------------- */
+/* 64 Festival Posts — sales pipeline                                     */
+/* Lead → Interested → Details Done → Demo Done → Payment Done →          */
+/* Posts Sending (64) → Completed.                                        */
+/* Payment aavta j Payments tab ma auto entry (mirrored) thai jaay che.   */
+/* ---------------------------------------------------------------------- */
+const FEST_STAGES = ["Lead", "Interested", "Details Done", "Demo Done", "Payment Done", "Posts Sending", "Completed"];
+const FEST_PRE_PAYMENT = ["Lead", "Interested", "Details Done", "Demo Done"]; // stages you can move by hand
+const FEST_TOTAL_POSTS = 64;
+const festToday = () => new Date().toISOString().slice(0, 10);
+
+// Normalises an order (also upgrades old records saved before the pipeline existed).
+function festUpgrade(o) {
+  const x = { ...o };
+  x.postsTotal = Number(x.postsTotal) || FEST_TOTAL_POSTS;
+  x.amount = Number(x.amount) || 0;
+  x.paymentHistory = Array.isArray(x.paymentHistory) ? x.paymentHistory.slice() : [];
+  const legacyPaid = Number(x.paidAmount) || 0;
+  if (!x.paymentHistory.length && legacyPaid > 0) {
+    x.paymentHistory = [{ id: "PH-legacy", date: x.createdDate || festToday(), amount: legacyPaid, type: "Payment", note: "Old record", method: "", reference: "", addedBy: "" }];
+  }
+  x.paidAmount = x.paymentHistory.reduce((n, h) => n + (Number(h.amount) || 0), 0);
+  x.pendingAmount = Math.max(x.amount - x.paidAmount, 0);
+  x.paymentStatus = computeStatus(x.amount, x.paidAmount);
+  if (x.stage !== "Lost" && !FEST_STAGES.includes(x.stage)) {
+    x.stage = x.deliveryStatus === "Completed" ? "Completed"
+      : x.paidAmount > 0 && x.paidAmount >= x.amount ? "Payment Done"
+      : x.paidAmount > 0 ? "Demo Done" : "Lead";
+  }
+  x.postsSent = Math.min(Math.max(Number(x.postsSent) || 0, 0), x.postsTotal);
+  if (x.stage === "Completed" && x.postsSent === 0) x.postsSent = x.postsTotal;
+  x.deliveryStatus = x.postsSent >= x.postsTotal ? "Completed" : x.postsSent > 0 ? "Partial" : "Pending";
+  x.stageDates = x.stageDates && typeof x.stageDates === "object" ? { ...x.stageDates } : {};
+  x.activity = Array.isArray(x.activity) ? x.activity.slice(-100) : [];
+  return x;
+}
+
+function festLog(x, user, text) {
+  x.activity.push({ at: new Date().toISOString(), by: user ? user.name : "", text });
+  if (x.activity.length > 100) x.activity = x.activity.slice(-100);
+}
+
+function festSetStage(x, stage, user, text) {
+  x.stage = stage;
+  x.stageDates[stage] = festToday();
+  if (stage === "Completed") x.completedDate = festToday();
+  festLog(x, user, text || `Stage → ${stage}`);
+}
+
+// Keep Payments tab + the linked Lead in step with this order.
+function festSync(data, x) {
+  const entity = {
+    id: x.id, clientId: x.clientId || "", clientName: x.clientName, clientMobile: x.clientMobile,
+    businessName: x.businessName, instagram: x.instagram,
+    name: `64 Festival Posts${x.businessName ? " — " + x.businessName : ""}`,
+    startDate: (x.paymentHistory[0] && x.paymentHistory[0].date) || x.createdDate || festToday(),
+    totalAmount: x.amount, paidAmount: x.paidAmount, pendingAmount: x.pendingAmount,
+    paymentStatus: x.paymentStatus, dueDate: "", notes: x.notes || ""
+  };
+  if (x.paidAmount > 0) syncMirroredPayment(data, entity, "festival");
+  else removeMirroredPayment(data, "festival", x.id);
+
+  const lead = x.leadId ? data.leads.find((l) => l.id === x.leadId) : null;
+  if (!lead) return;
+  const idx = FEST_STAGES.indexOf(x.stage);
+  if (idx >= FEST_STAGES.indexOf("Payment Done")) {
+    const pay = data.payments.find((p) => p.sourceType === "festival" && p.sourceId === x.id);
+    lead.status = "Converted";
+    if (pay) lead.convertedPaymentId = pay.id;
+  } else if (x.stage === "Lost") {
+    if (lead.status !== "Converted") lead.status = "Lost";
+  } else if (idx >= 1 && ["New", "Contacted", "Follow-up"].includes(lead.status)) {
+    lead.status = "Interested";
+  }
+}
+
+// Fully paid while still at "Demo Done"  →  Payment Done (and back if a payment is removed).
+function festSettleStage(x, user) {
+  if (x.stage === "Demo Done" && x.amount > 0 && x.paidAmount >= x.amount) {
+    festSetStage(x, "Payment Done", user, `Payment poru thayu (₹${x.paidAmount}) — have posts mokalo`);
+  } else if (["Payment Done", "Posts Sending", "Completed"].includes(x.stage) && x.paidAmount < x.amount && x.postsSent === 0) {
+    festSetStage(x, "Demo Done", user, "Payment ghatyu — pacho Demo Done par");
+  }
+}
+
+async function festFind(req, res) {
+  const data = await loadData();
+  const idx = data.festivalOrders.findIndex((o) => o.id === req.params.id);
+  if (idx === -1) { res.status(404).json({ error: "Festival order not found" }); return null; }
+  return { data, idx, x: festUpgrade(data.festivalOrders[idx]) };
+}
+
+const festStr = (v) => (v ?? "").toString().trim();
+
+app.get("/api/festival-orders", async (req, res) => {
+  try {
+    const d = await loadData();
+    let a = d.festivalOrders.map(festUpgrade);
+    const q = festStr(req.query.search).toLowerCase();
+    if (q) a = a.filter((x) => [x.clientName, x.businessName, x.clientMobile, x.instagram, x.stage].some((v) => String(v || "").toLowerCase().includes(q)));
+    res.json(a);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/api/festival-orders", async (req, res) => {
+  try {
+    const d = await loadData(), b = req.body || {};
+    let lead = null;
+    if (b.leadId) {
+      lead = d.leads.find((l) => l.id === b.leadId);
+      if (!lead) return res.status(404).json({ error: "Lead malyo nahi." });
+      if (d.festivalOrders.some((o) => o.leadId === lead.id)) return res.status(409).json({ error: "Aa lead nu festival order pehla thi che." });
+    }
+    const clientName = festStr(b.clientName) || (lead ? lead.name : "");
+    const businessName = festStr(b.businessName) || (lead ? lead.businessName : "");
+    if (!clientName && !businessName) return res.status(400).json({ error: "Client ke business nu naam jaruri che." });
+    const x = festUpgrade({
+      id: `FEST-${Date.now()}`,
+      leadId: lead ? lead.id : "",
+      clientName, businessName,
+      clientMobile: festStr(b.clientMobile) || (lead ? lead.mobile : ""),
+      instagram: festStr(b.instagram) || (lead ? lead.instagram : ""),
+      plan: festStr(b.plan) || "₹299",
+      amount: canMoney(req.user.role) ? Number(b.amount) || 0 : 0,
+      driveLink: festStr(b.driveLink), notes: festStr(b.notes),
+      stage: "Lead", postsTotal: FEST_TOTAL_POSTS, postsSent: 0, paymentHistory: [],
+      createdDate: festToday(), stageDates: { Lead: festToday() }, activity: []
+    });
+    festLog(x, req.user, lead ? `Lead ${lead.id} mathi order banyu` : "Order banyu");
+    d.festivalOrders.unshift(x);
+    festSync(d, x);
+    await saveData(d);
+    res.status(201).json(x);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Edit details only (stage / payment / posts have their own endpoints below).
+app.put("/api/festival-orders/:id", async (req, res) => {
+  try {
+    const f = await festFind(req, res); if (!f) return;
+    const { data, idx, x } = f, b = req.body || {};
+    ["clientName", "businessName", "clientMobile", "instagram", "plan", "driveLink", "notes"].forEach((k) => { if (b[k] !== undefined) x[k] = festStr(b[k]); });
+    if (b.amount !== undefined && canMoney(req.user.role)) x.amount = Math.max(Number(b.amount) || 0, 0);
+    const up = festUpgrade(x);
+    festSettleStage(up, req.user);
+    data.festivalOrders[idx] = up;
+    festSync(data, up);
+    await saveData(data);
+    res.json(up);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Move through the sales steps by hand: Lead → Interested → Details Done → Demo Done (or Lost / back one step).
+app.patch("/api/festival-orders/:id/stage", async (req, res) => {
+  try {
+    const f = await festFind(req, res); if (!f) return;
+    const { data, idx, x } = f;
+    const target = festStr(req.body && req.body.stage);
+    const cur = x.stage;
+    if (cur === "Lost") {
+      if (target !== "Lead") return res.status(400).json({ error: "Lost order fakt 'Lead' ma pacho kholi shakay." });
+    } else if (!FEST_PRE_PAYMENT.includes(cur)) {
+      return res.status(400).json({ error: "Payment pachi stage hathe thi badli nathi shakati." });
+    } else if (target === "Lost") {
+      if (x.paidAmount > 0) return res.status(400).json({ error: "Payment aavi gayu che — Lost nathi kari shakato." });
+    } else if (target === "Payment Done") {
+      return res.status(400).json({ error: "Payment record karo, stage potani j badlase." });
+    } else {
+      const ci = FEST_PRE_PAYMENT.indexOf(cur), ti = FEST_PRE_PAYMENT.indexOf(target);
+      if (ti === -1 || Math.abs(ti - ci) !== 1) return res.status(400).json({ error: "Stage ek ek step j badli shakay." });
+      if (ti < ci && x.paidAmount > 0) return res.status(400).json({ error: "Payment aavi gayu che — pachi nathi java deta." });
+    }
+    if (target === "Lost") x.lostReason = festStr(req.body.reason);
+    festSetStage(x, target, req.user, target === "Lost" ? `Lost${x.lostReason ? ": " + x.lostReason : ""}` : `Stage → ${target}`);
+    data.festivalOrders[idx] = x;
+    festSync(data, x);
+    await saveData(data);
+    res.json(x);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Payment received (needs Payments access). Demo pachi j. Full paid thay etle Payment Done + Payments ma entry.
+app.post("/api/festival-orders/:id/payment", async (req, res) => {
+  try {
+    const f = await festFind(req, res); if (!f) return;
+    const { data, idx, x } = f, b = req.body || {};
+    if (FEST_STAGES.indexOf(x.stage) < FEST_STAGES.indexOf("Demo Done")) return res.status(400).json({ error: "Pehla demo done karo, pachi payment lo." });
+    if (!(x.amount > 0)) return res.status(400).json({ error: "Pehla order ni amount set karo (Edit)." });
+    const amount = Number(b.amount) || 0;
+    if (amount <= 0) return res.status(400).json({ error: "Sachi amount nakho." });
+    if (amount > x.pendingAmount) return res.status(400).json({ error: `Baki fakt ₹${x.pendingAmount} che.` });
+    x.paymentHistory.push(normalizePaymentHistoryEntry({
+      date: b.date, amount, type: x.paidAmount + amount >= x.amount ? "Final" : "Advance",
+      method: b.method, note: b.note, addedBy: req.user.name
+    }));
+    const up = festUpgrade(x);
+    festLog(up, req.user, `Payment ₹${amount}${b.method ? " (" + festStr(b.method) + ")" : ""}`);
+    festSettleStage(up, req.user);
+    data.festivalOrders[idx] = up;
+    festSync(data, up);
+    await saveData(data);
+    res.json(up);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete("/api/festival-orders/:id/payment/:entryId", async (req, res) => {
+  try {
+    const f = await festFind(req, res); if (!f) return;
+    const { data, idx, x } = f;
+    if (x.postsSent > 0) return res.status(400).json({ error: "Posts moklya pachi payment entry kadhi nathi shakati." });
+    if (!x.paymentHistory.some((h) => h.id === req.params.entryId)) return res.status(404).json({ error: "Payment entry malyi nahi." });
+    x.paymentHistory = x.paymentHistory.filter((h) => h.id !== req.params.entryId);
+    const up = festUpgrade(x);
+    festLog(up, req.user, "Payment entry kadhi");
+    festSettleStage(up, req.user);
+    data.festivalOrders[idx] = up;
+    festSync(data, up);
+    await saveData(data);
+    res.json(up);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Posts sent counter (count can be negative to correct a mistake). 64/64 → Completed.
+app.post("/api/festival-orders/:id/posts", async (req, res) => {
+  try {
+    const f = await festFind(req, res); if (!f) return;
+    const { data, idx, x } = f;
+    if (FEST_STAGES.indexOf(x.stage) < FEST_STAGES.indexOf("Payment Done")) return res.status(400).json({ error: "Payment pehla, pachi posts." });
+    const count = parseInt(req.body && req.body.count, 10);
+    if (!Number.isInteger(count) || count === 0 || Math.abs(count) > x.postsTotal) return res.status(400).json({ error: "Sacho posts no number nakho." });
+    const before = x.postsSent;
+    x.postsSent = Math.min(Math.max(before + count, 0), x.postsTotal);
+    if (x.postsSent === before) return res.json(x);
+    if (!x.sentDate && x.postsSent > 0) x.sentDate = festToday();
+    const up = festUpgrade(x);
+    const stage = up.postsSent >= up.postsTotal ? "Completed" : up.postsSent > 0 ? "Posts Sending" : "Payment Done";
+    festLog(up, req.user, `Posts ${count > 0 ? "+" : ""}${count} → ${up.postsSent}/${up.postsTotal}`);
+    if (stage !== up.stage) festSetStage(up, stage, req.user, stage === "Completed" ? `Badha ${up.postsTotal} posts moklya ✓` : `Stage → ${stage}`);
+    if (stage !== "Completed") up.completedDate = "";
+    data.festivalOrders[idx] = up;
+    festSync(data, up);
+    await saveData(data);
+    res.json(up);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete("/api/festival-orders/:id", async (req, res) => {
+  try {
+    const d = await loadData(), i = d.festivalOrders.findIndex((x) => x.id === req.params.id);
+    if (i < 0) return res.status(404).json({ error: "Festival order not found" });
+    d.festivalOrders.splice(i, 1);
+    removeMirroredPayment(d, "festival", req.params.id);
+    await saveData(d);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 /* ---------------------------------------------------------------------- */
 /* Categories                                                             */
