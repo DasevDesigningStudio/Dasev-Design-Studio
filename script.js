@@ -735,7 +735,8 @@
     months.add(currentMonthKey());
     const sorted = Array.from(months).sort((a, b) => b.localeCompare(a));
     const options = ["all", ...sorted];
-    sel.innerHTML = options.map((key) => `<option value="${key}">${monthLabel(key)}</option>`).join("");
+    const html = options.map((key) => `<option value="${key}">${monthLabel(key)}</option>`).join("");
+if (sel.innerHTML !== html) sel.innerHTML = html;
     sel.value = state.dashboardMonth;
     sel.classList.toggle("is-current", state.dashboardMonth === currentMonthKey());
   }
@@ -1276,7 +1277,9 @@
     $("#addPaymentBtn").addEventListener("click", () => openPaymentModal());
     $("#closePaymentModal").addEventListener("click", closePaymentModal);
     $("#cancelPaymentBtn").addEventListener("click", closePaymentModal);
-    $("#paymentModalOverlay").addEventListener("click", (e) => {
+  $("#paymentModalOverlay .modal").addEventListener("click", (e) => {
+  e.stopPropagation();
+});  $("#paymentModalOverlay").addEventListener("click", (e) => {
       if (e.target.id === "paymentModalOverlay") closePaymentModal();
     });
 
